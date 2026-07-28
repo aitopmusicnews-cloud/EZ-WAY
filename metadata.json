@@ -1,0 +1,6 @@
+{
+  "name": "THE BEATZ WAY",
+  "description": "Premium producer management system for master track delivery, client engagement, AI promo generation, and automated YouTube channel analytics and asset publishing.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
