@@ -5,14 +5,17 @@ import modal
 
 import audio_tools_agent_v2 as base
 
-# Reuse the existing v2 app, model/output Volumes, and GPU worker. This file only
-# replaces the web API layer that FastAPI previously misread as requiring a
-# query parameter named `request`.
+# Reuse the existing v2 app, model/output Volumes, and GPU worker.
 app = base.app
+
+# Modal 1.0+ no longer automounts imported local Python modules into Function
+# containers. The fixed API imports audio_tools_agent_v2, so include that source
+# explicitly in the web Function image to prevent startup crash loops.
+fixed_web_image = base.web_image.add_local_python_source("audio_tools_agent_v2")
 
 
 @app.function(
-    image=base.web_image,
+    image=fixed_web_image,
     volumes={base.OUTPUT_ROOT: base.output_volume},
 )
 @modal.concurrent(max_inputs=30)
