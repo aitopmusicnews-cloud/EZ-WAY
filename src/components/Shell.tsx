@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ChevronUp,
   ListMusic,
+  User,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -39,7 +40,7 @@ export default function Shell({ children, activeView, onViewChange }: ShellProps
   ];
 
   const secondaryItems = [
-    { id: 'analyzer', label: 'A&R Analyzer', icon: Cpu },
+    { id: 'analyzer', label: 'AI Diagnostics', icon: Cpu },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'videos', label: 'Videos', icon: Video },
     { id: 'youtube', label: 'YouTube Hub', icon: Youtube },
@@ -49,20 +50,22 @@ export default function Shell({ children, activeView, onViewChange }: ShellProps
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
-  const secondaryActive = secondaryItems.some((item) => item.id === activeView);
+  const profileItem = { id: 'profile', label: 'Profile', icon: User };
+  const secondaryActive = secondaryItems.some((item) => item.id === activeView) || activeView === 'profile';
 
   const handleMobileNav = (viewId: string) => {
     onViewChange(viewId);
     setIsMobileMenuOpen(false);
   };
 
-  const NavItem = ({ item, mobile = false }: { item: (typeof primaryItems)[number]; mobile?: boolean }) => (
+  const NavItem = ({ item, mobile = false, nested = false }: { item: (typeof primaryItems)[number]; mobile?: boolean; nested?: boolean }) => (
     <button
       key={item.id}
       onClick={() => mobile ? handleMobileNav(item.id) : onViewChange(item.id)}
       className={cn(
         'w-full flex items-center rounded-xl font-black uppercase tracking-widest transition-all',
         mobile ? 'gap-4 px-4 py-3.5 text-xs' : 'gap-3 px-3 py-2.5 text-[11px]',
+        nested && (mobile ? 'ml-4 w-[calc(100%-1rem)] text-[10px]' : 'ml-4 w-[calc(100%-1rem)] text-[10px]'),
         activeView === item.id
           ? 'bg-zinc-900 text-orange-500 border border-zinc-800'
           : 'text-zinc-500 hover:text-white hover:bg-zinc-900/50',
@@ -74,8 +77,25 @@ export default function Shell({ children, activeView, onViewChange }: ShellProps
     </button>
   );
 
+  const SecondaryItems = ({ mobile = false }: { mobile?: boolean }) => (
+    <>
+      {secondaryItems.map((item) => (
+        <React.Fragment key={item.id}>
+          <NavItem item={item} mobile={mobile} />
+          {item.id === 'settings' && <NavItem item={profileItem} mobile={mobile} nested />}
+        </React.Fragment>
+      ))}
+    </>
+  );
+
   return (
     <div className="flex flex-col lg:flex-row h-screen bg-black text-white overflow-hidden">
+      <style>{`
+        main[data-active-view="dashboard"] button:has(> svg.lucide-user) {
+          display: none;
+        }
+      `}</style>
+
       <header className="lg:hidden flex items-center justify-between px-5 py-4 border-b border-zinc-900 bg-black/95 backdrop-blur-md sticky top-0 z-40 shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden border border-zinc-800 bg-zinc-950">
@@ -124,7 +144,7 @@ export default function Shell({ children, activeView, onViewChange }: ShellProps
               <AnimatePresence initial={false}>
                 {(showMoreTools || secondaryActive) && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-1 overflow-hidden">
-                    {secondaryItems.map((item) => <NavItem key={item.id} item={item} mobile />)}
+                    <SecondaryItems mobile />
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -182,7 +202,7 @@ export default function Shell({ children, activeView, onViewChange }: ShellProps
                   exit={{ opacity: 0, height: 0 }}
                   className="space-y-1 overflow-hidden mt-1"
                 >
-                  {secondaryItems.map((item) => <NavItem key={item.id} item={item} />)}
+                  <SecondaryItems />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -203,7 +223,7 @@ export default function Shell({ children, activeView, onViewChange }: ShellProps
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto bg-black">
+      <main data-active-view={activeView} className="flex-1 overflow-y-auto bg-black">
         {children}
       </main>
     </div>
