@@ -14,7 +14,7 @@ export interface AudioToolJobResult {
   bundle_url?: string;
   language?: string | null;
   language_probability?: number | null;
-  error?: string;
+  error?: unknown;
 }
 
 const getBaseUrl = () => {
@@ -22,9 +22,59 @@ const getBaseUrl = () => {
   return value.replace(/\/+$/, '');
 };
 
+const stringifyBackendError = (value: unknown): string => {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (value instanceof Error && value.message) return value.message;
+
+  if (Array.isArray(value)) {
+    const messages = value
+      .map((item) => stringifyBackendError(item))
+      .filter(Boolean);
+    if (messages.length) return messages.join('; ');
+  }
+
+  if (value && typeof value === 'object') {
+    const objectValue = value as Record<string, unknown>;
+    const preferred =
+      objectValue.message ??
+      objectValue.msg ??
+      objectValue.detail ??
+      objectValue.error ??
+      objectValue.reason;
+
+    if (preferred !== undefined && preferred !== value) {
+      const nested = stringifyBackendError(preferred);
+      if (nested) return nested;
+    }
+
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  if (value !== undefined && value !== null) return String(value);
+  return '';
+};
+
 const parseError = async (response: Response) => {
-  const body = await response.json().catch(() => ({}));
-  return body?.detail || body?.error || `Audio Tools returned ${response.status}`;
+  const rawText = await response.text().catch(() => '');
+  let body: any = null;
+
+  if (rawText) {
+    try {
+      body = JSON.parse(rawText);
+    } catch {
+      body = rawText;
+    }
+  }
+
+  const message = stringifyBackendError(
+    body?.detail ?? body?.error ?? body?.message ?? body,
+  );
+
+  return message || `Audio Tools returned ${response.status}`;
 };
 
 export const audioToolsConfigured = () => Boolean(getBaseUrl());
@@ -86,7 +136,7 @@ export async function pollAudioToolsJob(
 
     const result = (await response.json()) as AudioToolJobResult;
     if (result.status === 'failed') {
-      throw new Error(result.error || 'Audio Tools job failed.');
+      throw new Error(stringifyBackendError(result.error) || 'Audio Tools job failed.');
     }
     return result;
   }
