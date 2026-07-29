@@ -14,8 +14,10 @@ import modal
 
 app = modal.App("ezway-audio-tools")
 
-MODEL_ROOT = "/models"
-OUTPUT_ROOT = "/outputs"
+# Mount persistent Volumes under /mnt so they never collide with directories
+# already populated by the container image.
+MODEL_ROOT = "/mnt/ezway-models"
+OUTPUT_ROOT = "/mnt/ezway-outputs"
 AUDIO_GPU = os.getenv("EZWAY_AUDIO_GPU", "L4")
 REQUIRE_PROXY_AUTH = os.getenv("EZWAY_AUDIO_PROXY_AUTH", "0").strip() == "1"
 
