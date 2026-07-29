@@ -170,7 +170,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [trackListViewMode, setTrackListViewMode] = useState<
     "cards" | "columns" | "list"
-  >("cards");
+  >("list");
   const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
   const [batchGenre, setBatchGenre] = useState("");
   const [batchMood, setBatchMood] = useState("");
@@ -531,7 +531,9 @@ export default function App() {
           Generated On: ${new Date().toLocaleString()}
           Target Audio Format: ${format} (Studio High-Fidelity)
           Total Tracks: ${targetTracks.length}
-================================================================================\n\n`;
+================================================================================
+
+`;
 
       catalog += String("").padEnd(80, "-") + "\n";
       catalog += `${"NAME".padEnd(30)} | ${"BPM".padEnd(5)} | ${"KEY".padEnd(10)} | ${"DURATION".padEnd(8)} | ${"PLAYS".padEnd(6)} | ${"LIKES".padEnd(6)}\n`;
@@ -546,7 +548,9 @@ export default function App() {
       });
 
       catalog += String("").padEnd(80, "-") + "\n";
-      catalog += `\n* Thank you for using OGBeatz. Keep 'Em Thirsty!\n`;
+      catalog += `
+* Thank you for using OGBeatz. Keep 'Em Thirsty!
+`;
 
       zip.file("MASTER_CATALOG.txt", catalog);
 
@@ -622,7 +626,8 @@ ${activeTags.join(", ")}
 
 ================================================================================
 Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
-================================================================================\n`;
+================================================================================
+`;
 
           trackFolder.file("track_sheet.txt", trackSheet);
 
@@ -1261,7 +1266,8 @@ ${activeTags.join(", ")}
 
 ================================================================================
 Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
-================================================================================\n`;
+================================================================================
+`;
 
       const sanitizedBaseName = track.name.replace(/[/\\?%*:|"<>\s]/g, "_");
       zip.file(`${sanitizedBaseName}_MASTER_SHEET.txt`, trackSheet);
@@ -6261,7 +6267,7 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
                 key={toast.id}
                 layout
                 initial={{ opacity: 0, y: -20, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
+                animate={{ opacity: 1, y: 0 }}
                 exit={{
                   opacity: 0,
                   scale: 0.9,
