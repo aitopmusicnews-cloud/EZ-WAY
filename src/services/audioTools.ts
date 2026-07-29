@@ -102,6 +102,7 @@ export async function startAudioToolsJob(
       file_url: track.file_url,
       track_name: track.name,
       track_id: track.id,
+      public_base_url: baseUrl,
     }),
   });
 
