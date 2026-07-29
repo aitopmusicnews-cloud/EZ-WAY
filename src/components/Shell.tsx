@@ -40,7 +40,7 @@ export default function Shell({ children, activeView, onViewChange }: ShellProps
   ];
 
   const secondaryItems = [
-    { id: 'analyzer', label: 'AI Diagnostics', icon: Cpu },
+    { id: 'analyzer', label: 'Audio Tools', icon: Cpu },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'videos', label: 'Videos', icon: Video },
     { id: 'youtube', label: 'YouTube Hub', icon: Youtube },
