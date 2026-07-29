@@ -65,7 +65,7 @@ export default function Shell({ children, activeView, onViewChange }: ShellProps
       className={cn(
         'w-full flex items-center rounded-xl font-black uppercase tracking-widest transition-all',
         mobile ? 'gap-4 px-4 py-3.5 text-xs' : 'gap-3 px-3 py-2.5 text-[11px]',
-        nested && (mobile ? 'ml-4 w-[calc(100%-1rem)] text-[10px]' : 'ml-4 w-[calc(100%-1rem)] text-[10px]'),
+        nested && 'ml-4 w-[calc(100%_-_1rem)] text-[10px]',
         activeView === item.id
           ? 'bg-zinc-900 text-orange-500 border border-zinc-800'
           : 'text-zinc-500 hover:text-white hover:bg-zinc-900/50',
