@@ -1,0 +1,38 @@
+name: Music Intelligence Feature Verification
+
+on:
+  push:
+    branches:
+      - feature/music-intelligence-analyzer
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript core tests
+        run: node --experimental-strip-types --test src/services/musicIntelligenceCore.test.ts
+
+      - name: Python core tests
+        run: python -m unittest discover -s modal -p 'test_music_intelligence_core.py' -v
+
+      - name: Python syntax check
+        run: python -m py_compile modal/audio_tools_agent_v5.py modal/music_intelligence_core.py
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
