@@ -7,7 +7,7 @@ export interface MusicSection {
   label: string;
   start: number;
   end: number;
-  confidence: number;
+  confidence?: number;
 }
 
 export interface MusicChapter {
@@ -107,3 +107,43 @@ export const profileToLegacyTrackUpdates = (
     tags: dedupeCaseInsensitive(analyzerTags),
   };
 };
+
+export interface AnalysisSourceIdentity {
+  file_url?: string | null;
+  size?: number | null;
+  duration?: number | null;
+  type?: string | null;
+}
+
+export interface SavedAnalysisIdentity {
+  status?: string | null;
+  analyzer_version?: string | null;
+  source_fingerprint?: string | null;
+}
+
+export const buildAnalysisSourceFingerprint = (source: AnalysisSourceIdentity): string => {
+  const raw = [
+    clean(source.file_url),
+    String(Number(source.size || 0)),
+    String(Math.round(Number(source.duration || 0) * 1000) / 1000),
+    clean(source.type).toLocaleLowerCase(),
+  ].join('|');
+
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < raw.length; index += 1) {
+    hash ^= raw.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `v1-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+};
+
+export const shouldReuseAnalysis = (
+  saved: SavedAnalysisIdentity | null | undefined,
+  sourceFingerprint: string,
+  analyzerVersion: string,
+): boolean => Boolean(
+  saved
+  && saved.status === 'ready'
+  && clean(saved.source_fingerprint) === clean(sourceFingerprint)
+  && clean(saved.analyzer_version) === clean(analyzerVersion),
+);
