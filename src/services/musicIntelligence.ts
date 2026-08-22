@@ -1,8 +1,8 @@
 import type { Track } from '../types';
-import { getSupabaseClient } from '../lib/supabase';
 import { runAudioToolsJob } from './audioTools';
 import {
   buildAnalysisSourceFingerprint,
+  hasUsableMusicIntelligenceProfile,
   shouldReuseAnalysis,
   type MusicIntelligenceProfile,
 } from './musicIntelligenceCore';
@@ -21,6 +21,21 @@ export interface TrackAnalysisRecord {
   updated_at?: string;
 }
 
+const getCloudApiBase = (): string => {
+  try {
+    return String((import.meta as any).env?.VITE_MUSIC_INTELLIGENCE_API_URL || '')
+      .trim()
+      .replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+};
+
+const getCloudRecordUrl = (trackId: string): string => {
+  const base = getCloudApiBase();
+  return base ? `${base}/${encodeURIComponent(trackId)}` : '';
+};
+
 const readLocalCache = (): Record<string, TrackAnalysisRecord> => {
   if (typeof localStorage === 'undefined') return {};
   try {
@@ -38,7 +53,7 @@ const writeLocalRecord = (record: TrackAnalysisRecord) => {
     cache[record.track_id] = record;
     localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cache));
   } catch {
-    // Local cache is a best-effort fallback only.
+    // Local cache is a best-effort development/offline fallback only.
   }
 };
 
@@ -59,22 +74,37 @@ const emptyProfile = (): MusicIntelligenceProfile => ({
   warnings: [],
 });
 
-export async function getTrackAnalysisRecord(trackId: string): Promise<TrackAnalysisRecord | null> {
-  try {
-    const client = await getSupabaseClient();
-    const { data, error } = await client
-      .from('track_analysis')
-      .select('*')
-      .eq('track_id', trackId)
-      .maybeSingle();
+const unwrapRecordResponse = (payload: unknown): TrackAnalysisRecord | null => {
+  if (!payload || typeof payload !== 'object') return null;
+  const candidate = (payload as any).record || payload;
+  if (!candidate || typeof candidate !== 'object' || !candidate.track_id) return null;
+  return candidate as TrackAnalysisRecord;
+};
 
-    if (!error && data) {
-      const record = data as TrackAnalysisRecord;
-      writeLocalRecord(record);
-      return record;
+export async function getTrackAnalysisRecord(trackId: string): Promise<TrackAnalysisRecord | null> {
+  const cloudUrl = getCloudRecordUrl(trackId);
+  if (cloudUrl) {
+    try {
+      const response = await fetch(cloudUrl, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+
+      if (response.status === 404) {
+        return readLocalCache()[trackId] || null;
+      }
+      if (!response.ok) {
+        throw new Error(`AWS Music Intelligence lookup failed (${response.status}).`);
+      }
+
+      const record = unwrapRecordResponse(await response.json());
+      if (record) {
+        writeLocalRecord(record);
+        return record;
+      }
+    } catch (error) {
+      console.warn('[MusicIntelligence] AWS profile lookup unavailable; using local cache.', error);
     }
-  } catch (error) {
-    console.warn('[MusicIntelligence] Database profile lookup unavailable; using local cache.', error);
   }
 
   return readLocalCache()[trackId] || null;
@@ -82,7 +112,7 @@ export async function getTrackAnalysisRecord(trackId: string): Promise<TrackAnal
 
 export async function getTrackMusicIntelligence(trackId: string): Promise<MusicIntelligenceProfile | null> {
   const record = await getTrackAnalysisRecord(trackId);
-  return record?.status === 'ready' ? record.profile : null;
+  return record && hasUsableMusicIntelligenceProfile(record.profile) ? record.profile : null;
 }
 
 export async function saveTrackAnalysisRecord(record: TrackAnalysisRecord): Promise<void> {
@@ -95,16 +125,23 @@ export async function saveTrackAnalysisRecord(record: TrackAnalysisRecord): Prom
 
   writeLocalRecord(normalized);
 
-  try {
-    const client = await getSupabaseClient();
-    const { error } = await client
-      .from('track_analysis')
-      .upsert(normalized, { onConflict: 'track_id' });
-    if (error) {
-      console.warn('[MusicIntelligence] Database profile save unavailable; local cache retained.', error.message);
-    }
-  } catch (error) {
-    console.warn('[MusicIntelligence] Database profile save unavailable; local cache retained.', error);
+  const cloudUrl = getCloudRecordUrl(record.track_id);
+  if (!cloudUrl) return;
+
+  const response = await fetch(cloudUrl, {
+    method: 'PUT',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(normalized),
+  });
+
+  if (!response.ok) {
+    const message = await response.text().catch(() => '');
+    throw new Error(
+      `AWS Music Intelligence save failed (${response.status})${message ? `: ${message.slice(0, 240)}` : ''}`,
+    );
   }
 }
 
@@ -122,21 +159,27 @@ export async function analyzeAndPersistTrack(
   }
 
   const sourceFingerprint = buildAnalysisSourceFingerprint(track);
-  if (!options.force) {
-    const saved = await getTrackAnalysisRecord(track.id);
-    if (saved?.profile && shouldReuseAnalysis(saved, sourceFingerprint, MUSIC_INTELLIGENCE_VERSION)) {
-      options.onProgress?.('Using saved song analysis…');
-      return saved.profile;
-    }
+  const saved = await getTrackAnalysisRecord(track.id);
+
+  if (!options.force && saved?.profile && shouldReuseAnalysis(saved, sourceFingerprint, MUSIC_INTELLIGENCE_VERSION)) {
+    options.onProgress?.('Using saved song analysis…');
+    return saved.profile;
   }
+
+  const previousGoodProfile = saved
+    && saved.source_fingerprint === sourceFingerprint
+    && hasUsableMusicIntelligenceProfile(saved.profile)
+    ? saved.profile
+    : null;
 
   await saveTrackAnalysisRecord({
     track_id: track.id,
     analyzer_version: MUSIC_INTELLIGENCE_VERSION,
-    profile: emptyProfile(),
+    profile: previousGoodProfile || emptyProfile(),
     status: 'processing',
     error: null,
     source_fingerprint: sourceFingerprint,
+    created_at: saved?.created_at,
   });
 
   try {
@@ -154,17 +197,23 @@ export async function analyzeAndPersistTrack(
       status: 'ready',
       error: null,
       source_fingerprint: sourceFingerprint,
+      created_at: saved?.created_at,
     });
     return profile;
   } catch (error: any) {
-    await saveTrackAnalysisRecord({
-      track_id: track.id,
-      analyzer_version: MUSIC_INTELLIGENCE_VERSION,
-      profile: emptyProfile(),
-      status: 'error',
-      error: error?.message || String(error),
-      source_fingerprint: sourceFingerprint,
-    });
+    try {
+      await saveTrackAnalysisRecord({
+        track_id: track.id,
+        analyzer_version: MUSIC_INTELLIGENCE_VERSION,
+        profile: previousGoodProfile || emptyProfile(),
+        status: 'error',
+        error: error?.message || String(error),
+        source_fingerprint: sourceFingerprint,
+        created_at: saved?.created_at,
+      });
+    } catch (persistenceError) {
+      console.warn('[MusicIntelligence] Could not persist the analysis failure state.', persistenceError);
+    }
     throw error;
   }
 }
