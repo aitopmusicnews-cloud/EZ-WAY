@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { profileToLegacyTrackUpdates } from './musicIntelligenceCore.ts';
+import {
+  hasUsableMusicIntelligenceProfile,
+  profileToLegacyTrackUpdates,
+} from './musicIntelligenceCore.ts';
 
 test('profileToLegacyTrackUpdates preserves custom tags and replaces analyzer tags', () => {
   const profile = {
@@ -64,4 +67,34 @@ test('shouldReuseAnalysis requires ready status, matching fingerprint, and match
   assert.equal(shouldReuseAnalysis(saved, 'def', 'music-intelligence-v1'), false);
   assert.equal(shouldReuseAnalysis(saved, 'abc', 'music-intelligence-v2'), false);
   assert.equal(shouldReuseAnalysis({ ...saved, status: 'error' as const }, 'abc', 'music-intelligence-v1'), false);
+});
+
+test('hasUsableMusicIntelligenceProfile keeps a prior good profile available after failed re-analysis', () => {
+  const goodProfile = {
+    version: 'music-intelligence-v1',
+    analyzed_at: '2026-08-22T00:00:00Z',
+    bpm: 92,
+    primary_genre: 'Alternative R&B',
+    genre_confident: true,
+    genres: [{ label: 'Alternative R&B', score: 0.82 }],
+    moods: [],
+    styles: [],
+    instruments: [],
+    sections: [],
+    chapters: [],
+    keywords: [],
+    evidence: {},
+    warnings: [],
+  };
+
+  const emptyProfile = {
+    ...goodProfile,
+    bpm: 0,
+    primary_genre: 'Unknown',
+    genre_confident: false,
+    genres: [],
+  };
+
+  assert.equal(hasUsableMusicIntelligenceProfile(goodProfile), true);
+  assert.equal(hasUsableMusicIntelligenceProfile(emptyProfile), false);
 });
