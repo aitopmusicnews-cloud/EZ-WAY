@@ -57,6 +57,18 @@ const writeLocalRecord = (record: TrackAnalysisRecord) => {
   }
 };
 
+const deleteLocalRecord = (trackId: string) => {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const cache = readLocalCache();
+    if (!cache[trackId]) return;
+    delete cache[trackId];
+    localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Best effort only.
+  }
+};
+
 const emptyProfile = (): MusicIntelligenceProfile => ({
   version: MUSIC_INTELLIGENCE_VERSION,
   analyzed_at: new Date().toISOString(),
@@ -91,7 +103,8 @@ export async function getTrackAnalysisRecord(trackId: string): Promise<TrackAnal
       });
 
       if (response.status === 404) {
-        return readLocalCache()[trackId] || null;
+        deleteLocalRecord(trackId);
+        return null;
       }
       if (!response.ok) {
         throw new Error(`AWS Music Intelligence lookup failed (${response.status}).`);
@@ -102,8 +115,10 @@ export async function getTrackAnalysisRecord(trackId: string): Promise<TrackAnal
         writeLocalRecord(record);
         return record;
       }
+      return null;
     } catch (error) {
       console.warn('[MusicIntelligence] AWS profile lookup unavailable; using local cache.', error);
+      return readLocalCache()[trackId] || null;
     }
   }
 
