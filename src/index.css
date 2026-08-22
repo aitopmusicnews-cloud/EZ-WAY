@@ -191,3 +191,8 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Hide the legacy Acoustic Analysis Framework panel while its analyzer is replaced. */
+main .bg-zinc-950.border.border-zinc-900.p-6.shadow-2xl.relative.overflow-hidden:has(.lucide-cpu):has(.lucide-sparkles) {
+  display: none !important;
+}
