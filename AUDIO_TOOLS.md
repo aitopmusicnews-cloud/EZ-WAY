@@ -13,9 +13,9 @@ The v5 analyzer uses:
 - **Full-track chroma/key analysis** for musical key and Camelot key.
 - Deterministic, evidence-grounded keywords from the detected music traits. No GPT/OpenAI call is required for core analysis.
 
-The result is a reusable `MusicIntelligenceProfile`. The browser saves the canonical profile in the `track_analysis` Supabase table and also copies compact BPM/key/genre/mood/style/instrument/keyword values into the legacy track fields/tags for existing EZ-WAY features.
+The result is a reusable `MusicIntelligenceProfile`. Compact BPM/key/genre/mood/style/instrument/keyword values are also copied into the legacy track fields/tags for existing EZ-WAY features.
 
-Run `music_intelligence_schema.sql` once in the EZ-WAY Supabase project to add the canonical analysis table. The browser also keeps a local cache fallback if that table is temporarily unavailable.
+The canonical profile storage is now **AWS-oriented instead of Supabase-oriented**. The frontend uses a configurable Music Intelligence profile API and keeps a browser-local fallback for development. The AWS implementation under `aws/music-intelligence/` provides a DynamoDB table plus a Lambda/API contract for the same profile records.
 
 ## 2. Synced Lyrics
 
@@ -55,23 +55,31 @@ modal deploy modal/audio_tools_agent_v5.py
 
 Modal will print a persistent URL for the `audio_tools_api_v5` ASGI application.
 
-## Render environment
+## Web application environment
 
-In the EZ-WAY Render service, set:
+Set the deployed Audio Tools URL:
 
 ```env
 VITE_AUDIO_TOOLS_URL=https://YOUR-MODAL-AUDIO-TOOLS-V5-URL.modal.run
 ```
 
-Then redeploy EZ-WAY so Vite builds the URL into the web application.
-
-Do not add `/jobs` to the environment variable. The app automatically calls:
+Do not add `/jobs` to that variable. The app automatically calls:
 
 - `POST /jobs`
 - `GET /jobs/{call_id}`
 - `GET /files/{filename}`
 
 The `POST /jobs` action can be `analysis`, `lyrics`, or `stems`.
+
+For canonical Song Profile storage, the frontend accepts:
+
+```env
+VITE_MUSIC_INTELLIGENCE_API_URL=/api/music-intelligence
+```
+
+During the AWS transition, leave this variable unset until an authenticated EZ-WAY backend/proxy is ready to invoke the IAM-protected AWS Music Intelligence API. When unset, the feature branch uses its local cache for development and does not write analyzer profiles to Supabase.
+
+See `aws/music-intelligence/README.md` for the DynamoDB/Lambda deployment path.
 
 ## Compute configuration
 
@@ -103,10 +111,12 @@ The upload sequence is now:
 2. Upload the real audio master to cloud storage.
 3. Create the track with `processing` status.
 4. Submit one `analysis` job using the cloud audio URL.
-5. Save the complete Music Intelligence profile.
+5. Save the complete Music Intelligence profile through the configured profile storage layer.
 6. Copy compatibility BPM/key/tags to the track and mark it `ready`.
 
 Bulk uploads stay sequential to avoid hammering the worker. If analysis fails, the uploaded track remains in the library with `error` status instead of receiving fabricated metadata.
+
+A failed retry of the same audio fingerprint does not erase a previously good Song Profile. If the audio file itself changes, the previous profile is not reused for the replacement audio.
 
 ## Source file requirement
 
@@ -115,3 +125,5 @@ The browser-to-Modal integration requires `track.file_url` to be reachable by Mo
 ## Security note
 
 The current browser integration uses the public Modal ASGI URL. `EZWAY_AUDIO_PROXY_AUTH=1` should not be enabled until EZ-WAY routes Audio Tools calls through the server, because browser clients should not contain Modal proxy secrets. A server-side proxy is the recommended next hardening step before broad public exposure.
+
+The AWS profile API template uses IAM authorization by default. Do not place AWS secret keys in Vite environment variables or browser code.
