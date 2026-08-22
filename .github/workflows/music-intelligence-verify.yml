@@ -25,6 +25,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Core analyzer tests run before the full application checks.
       - name: TypeScript core tests
         run: node --experimental-strip-types --test src/services/musicIntelligenceCore.test.ts
 
