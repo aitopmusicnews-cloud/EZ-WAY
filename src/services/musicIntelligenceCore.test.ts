@@ -43,3 +43,25 @@ test('profileToLegacyTrackUpdates preserves custom tags and replaces analyzer ta
     'Master',
   ]);
 });
+
+test('analysis source fingerprint changes when the audio source changes', async () => {
+  const { buildAnalysisSourceFingerprint } = await import('./musicIntelligenceCore.ts');
+  const first = buildAnalysisSourceFingerprint({ file_url: 'https://cdn/a.wav', size: 100, duration: 180, type: 'audio/wav' });
+  const same = buildAnalysisSourceFingerprint({ file_url: 'https://cdn/a.wav', size: 100, duration: 180, type: 'audio/wav' });
+  const changed = buildAnalysisSourceFingerprint({ file_url: 'https://cdn/b.wav', size: 100, duration: 180, type: 'audio/wav' });
+  assert.equal(first, same);
+  assert.notEqual(first, changed);
+});
+
+test('shouldReuseAnalysis requires ready status, matching fingerprint, and matching version', async () => {
+  const { shouldReuseAnalysis } = await import('./musicIntelligenceCore.ts');
+  const saved = {
+    status: 'ready' as const,
+    analyzer_version: 'music-intelligence-v1',
+    source_fingerprint: 'abc',
+  };
+  assert.equal(shouldReuseAnalysis(saved, 'abc', 'music-intelligence-v1'), true);
+  assert.equal(shouldReuseAnalysis(saved, 'def', 'music-intelligence-v1'), false);
+  assert.equal(shouldReuseAnalysis(saved, 'abc', 'music-intelligence-v2'), false);
+  assert.equal(shouldReuseAnalysis({ ...saved, status: 'error' as const }, 'abc', 'music-intelligence-v1'), false);
+});
