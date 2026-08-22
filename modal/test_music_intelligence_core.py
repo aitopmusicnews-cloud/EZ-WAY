@@ -45,12 +45,29 @@ class MusicIntelligenceCoreTests(unittest.TestCase):
             moods=[{"label": "Moody", "score": 0.78}],
             instruments=[{"label": "808 bass", "score": 0.82}],
             analyzer_version="music-intelligence-v1",
+            key="F# Minor",
+            camelot_key="11A",
+            key_confidence=0.81,
         )
         self.assertEqual(profile["primary_genre"], "Alternative R&B")
         self.assertFalse(profile["genre_confident"])
         self.assertIn("Genre classification is uncertain", profile["warnings"])
         self.assertEqual(profile["bpm"], 92)
+        self.assertEqual(profile["key"], "F# Minor")
+        self.assertEqual(profile["camelot_key"], "11A")
+        self.assertAlmostEqual(profile["key_confidence"], 0.81)
         self.assertEqual(profile["chapters"][0]["label"], "Intro")
+
+    def test_build_profile_requires_genre_margin_for_confidence(self):
+        profile = build_profile(
+            bpm=140,
+            sections=[],
+            genres=[{"label": "Trap", "score": 0.70}, {"label": "Drill", "score": 0.69}],
+            moods=[],
+            instruments=[],
+            analyzer_version="music-intelligence-v1",
+        )
+        self.assertFalse(profile["genre_confident"])
 
 
 if __name__ == "__main__":
