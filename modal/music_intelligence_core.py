@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 GENRE_CONFIDENCE_THRESHOLD = 0.55
+GENRE_CONFIDENCE_MARGIN = 0.03
 
 
 def normalize_probability(value: Any) -> float:
@@ -89,6 +90,10 @@ def build_profile(
     moods: list[dict[str, Any]],
     instruments: list[dict[str, Any]],
     analyzer_version: str,
+    key: str | None = None,
+    camelot_key: str | None = None,
+    key_confidence: float | None = None,
+    bpm_confidence: float | None = None,
     styles: list[dict[str, Any]] | None = None,
     keywords: list[str] | None = None,
     evidence: dict[str, Any] | None = None,
@@ -116,7 +121,11 @@ def build_profile(
 
     primary_genre = clean_genres[0]["label"] if clean_genres else "Unknown"
     primary_genre_score = float(clean_genres[0]["score"]) if clean_genres else 0.0
-    genre_confident = primary_genre_score >= GENRE_CONFIDENCE_THRESHOLD
+    second_genre_score = float(clean_genres[1]["score"]) if len(clean_genres) > 1 else 0.0
+    genre_confident = (
+        primary_genre_score >= GENRE_CONFIDENCE_THRESHOLD
+        and (primary_genre_score - second_genre_score) >= GENRE_CONFIDENCE_MARGIN
+    )
 
     warnings: list[str] = []
     if not genre_confident:
@@ -137,28 +146,32 @@ def build_profile(
         except (TypeError, ValueError):
             continue
         label = str(section.get("label") or "unknown").strip().lower() or "unknown"
-        clean_sections.append(
-            {
-                "label": label,
-                "start": round(start, 3),
-                "end": round(end, 3),
-                "confidence": normalize_probability(section.get("confidence", 1.0)),
-            }
-        )
+        clean_section = {
+            "label": label,
+            "start": round(start, 3),
+            "end": round(end, 3),
+        }
+        if section.get("confidence") is not None:
+            clean_section["confidence"] = normalize_probability(section.get("confidence"))
+        clean_sections.append(clean_section)
 
     deduped_keywords: list[str] = []
     seen: set[str] = set()
     for keyword in keywords or []:
         clean = str(keyword).strip()
-        key = clean.casefold()
-        if clean and key not in seen:
-            seen.add(key)
+        key_value = clean.casefold()
+        if clean and key_value not in seen:
+            seen.add(key_value)
             deduped_keywords.append(clean)
 
     return {
         "version": analyzer_version,
         "analyzed_at": datetime.now(timezone.utc).isoformat(),
         "bpm": normalized_bpm,
+        "bpm_confidence": normalize_probability(bpm_confidence) if bpm_confidence is not None else None,
+        "key": str(key or "").strip() or None,
+        "camelot_key": str(camelot_key or "").strip() or None,
+        "key_confidence": normalize_probability(key_confidence) if key_confidence is not None else None,
         "primary_genre": primary_genre,
         "genre_confident": genre_confident,
         "genres": clean_genres,
