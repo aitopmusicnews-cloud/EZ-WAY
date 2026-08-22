@@ -147,3 +147,20 @@ export const shouldReuseAnalysis = (
   && clean(saved.source_fingerprint) === clean(sourceFingerprint)
   && clean(saved.analyzer_version) === clean(analyzerVersion),
 );
+
+export const hasUsableMusicIntelligenceProfile = (
+  profile: MusicIntelligenceProfile | null | undefined,
+): boolean => Boolean(
+  profile
+  && (
+    (Number.isFinite(profile.bpm) && Number(profile.bpm) > 0)
+    || clean(profile.key)
+    || clean(profile.camelot_key)
+    || (profile.genres?.length || 0) > 0
+    || (profile.moods?.length || 0) > 0
+    || (profile.styles?.length || 0) > 0
+    || (profile.instruments?.length || 0) > 0
+    || (profile.sections?.length || 0) > 0
+    || (profile.chapters?.length || 0) > 0
+  )
+);
