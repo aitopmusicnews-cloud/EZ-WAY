@@ -99,13 +99,13 @@ The initial entitlement result for Albumcover Studio is enabled. Later, the enti
 
 ## Backend and security
 
-The standalone `EZ-AI-Album-cover-studio` repository remains the source for generation logic. EZ-WAY communicates with its server-side generation API through `VITE_ALBUM_COVER_API_URL`.
+The standalone `EZ-AI-Album-cover-studio` repository remains the source for generation logic. The production Albumcover API is hosted on AWS. EZ-WAY communicates with that server-side generation API through `VITE_ALBUM_COVER_API_URL`, so the frontend remains deployment-provider agnostic.
 
 Provider credentials such as OpenAI or Gemini API keys remain server-side and must never be placed in Vite/browser environment variables that expose their values to clients.
 
-The existing Render backend is `ez-ai-album-cover-api`. At the time of this integration it is user-suspended, so live generation remains unavailable until that existing service is resumed. Do not create a duplicate service merely to work around the suspension because the existing service owns its server-side provider configuration.
+The AWS-hosted Albumcover API must allow the production EZ-WAY origin `https://ezwaypro.theartistcut.com` in its CORS configuration. Preview/development origins can be added separately as needed.
 
-After resume, configure its non-secret slim-mode settings to allow the EZ-WAY origins and disable the unnecessary AI ranking/critic calls while preserving the creative-director and image-rendering stages.
+The slim production configuration should disable unnecessary concept-ranking/cover-critic calls when those stages are not required while preserving the creative-director and image-rendering stages used to generate the three final cover options.
 
 ## Failure behavior
 
