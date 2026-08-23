@@ -97,7 +97,7 @@ export default function Shell({ children, activeView, onViewChange }: ShellProps
     setIsMobileMenuOpen(false);
   };
 
-  const NavItem = ({ item, mobile = false, nested = false }: { item: (typeof primaryItems)[number]; mobile?: boolean; nested?: boolean }) => (
+  const NavItem = ({ item, mobile = false, nested = false }: { item: (typeof primaryItems)[number]; mobile?: boolean; nested?: boolean; key?: React.Key }) => (
     <button
       key={item.id}
       onClick={() => mobile ? handleMobileNav(item.id) : onViewChange(item.id)}
