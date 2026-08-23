@@ -1,17 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
 import { ALBUM_COVER_FONTS, buildAlbumCoverTitleUpdate } from './albumCoverTitleFont';
 
 describe('album cover title + font helpers', () => {
   it('trims an edited title and produces a track update payload', () => {
-    expect(buildAlbumCoverTitleUpdate('  Midnight Drive  ')).toEqual({ name: 'Midnight Drive' });
+    assert.deepEqual(buildAlbumCoverTitleUpdate('  Midnight Drive  '), { name: 'Midnight Drive' });
   });
 
   it('rejects an empty edited title', () => {
-    expect(() => buildAlbumCoverTitleUpdate('   ')).toThrow('Track title is required');
+    assert.throws(() => buildAlbumCoverTitleUpdate('   '), /Track title is required/);
   });
 
   it('exposes a curated font library with stable ids and preview families', () => {
-    expect(ALBUM_COVER_FONTS.map(font => font.id)).toEqual([
+    assert.deepEqual(ALBUM_COVER_FONTS.map((font) => font.id), [
       'modern_sans',
       'bold_display',
       'editorial_italic',
@@ -21,6 +22,6 @@ describe('album cover title + font helpers', () => {
       'vintage_arc',
       'street_script',
     ]);
-    expect(ALBUM_COVER_FONTS.every(font => Boolean(font.previewFamily))).toBe(true);
+    assert.equal(ALBUM_COVER_FONTS.every((font) => Boolean(font.previewFamily)), true);
   });
 });
