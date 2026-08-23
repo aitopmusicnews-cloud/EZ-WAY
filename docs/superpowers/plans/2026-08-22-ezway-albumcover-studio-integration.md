@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Work only on `feature/music-intelligence-analyzer`; do not merge to `main`.
+- Implement on `feature/music-intelligence-analyzer`; merge to `main` only after verification and explicit user approval.
 - Albumcover Studio is enabled for the current single-user phase; no paywall and no second login.
 - Reuse the existing EZ-WAY track library and Music Intelligence profile; do not create a second acoustic-analysis flow in EZ-WAY.
 - Default generation count is exactly 3.
@@ -78,6 +78,8 @@
 ### Deployment follow-through
 
 - [x] Trigger the existing EZ-WAY Render preview deployment for the implementation head.
-- [ ] Resume the existing Render `ez-ai-album-cover-api` service. The available Render connector cannot resume user-suspended services.
-- [ ] After resume, merge the slim-mode non-secret backend settings: EZ-WAY CORS origins, `ENABLE_CONCEPT_RANKING=false`, `ENABLE_COVER_CRITIC=false`, `ENABLE_PLATFORM_SCORING=false`, `CONCEPT_COUNT=4`, `SELECTED_CONCEPT_COUNT=3`, `RENDERS_PER_CONCEPT=1`.
-- [ ] After resume/CORS setup, set `VITE_ALBUM_COVER_API_URL=https://ez-ai-album-cover-api.onrender.com` in each EZ-WAY deployment environment.
+- [x] Confirm the production Albumcover API is AWS-hosted rather than Render-hosted.
+- [ ] Set `VITE_ALBUM_COVER_API_URL` in each EZ-WAY deployment environment to the deployed AWS Albumcover API base URL.
+- [ ] Configure the AWS Albumcover API CORS allowlist to include `https://ezwaypro.theartistcut.com` plus any required preview/development origins.
+- [ ] Apply the slim-mode non-secret backend settings where supported: disable unnecessary concept-ranking/cover-critic/platform-scoring stages while retaining the creative-director stage and exactly three final cover renders.
+- [ ] Run one real production Albumcover generation from `https://ezwaypro.theartistcut.com` after the AWS endpoint and CORS settings are confirmed.
