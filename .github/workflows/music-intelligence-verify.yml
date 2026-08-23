@@ -25,8 +25,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: TypeScript core tests
+      - name: Music Intelligence core tests
         run: node --experimental-strip-types --test src/services/musicIntelligenceCore.test.ts
+
+      - name: Copyrights core tests
+        run: node --experimental-strip-types --test src/services/copyrightsCore.test.ts
+
+      - name: Albumcover Studio core tests
+        run: node --experimental-strip-types --test src/services/albumCoverCore.test.ts
 
       - name: Python core tests
         run: python -m unittest discover -s modal -p 'test_music_intelligence_core.py' -v
