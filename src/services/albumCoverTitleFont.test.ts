@@ -11,16 +11,15 @@ describe('album cover title + font helpers', () => {
     assert.throws(() => buildAlbumCoverTitleUpdate('   '), /Track title is required/);
   });
 
-  it('exposes a curated font library with stable ids and preview families', () => {
+  it('exposes the backend-supported font library with stable ids and preview families', () => {
     assert.deepEqual(ALBUM_COVER_FONTS.map((font) => font.id), [
-      'modern_sans',
-      'bold_display',
-      'editorial_italic',
-      'slanted_serif',
+      'street_script',
       'luxury_script',
+      'heritage_script',
       'marker_signature',
       'vintage_arc',
-      'street_script',
+      'editorial_italic',
+      'slanted_serif',
     ]);
     assert.equal(ALBUM_COVER_FONTS.every((font) => Boolean(font.previewFamily)), true);
   });
