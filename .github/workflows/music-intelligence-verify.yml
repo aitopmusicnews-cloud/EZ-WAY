@@ -34,6 +34,9 @@ jobs:
       - name: Albumcover Studio core tests
         run: node --experimental-strip-types --test src/services/albumCoverCore.test.ts
 
+      - name: Albumcover title and font tests
+        run: node --experimental-strip-types --test src/services/albumCoverTitleFont.test.ts
+
       - name: Python core tests
         run: python -m unittest discover -s modal -p 'test_music_intelligence_core.py' -v
 
