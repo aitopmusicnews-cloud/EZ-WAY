@@ -20,7 +20,7 @@ export interface AudioToolJobResult {
 }
 
 const getBaseUrl = () => {
-  const value = (import.meta.env.VITE_AUDIO_TOOLS_URL || '').trim();
+  const value = String((import.meta as any).env?.VITE_AUDIO_TOOLS_URL || '').trim();
   return value.replace(/\/+$/, '');
 };
 
