@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { ALBUM_COVER_FONTS, buildAlbumCoverTitleUpdate } from './albumCoverTitleFont';
+import { ALBUM_COVER_FONTS, buildAlbumCoverTitleUpdate } from './albumCoverTitleFont.ts';
 
 describe('album cover title + font helpers', () => {
   it('trims an edited title and produces a track update payload', () => {
