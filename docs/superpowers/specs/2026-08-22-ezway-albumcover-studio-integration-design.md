@@ -18,7 +18,6 @@ The page uses the same library-track selection pattern as the Video Maker. Selec
 
 - track title
 - artist name
-- existing audio master
 - lyrics
 - saved Music Intelligence genre
 - mood
@@ -35,7 +34,7 @@ Users do not re-upload the song or re-enter metadata that EZ-WAY already stores.
 
 EZ-WAY Music Intelligence is the authoritative song-analysis source for this integration. The standalone Album Cover Studio audio-analysis pipeline must not be run again merely to obtain BPM, key, genre, mood, or related song descriptors already present in the Song Profile.
 
-The standalone cover-generation backend may still accept audio and lyrics where its image-generation pipeline genuinely needs the source material, but duplicated metadata analysis should be bypassed or adapted to consume the EZ-WAY profile.
+For the native EZ-WAY flow, the saved Music Intelligence fields plus saved lyrics are converted into a structured creative brief and sent to the Albumcover backend as text input. This deliberately avoids sending the audio master to the Albumcover analyzer and therefore avoids running a second acoustic-analysis job.
 
 ## Features retained from the standalone Album Cover Studio
 
@@ -62,8 +61,10 @@ The integrated page does not reproduce the standalone app's independent product 
 - a browser-local SQLite workflow
 - duplicate artist/title entry when those values exist on the track
 - duplicate authentication solely for Albumcover Studio
+- Gemini concept-ranking calls in the slim production configuration
+- Gemini cover-critic calls in the slim production configuration
 
-The backend can retain internal implementation details needed for compatibility, but the EZ-WAY user interface should remain simple.
+The backend can retain local/deterministic fallback ranking and critique needed for compatibility, but the EZ-WAY user interface should remain simple.
 
 ## Missing-cover upload prompt
 
@@ -79,10 +80,10 @@ If artwork is missing, EZ-WAY displays a notice:
 
 Actions:
 
-- **Generate Cover** — save the uploaded track first, open EZ AI Albumcover Studio, auto-select the newly uploaded track, and prefill all available data.
+- **Generate Cover** — keep the already-saved track, open EZ AI Albumcover Studio, auto-select the newly uploaded track, and prefill all available data.
 - **Skip for Now** — keep the track in the library with no forced generation.
 
-A track without artwork should remain eligible for a later **Generate Cover** action from the track workflow. The upload must never fail merely because the user skipped cover generation.
+A track without artwork remains eligible for a later **Generate Cover** action from Albumcover Studio. Upload must never fail merely because the user skipped cover generation.
 
 ## Saving artwork
 
@@ -92,15 +93,19 @@ Generated but unselected alternatives must not silently replace the current trac
 
 ## Premium readiness
 
-The feature is free/enabled for the current single-user phase. Code should call a shared feature-entitlement boundary rather than hard-coding premium UI throughout the component.
+The feature is free/enabled for the current single-user phase. Code calls a shared feature-entitlement boundary rather than hard-coding premium UI throughout the component.
 
 The initial entitlement result for Albumcover Studio is enabled. Later, the entitlement source can be switched to subscription data alongside Copyrights.
 
 ## Backend and security
 
-The standalone `EZ-AI-Album-cover-studio` repository remains the source for generation logic. EZ-WAY should communicate with its server-side generation API through a configurable backend URL or same-origin proxy.
+The standalone `EZ-AI-Album-cover-studio` repository remains the source for generation logic. EZ-WAY communicates with its server-side generation API through `VITE_ALBUM_COVER_API_URL`.
 
-Provider credentials such as OpenAI or Gemini API keys must remain server-side and must never be placed in Vite/browser environment variables that expose their values to clients.
+Provider credentials such as OpenAI or Gemini API keys remain server-side and must never be placed in Vite/browser environment variables that expose their values to clients.
+
+The existing Render backend is `ez-ai-album-cover-api`. At the time of this integration it is user-suspended, so live generation remains unavailable until that existing service is resumed. Do not create a duplicate service merely to work around the suspension because the existing service owns its server-side provider configuration.
+
+After resume, configure its non-secret slim-mode settings to allow the EZ-WAY origins and disable the unnecessary AI ranking/critic calls while preserving the creative-director and image-rendering stages.
 
 ## Failure behavior
 
@@ -112,17 +117,16 @@ Provider credentials such as OpenAI or Gemini API keys must remain server-side a
 
 ## Testing requirements
 
-Tests should cover at minimum:
+Tests cover at minimum:
 
 - missing-cover detection
 - no prompt when artwork exists
-- upload prompt action mapping
 - track-to-cover request data mapping
-- Song Profile metadata preferred over duplicate heuristic analysis
+- Song Profile metadata preferred over legacy tags
 - exactly three default cover requests/options at the EZ-WAY integration boundary
-- selected cover saved to the correct track
-- unselected covers do not overwrite artwork
 - premium entitlement defaults to enabled for the current phase
+
+The repository verification workflow also runs the full TypeScript check and production build so navigation and UI wiring must compile.
 
 ## Out of scope for this phase
 
