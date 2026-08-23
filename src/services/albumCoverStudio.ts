@@ -92,7 +92,6 @@ const parseJson = async <T>(response: Response): Promise<T> => {
 export const createAlbumCoverGeneration = async (
   draft: AlbumCoverDraft,
   parentalAdvisory: boolean,
-  typographyStyle?: string,
 ): Promise<AlbumCoverGeneration> => {
   const form = new FormData();
   form.set('lyrics_text', buildAlbumCoverCreativeContext(draft));
@@ -103,7 +102,6 @@ export const createAlbumCoverGeneration = async (
   form.set('variation_count', String(DEFAULT_COVER_VARIATION_COUNT));
   form.set('mood_path', 'lyrics');
   form.set('run_async', 'true');
-  if (typographyStyle) form.set('typography_style', typographyStyle);
 
   return parseJson<AlbumCoverGeneration>(await fetch(apiUrl('/generations'), {
     method: 'POST',
