@@ -40,7 +40,6 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
   const [selectedTrackId, setSelectedTrackId] = useState(initialTrackId || '');
   const [draft, setDraft] = useState<AlbumCoverDraft | null>(null);
   const [titleInput, setTitleInput] = useState('');
-  const [selectedFontId, setSelectedFontId] = useState(ALBUM_COVER_FONTS[0].id);
   const [parentalAdvisory, setParentalAdvisory] = useState(false);
   const [generation, setGeneration] = useState<AlbumCoverGeneration | null>(null);
   const [selectedVariationId, setSelectedVariationId] = useState('');
@@ -128,9 +127,9 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
     setGenerating(true);
     setError('');
     setSelectedVariationId('');
-    setStatusText('Sending saved track intelligence and typography choice to Albumcover Studio…');
+    setStatusText('Sending saved track intelligence to Albumcover Studio…');
     try {
-      const queued = await createAlbumCoverGeneration(draft, parentalAdvisory, selectedFontId);
+      const queued = await createAlbumCoverGeneration(draft, parentalAdvisory);
       setGeneration(queued);
       const completed = await finishGeneration(queued);
       setGeneration(completed);
@@ -221,7 +220,7 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
         <div>
           <div className="flex items-center gap-3 text-orange-500 mb-2"><WandSparkles className="w-6 h-6" /><span className="text-[10px] font-black uppercase tracking-[0.25em]">EZ AI</span></div>
           <h1 className="text-3xl sm:text-4xl font-black uppercase tracking-tight">Albumcover Studio</h1>
-          <p className="text-zinc-500 mt-2 max-w-3xl">Select a track, edit its saved title if needed, choose a typography style, and generate covers from the Music Intelligence already stored in EZ-WAY. No second song analysis is required.</p>
+          <p className="text-zinc-500 mt-2 max-w-3xl">Select a track, edit its saved title if needed, and generate covers from the Music Intelligence already stored in EZ-WAY. The Font Library shows the typography treatments EZ AI can apply automatically. No second song analysis is required.</p>
         </div>
 
         <div className="grid xl:grid-cols-[.72fr_1.28fr] gap-6">
@@ -277,22 +276,14 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
                 {draft.keywords.length > 0 && <p className="text-xs text-zinc-500"><span className="text-zinc-300 font-bold">Keywords:</span> {draft.keywords.join(', ')}</p>}
 
                 <div className="space-y-2">
-                  <div className="flex items-end justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-500">Font Library</p><p className="text-[10px] text-zinc-600 mt-1">Choose the lettering treatment rendered onto the generated cover.</p></div></div>
+                  <div><p className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-500">Font Library</p><p className="text-[10px] text-zinc-600 mt-1">Reference only. EZ AI automatically chooses a genre-aware lettering treatment for each cover.</p></div>
                   <div className="grid grid-cols-2 gap-2">
-                    {ALBUM_COVER_FONTS.map((font) => {
-                      const selected = font.id === selectedFontId;
-                      return (
-                        <button
-                          key={font.id}
-                          type="button"
-                          onClick={() => setSelectedFontId(font.id)}
-                          className={`rounded-2xl border px-3 py-3 text-left transition ${selected ? 'border-orange-500 bg-orange-500/10' : 'border-zinc-800 bg-black hover:border-zinc-600'}`}
-                        >
-                          <span className="block text-[9px] uppercase tracking-wider text-zinc-600">{font.category}</span>
-                          <span className="block mt-1 text-base text-white truncate" style={{ fontFamily: font.previewFamily, fontStyle: font.id.includes('italic') ? 'italic' : 'normal', fontWeight: font.id === 'bold_display' ? 900 : 600 }}>{font.label}</span>
-                        </button>
-                      );
-                    })}
+                    {ALBUM_COVER_FONTS.map((font) => (
+                      <div key={font.id} className="rounded-2xl border border-zinc-800 bg-black px-3 py-3">
+                        <span className="block text-[9px] uppercase tracking-wider text-zinc-600">{font.category}</span>
+                        <span className="block mt-1 text-base text-white truncate" style={{ fontFamily: font.previewFamily, fontStyle: font.id.includes('italic') ? 'italic' : 'normal', fontWeight: 600 }}>{font.label}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
@@ -333,7 +324,7 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
                 </button>
               </>
             ) : (
-              <div className="min-h-[390px] flex flex-col items-center justify-center text-center text-zinc-700"><ImageIcon className="w-14 h-14 mb-5" /><p className="font-bold text-zinc-500">Your three cover choices will appear here.</p><p className="text-xs mt-2 max-w-sm">Pick a track on the left, review the automatically loaded creative data, choose a font, then generate.</p></div>
+              <div className="min-h-[390px] flex flex-col items-center justify-center text-center text-zinc-700"><ImageIcon className="w-14 h-14 mb-5" /><p className="font-bold text-zinc-500">Your three cover choices will appear here.</p><p className="text-xs mt-2 max-w-sm">Pick a track on the left, review the automatically loaded creative data, then generate.</p></div>
             )}
           </section>
         </div>
