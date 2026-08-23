@@ -22,6 +22,7 @@ import {
   type AlbumCoverGeneration,
   type AlbumCoverVariation,
 } from '../services/albumCoverStudio';
+import { ALBUM_COVER_FONTS, buildAlbumCoverTitleUpdate } from '../services/albumCoverTitleFont';
 import { getTrackMusicIntelligence } from '../services/musicIntelligence';
 import { canUsePremiumFeature } from '../services/premiumFeatures';
 
@@ -38,12 +39,15 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
   const { tracks, updateTrack, uploadFile, addToast } = useMediaStore();
   const [selectedTrackId, setSelectedTrackId] = useState(initialTrackId || '');
   const [draft, setDraft] = useState<AlbumCoverDraft | null>(null);
+  const [titleInput, setTitleInput] = useState('');
+  const [selectedFontId, setSelectedFontId] = useState(ALBUM_COVER_FONTS[0].id);
   const [parentalAdvisory, setParentalAdvisory] = useState(false);
   const [generation, setGeneration] = useState<AlbumCoverGeneration | null>(null);
   const [selectedVariationId, setSelectedVariationId] = useState('');
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [updatingTitle, setUpdatingTitle] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [error, setError] = useState('');
 
@@ -54,6 +58,7 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
     [tracks, selectedTrackId],
   );
   const variations = useMemo(() => latestAlbumCoverVariations(generation), [generation]);
+  const titleDirty = Boolean(selectedTrack && titleInput.trim() !== String(selectedTrack.name || '').trim());
 
   useEffect(() => {
     if (!initialTrackId) return;
@@ -68,9 +73,11 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
     setError('');
     if (!selectedTrack) {
       setDraft(null);
+      setTitleInput('');
       return () => { cancelled = true; };
     }
 
+    setTitleInput(selectedTrack.name || '');
     setLoadingProfile(true);
     getTrackMusicIntelligence(selectedTrack.id)
       .catch(() => null)
@@ -96,14 +103,34 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
     });
   };
 
+  const handleUpdateTitle = async () => {
+    if (!selectedTrack || updatingTitle) return;
+    setUpdatingTitle(true);
+    setError('');
+    try {
+      const payload = buildAlbumCoverTitleUpdate(titleInput);
+      await updateTrack(selectedTrack.id, payload);
+      setTitleInput(payload.name);
+      setDraft((current) => current ? { ...current, title: payload.name } : current);
+      setStatusText(`Track title updated to “${payload.name}”. New covers will use this title.`);
+      addToast(`Updated track title to “${payload.name}”`, 'success');
+    } catch (caught: any) {
+      const message = caught?.message || 'Track title could not be updated.';
+      setError(message);
+      addToast(message, 'error');
+    } finally {
+      setUpdatingTitle(false);
+    }
+  };
+
   const handleGenerate = async () => {
-    if (!draft || generating) return;
+    if (!draft || generating || titleDirty) return;
     setGenerating(true);
     setError('');
     setSelectedVariationId('');
-    setStatusText('Sending saved track intelligence to Albumcover Studio…');
+    setStatusText('Sending saved track intelligence and typography choice to Albumcover Studio…');
     try {
-      const queued = await createAlbumCoverGeneration(draft, parentalAdvisory);
+      const queued = await createAlbumCoverGeneration(draft, parentalAdvisory, selectedFontId);
       setGeneration(queued);
       const completed = await finishGeneration(queued);
       setGeneration(completed);
@@ -194,7 +221,7 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
         <div>
           <div className="flex items-center gap-3 text-orange-500 mb-2"><WandSparkles className="w-6 h-6" /><span className="text-[10px] font-black uppercase tracking-[0.25em]">EZ AI</span></div>
           <h1 className="text-3xl sm:text-4xl font-black uppercase tracking-tight">Albumcover Studio</h1>
-          <p className="text-zinc-500 mt-2 max-w-3xl">Select a track and EZ-WAY automatically sends its title, artist, lyrics, genre, mood, style, BPM, key, instruments, and keywords as the creative brief. No second song analysis is required.</p>
+          <p className="text-zinc-500 mt-2 max-w-3xl">Select a track, edit its saved title if needed, choose a typography style, and generate covers from the Music Intelligence already stored in EZ-WAY. No second song analysis is required.</p>
         </div>
 
         <div className="grid xl:grid-cols-[.72fr_1.28fr] gap-6">
@@ -216,6 +243,29 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
               </div>
             )}
 
+            {selectedTrack && (
+              <div className="space-y-2">
+                <label className="block text-[10px] font-black uppercase tracking-[0.22em] text-zinc-500">Edit Track Title</label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    value={titleInput}
+                    onChange={(event) => setTitleInput(event.target.value)}
+                    className="min-w-0 flex-1 rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500"
+                    placeholder="Track title"
+                  />
+                  <button
+                    onClick={handleUpdateTitle}
+                    disabled={!titleDirty || updatingTitle || !titleInput.trim()}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-[10px] font-black uppercase tracking-widest hover:border-orange-500 disabled:opacity-40"
+                  >
+                    {updatingTitle ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    Update Track Title
+                  </button>
+                </div>
+                {titleDirty && <p className="text-[10px] text-amber-300">Save the title before generating so EZ-WAY and the cover stay in sync.</p>}
+              </div>
+            )}
+
             {loadingProfile && <div className="flex items-center gap-2 text-sm text-zinc-500"><Loader2 className="w-4 h-4 animate-spin" /> Loading saved Music Intelligence…</div>}
 
             {draft && !loadingProfile && (
@@ -225,13 +275,34 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
                 </div>
                 {draft.instruments.length > 0 && <p className="text-xs text-zinc-500"><span className="text-zinc-300 font-bold">Instruments:</span> {draft.instruments.join(', ')}</p>}
                 {draft.keywords.length > 0 && <p className="text-xs text-zinc-500"><span className="text-zinc-300 font-bold">Keywords:</span> {draft.keywords.join(', ')}</p>}
+
+                <div className="space-y-2">
+                  <div className="flex items-end justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-500">Font Library</p><p className="text-[10px] text-zinc-600 mt-1">Choose the lettering treatment rendered onto the generated cover.</p></div></div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {ALBUM_COVER_FONTS.map((font) => {
+                      const selected = font.id === selectedFontId;
+                      return (
+                        <button
+                          key={font.id}
+                          type="button"
+                          onClick={() => setSelectedFontId(font.id)}
+                          className={`rounded-2xl border px-3 py-3 text-left transition ${selected ? 'border-orange-500 bg-orange-500/10' : 'border-zinc-800 bg-black hover:border-zinc-600'}`}
+                        >
+                          <span className="block text-[9px] uppercase tracking-wider text-zinc-600">{font.category}</span>
+                          <span className="block mt-1 text-base text-white truncate" style={{ fontFamily: font.previewFamily, fontStyle: font.id.includes('italic') ? 'italic' : 'normal', fontWeight: font.id === 'bold_display' ? 900 : 600 }}>{font.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <label className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-black p-4 cursor-pointer"><div><p className="text-sm font-bold">Parental Advisory</p><p className="text-[10px] text-zinc-600 mt-1">Add the exact advisory label after artwork generation.</p></div><input type="checkbox" checked={parentalAdvisory} onChange={(event) => setParentalAdvisory(event.target.checked)} className="w-5 h-5 accent-orange-500" /></label>
 
                 {!configured && <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">Set <code>VITE_ALBUM_COVER_API_URL</code> to the deployed EZ AI Albumcover Studio backend before generating real covers.</div>}
                 {error && <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div>}
                 {statusText && <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-4 py-3 text-xs text-zinc-300">{statusText}</div>}
 
-                <button onClick={handleGenerate} disabled={!configured || generating} className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3.5 text-xs font-black uppercase tracking-widest text-black hover:bg-orange-400 disabled:opacity-40">
+                <button onClick={handleGenerate} disabled={!configured || generating || titleDirty} className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3.5 text-xs font-black uppercase tracking-widest text-black hover:bg-orange-400 disabled:opacity-40">
                   {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                   {generating ? 'Generating…' : 'Generate 3 Covers'}
                 </button>
@@ -262,7 +333,7 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
                 </button>
               </>
             ) : (
-              <div className="min-h-[390px] flex flex-col items-center justify-center text-center text-zinc-700"><ImageIcon className="w-14 h-14 mb-5" /><p className="font-bold text-zinc-500">Your three cover choices will appear here.</p><p className="text-xs mt-2 max-w-sm">Pick a track on the left, review the automatically loaded creative data, then generate.</p></div>
+              <div className="min-h-[390px] flex flex-col items-center justify-center text-center text-zinc-700"><ImageIcon className="w-14 h-14 mb-5" /><p className="font-bold text-zinc-500">Your three cover choices will appear here.</p><p className="text-xs mt-2 max-w-sm">Pick a track on the left, review the automatically loaded creative data, choose a font, then generate.</p></div>
             )}
           </section>
         </div>
