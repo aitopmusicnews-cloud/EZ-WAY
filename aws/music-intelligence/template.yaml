@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: EZ-WAY Music Intelligence profile storage on DynamoDB
+
+Parameters:
+  AllowedOrigin:
+    Type: String
+    Default: '*'
+    Description: Browser origin allowed by CORS. Keep IAM auth enabled even when CORS is permissive.
+
+Globals:
+  Function:
+    Timeout: 15
+    MemorySize: 256
+    Runtime: nodejs22.x
+    Architectures:
+      - arm64
+  HttpApi:
+    Auth:
+      EnableIamAuthorizer: true
+      DefaultAuthorizer: AWS_IAM
+
+Resources:
+  TrackAnalysisTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-track-analysis'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: track_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: track_id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  MusicIntelligenceApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: '$default'
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref AllowedOrigin
+        AllowHeaders:
+          - content-type
+          - authorization
+          - x-amz-date
+          - x-amz-security-token
+          - x-amz-content-sha256
+        AllowMethods:
+          - GET
+          - PUT
+          - DELETE
+          - OPTIONS
+      Auth:
+        EnableIamAuthorizer: true
+        DefaultAuthorizer: AWS_IAM
+
+  MusicIntelligenceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: handler.handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref TrackAnalysisTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TrackAnalysisTable
+      Events:
+        GetAnalysis:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref MusicIntelligenceApi
+            Path: /track-analysis/{trackId}
+            Method: GET
+        PutAnalysis:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref MusicIntelligenceApi
+            Path: /track-analysis/{trackId}
+            Method: PUT
+        DeleteAnalysis:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref MusicIntelligenceApi
+            Path: /track-analysis/{trackId}
+            Method: DELETE
+
+Outputs:
+  TrackAnalysisTableName:
+    Description: DynamoDB table holding canonical Song Profiles
+    Value: !Ref TrackAnalysisTable
+  MusicIntelligenceApiBase:
+    Description: IAM-protected API base. Do not expose unsigned write access from the browser.
+    Value: !Sub 'https://${MusicIntelligenceApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/track-analysis'

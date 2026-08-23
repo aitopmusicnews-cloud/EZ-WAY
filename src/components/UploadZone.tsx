@@ -4,6 +4,8 @@ import {
   ListPlus, CheckCircle, AlertCircle, Loader2, Play, Info 
 } from 'lucide-react';
 import { useMediaStore } from '../context/MediaStoreContext';
+import { analyzeAndPersistTrack } from '../services/musicIntelligence';
+import { profileToLegacyTrackUpdates } from '../services/musicIntelligenceCore';
 
 interface BulkFileItem {
   id: string;
@@ -36,7 +38,7 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
   const bulkArtworkInputRef = useRef<HTMLInputElement>(null);
   const bulkFileInputRef = useRef<HTMLInputElement>(null);
   
-  const { addTrack, analyzeTrack, uploadFile, addToast } = useMediaStore();
+  const { addTrack, updateTrack, uploadFile, addToast } = useMediaStore();
 
   // Generic File Evaluator
   const handleFileSingle = async (f: File) => {
@@ -84,31 +86,38 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
     setBulkFiles(prev => [...prev, ...items]);
   };
 
+  const getAudioDuration = async (audioFile: File) => {
+    const audioForDuration = new Audio();
+    const audioUrlForDuration = URL.createObjectURL(audioFile);
+    audioForDuration.src = audioUrlForDuration;
+
+    return new Promise<number>((resolve) => {
+      let settled = false;
+      const finish = (value: number) => {
+        if (settled) return;
+        settled = true;
+        URL.revokeObjectURL(audioUrlForDuration);
+        resolve(Number.isFinite(value) ? value : 0);
+      };
+      audioForDuration.onloadedmetadata = () => finish(audioForDuration.duration);
+      audioForDuration.onerror = () => finish(0);
+      setTimeout(() => finish(0), 4000);
+    });
+  };
+
   // Run the Single Upload Workflow
   const handleUploadSingle = async () => {
     if (!file) return;
 
     try {
       setUploadStatus("Extracting master duration...");
-      // Get actual audio duration
-      const audioForDuration = new Audio();
-      const audioUrlForDuration = URL.createObjectURL(file);
-      audioForDuration.src = audioUrlForDuration;
-      
-      const duration = await new Promise<number>((resolve) => {
-        audioForDuration.onloadedmetadata = () => {
-          resolve(audioForDuration.duration);
-          URL.revokeObjectURL(audioUrlForDuration);
-        };
-        // Fallback if metadata fails
-        setTimeout(() => resolve(0), 4000);
-      });
-
-      setUploadStatus("Analyzing BPM and key characteristics...");
-      const analysis = await analyzeTrack(file.name, duration, file);
+      const duration = await getAudioDuration(file);
 
       setUploadStatus("Uploading high-fidelity audio master...");
       const finalAudioUrl = await uploadFile('tracks', file);
+      if (!finalAudioUrl || finalAudioUrl.startsWith('blob:')) {
+        throw new Error('Cloud audio upload is required before automatic analysis can start.');
+      }
       
       let finalArtworkUrl = artworkUrl;
       if (artwork) {
@@ -119,33 +128,53 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
         }
       }
       
-      setUploadStatus("Committing meta handshake...");
-      await addTrack({
+      setUploadStatus("Creating track profile...");
+      const createdTrack = await addTrack({
         name: file.name.replace(/\.[^/.]+$/, ""),
         size: file.size,
         type: file.type,
-        file_url: finalAudioUrl || URL.createObjectURL(file), 
-        file_data: file, 
-        duration: duration,
-        bpm: analysis.bpm,
-        key_signature: analysis.key,
-        tags: analysis.tags || [],
+        file_url: finalAudioUrl,
+        file_data: file,
+        duration,
+        bpm: 0,
+        key_signature: 'Analyzing…',
+        tags: [],
+        status: 'processing',
         image_url: finalArtworkUrl,
         image_data: artwork || undefined,
         lyrics: lyrics || undefined,
       });
+
+      try {
+        const profile = await analyzeAndPersistTrack(createdTrack, {
+          force: true,
+          onProgress: (status) => setUploadStatus(status),
+        });
+        const legacyUpdates = profileToLegacyTrackUpdates(profile, createdTrack.tags || []);
+        await updateTrack(createdTrack.id, {
+          ...legacyUpdates,
+          status: 'ready',
+        });
+        addToast(`Track "${createdTrack.name}" uploaded and analyzed`, "success");
+      } catch (analysisError: any) {
+        console.error("Automatic Music Intelligence analysis failed:", analysisError);
+        await updateTrack(createdTrack.id, { status: 'error' });
+        addToast(
+          `Track "${createdTrack.name}" was uploaded, but analysis needs retry: ${analysisError?.message || analysisError}`,
+          "error",
+        );
+      }
       
       setUploadStatus(null);
-      addToast(`Track "${file.name.replace(/\.[^/.]+$/, "")}" successfully uploaded`, "success");
       onSuccess();
     } catch (e: any) {
       console.error("Upload process failed:", e);
       setUploadStatus(null);
-      alert("Asset shipment aborted. Check network configuration or permissions.");
+      alert(e?.message || "Asset shipment aborted. Check network configuration or permissions.");
     }
   };
 
-  // Run the Bulk Upload Workflow (queue-based, sequential to avoid hammering API endpoints)
+  // Run the Bulk Upload Workflow (queue-based, sequential to avoid hammering analysis endpoints)
   const handleUploadBulk = async () => {
     if (bulkFiles.length === 0 || isBulkUploading) return;
 
@@ -180,43 +209,50 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
       try {
         // Step 1: Extract runtime duration
         updateItemState({ status: 'extracting', statusText: 'Determining duration...', progress: 15 });
-        const audioForDuration = new Audio();
-        const audioUrlForDuration = URL.createObjectURL(currentItem.file);
-        audioForDuration.src = audioUrlForDuration;
-        
-        const duration = await new Promise<number>((resolve) => {
-          audioForDuration.onloadedmetadata = () => {
-            resolve(audioForDuration.duration);
-            URL.revokeObjectURL(audioUrlForDuration);
-          };
-          setTimeout(() => resolve(0), 4000);
-        });
+        const duration = await getAudioDuration(currentItem.file);
 
-        // Step 2: Pitch/BPM analysis using framework engine
-        updateItemState({ status: 'analyzing', statusText: 'Running wave diagnostics...', progress: 40 });
-        const analysis = await analyzeTrack(currentItem.file.name, duration, currentItem.file);
-
-        // Step 3: Cloud upload
-        updateItemState({ status: 'uploading', statusText: 'Uploading master WAV/MP3...', progress: 70 });
+        // Step 2: Upload the source so the shared analyzer can access the real file.
+        updateItemState({ status: 'uploading', statusText: 'Uploading master WAV/MP3...', progress: 35 });
         const finalAudioUrl = await uploadFile('tracks', currentItem.file);
+        if (!finalAudioUrl || finalAudioUrl.startsWith('blob:')) {
+          throw new Error('Cloud audio upload failed; analysis was not started.');
+        }
 
-        // Step 4: Supabase handshake
-        updateItemState({ status: 'uploading', statusText: 'Committing to database...', progress: 90 });
-        await addTrack({
+        // Step 3: Create the persistent processing record.
+        updateItemState({ status: 'uploading', statusText: 'Creating track profile...', progress: 50 });
+        const createdTrack = await addTrack({
           name: currentItem.file.name.replace(/\.[^/.]+$/, ""),
           size: currentItem.file.size,
           type: currentItem.file.type,
-          file_url: finalAudioUrl || URL.createObjectURL(currentItem.file),
-          file_data: currentItem.file, // local cache fallback
-          duration: duration,
-          bpm: analysis.bpm,
-          key_signature: analysis.key,
-          tags: analysis.tags || [],
+          file_url: finalAudioUrl,
+          file_data: currentItem.file,
+          duration,
+          bpm: 0,
+          key_signature: 'Analyzing…',
+          tags: [],
+          status: 'processing',
           image_url: bulkUploadedArtUrl || bulkArtworkUrl,
           image_data: bulkArtwork || undefined,
         });
 
-        updateItemState({ status: 'completed', statusText: 'Master Synced!', progress: 100 });
+        // Step 4: Run one canonical Music Intelligence job and reuse its saved result app-wide.
+        updateItemState({ status: 'analyzing', statusText: 'Analyzing music intelligence...', progress: 65 });
+        try {
+          const profile = await analyzeAndPersistTrack(createdTrack, {
+            force: true,
+            onProgress: (status) => updateItemState({ statusText: status, progress: 80 }),
+          });
+          const legacyUpdates = profileToLegacyTrackUpdates(profile, createdTrack.tags || []);
+          await updateTrack(createdTrack.id, {
+            ...legacyUpdates,
+            status: 'ready',
+          });
+        } catch (analysisError) {
+          await updateTrack(createdTrack.id, { status: 'error' });
+          throw analysisError;
+        }
+
+        updateItemState({ status: 'completed', statusText: 'Master Analyzed & Synced!', progress: 100 });
         setBulkProgressGlobal(prev => ({ ...prev, successCount: prev.successCount + 1 }));
       } catch (err: any) {
         console.error(`Bulk item upload failed for ${currentItem.file.name}:`, err);

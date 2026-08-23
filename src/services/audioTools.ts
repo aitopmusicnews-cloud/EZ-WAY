@@ -1,6 +1,7 @@
 import { Track } from '../types';
+import type { MusicIntelligenceProfile } from './musicIntelligenceCore';
 
-export type AudioToolAction = 'lyrics' | 'stems';
+export type AudioToolAction = 'analysis' | 'lyrics' | 'stems';
 export type StemMode = 'vocals_instrumental' | 'full';
 
 export interface AudioToolJobResult {
@@ -9,6 +10,7 @@ export interface AudioToolJobResult {
   call_id?: string;
   action?: AudioToolAction;
   mode?: StemMode;
+  profile?: MusicIntelligenceProfile;
   lyrics?: string;
   files?: Record<string, string>;
   bundle_url?: string;
@@ -18,7 +20,7 @@ export interface AudioToolJobResult {
 }
 
 const getBaseUrl = () => {
-  const value = (import.meta.env.VITE_AUDIO_TOOLS_URL || '').trim();
+  const value = String((import.meta as any).env?.VITE_AUDIO_TOOLS_URL || '').trim();
   return value.replace(/\/+$/, '');
 };
 
