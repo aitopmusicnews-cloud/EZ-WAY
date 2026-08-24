@@ -37,6 +37,9 @@ jobs:
       - name: Albumcover title and font tests
         run: node --experimental-strip-types --test src/services/albumCoverTitleFont.test.ts
 
+      - name: YouTube upload dropdown tests
+        run: node --experimental-strip-types --test src/services/youtubeUploadCore.test.ts
+
       - name: Python core tests
         run: python -m unittest discover -s modal -p 'test_music_intelligence_core.py' -v
 
