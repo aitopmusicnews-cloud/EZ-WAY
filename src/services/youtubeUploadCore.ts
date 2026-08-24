@@ -1,5 +1,6 @@
 import type { PromoVideo } from '../types';
 
+// Keep YouTube's promo-video chooser scoped to the track selected first.
 export const promoVideosForTrack = (
   promoVideos: PromoVideo[],
   trackId: string,
