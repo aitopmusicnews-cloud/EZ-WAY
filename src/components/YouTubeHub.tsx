@@ -44,7 +44,8 @@ export default function YouTubeHub(props: YouTubeHubProps) {
     };
 
     const installBridge = () => {
-      const label = Array.from(root.querySelectorAll('label')).find((item) =>
+      const labels = Array.from(root.querySelectorAll('label')) as HTMLLabelElement[];
+      const label = labels.find((item) =>
         item.textContent?.includes('Choose Complete Promo Video Rendering'),
       );
       const group = label?.parentElement as HTMLElement | null;
