@@ -47,8 +47,8 @@ jobs:
       - name: AWS Audio Tools job contract tests
         run: node --test aws/audio-tools/api/jobContract.test.mjs
 
-      - name: AWS Music Intelligence core tests
-        run: python -m unittest discover -s aws/audio-tools/worker -p 'test_music_intelligence_core.py' -v
+      - name: AWS worker tests
+        run: python -m unittest discover -s aws/audio-tools/worker -p 'test_*.py' -v
 
       - name: AWS worker syntax check
         run: python -m py_compile aws/audio-tools/worker/*.py
