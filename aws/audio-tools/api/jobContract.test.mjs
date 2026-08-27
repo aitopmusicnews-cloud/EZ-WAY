@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   normalizeJobRequest,
   pollHttpStatus,
@@ -75,4 +76,11 @@ test('public job response preserves the existing browser fields without storage 
     track_id: 'track-1',
     profile: { bpm: 92 },
   });
+});
+
+test('Lambda API package metadata is valid for SAM npm pack', () => {
+  const packageJson = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+  assert.equal(typeof packageJson.name, 'string');
+  assert.ok(packageJson.name.length > 0);
+  assert.match(packageJson.version ?? '', /^\d+\.\d+\.\d+$/);
 });
