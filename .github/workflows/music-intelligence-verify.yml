@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/music-intelligence-analyzer
+      - feature/aws-music-intelligence
   pull_request:
     branches:
       - main
@@ -40,14 +41,17 @@ jobs:
       - name: YouTube upload dropdown tests
         run: node --experimental-strip-types --test src/services/youtubeUploadCore.test.ts
 
-      - name: Python core tests
-        run: python -m unittest discover -s modal -p 'test_music_intelligence_core.py' -v
+      - name: AWS Audio Tools job contract tests
+        run: node --test aws/audio-tools/api/jobContract.test.mjs
 
-      - name: Python syntax check
-        run: python -m py_compile modal/audio_tools_agent_v5.py modal/music_intelligence_core.py
+      - name: AWS Music Intelligence core tests
+        run: python -m unittest discover -s aws/audio-tools/worker -p 'test_music_intelligence_core.py' -v
 
-      - name: AWS Lambda syntax check
-        run: node --check aws/music-intelligence/handler.mjs
+      - name: AWS worker syntax check
+        run: python -m py_compile aws/audio-tools/worker/*.py
+
+      - name: AWS API syntax check
+        run: node --check aws/audio-tools/api/handler.mjs aws/audio-tools/api/jobContract.mjs aws/music-intelligence/handler.mjs
 
       - name: TypeScript check
         run: npm run lint
