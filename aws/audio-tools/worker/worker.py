@@ -89,7 +89,7 @@ def _run_demucs(source: Path, output_dir: Path, two_stem: bool) -> Path:
     MODEL_ROOT.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("TORCH_HOME", str(MODEL_ROOT / "torch"))
     command = [
-        "python", "-m", "demucs", "-n", "htdemucs", "--device", "cpu", "--float32",
+        "demucs-infer", "-n", "htdemucs", "--device", "cpu", "--float32",
         "-o", str(output_dir),
     ]
     if two_stem:
