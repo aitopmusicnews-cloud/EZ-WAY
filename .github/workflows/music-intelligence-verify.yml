@@ -29,6 +29,9 @@ jobs:
       - name: Music Intelligence core tests
         run: node --experimental-strip-types --test src/services/musicIntelligenceCore.test.ts
 
+      - name: AWS Music Intelligence frontend tests
+        run: node --experimental-strip-types --test src/services/musicIntelligenceAws.test.ts
+
       - name: Copyrights core tests
         run: node --experimental-strip-types --test src/services/copyrightsCore.test.ts
 
@@ -52,6 +55,14 @@ jobs:
 
       - name: AWS API syntax check
         run: node --check aws/audio-tools/api/handler.mjs aws/audio-tools/api/jobContract.mjs aws/music-intelligence/handler.mjs
+
+      - name: AWS deployment script syntax check
+        run: bash -n aws/audio-tools/deploy.sh
+
+      - name: No Modal production runtime references
+        run: |
+          test ! -d modal
+          ! grep -R -E 'modal\.run|modal deploy' AUDIO_TOOLS.md src aws/audio-tools
 
       - name: TypeScript check
         run: npm run lint
