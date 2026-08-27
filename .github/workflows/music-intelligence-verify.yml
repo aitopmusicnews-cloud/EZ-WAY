@@ -56,6 +56,11 @@ jobs:
       - name: AWS API syntax check
         run: node --check aws/audio-tools/api/handler.mjs aws/audio-tools/api/jobContract.mjs aws/music-intelligence/handler.mjs
 
+      - name: AWS infrastructure lint
+        run: |
+          python -m pip install --quiet cfn-lint
+          cfn-lint aws/audio-tools/template.yaml
+
       - name: AWS deployment script syntax check
         run: bash -n aws/audio-tools/deploy.sh
 
