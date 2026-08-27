@@ -12,7 +12,10 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY aws/audio-tools/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+RUN pip install --no-cache-dir \
+      torch==2.5.0 torchaudio==2.5.0 \
+      --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r /app/requirements.txt
 
 COPY aws/audio-tools/worker/ /app/
 RUN mkdir -p /models
