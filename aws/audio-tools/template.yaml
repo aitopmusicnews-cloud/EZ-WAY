@@ -1,0 +1,309 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: EZ-WAY AWS-only Audio Tools and Music Intelligence runtime
+
+Parameters:
+  WorkerImageUri:
+    Type: String
+    Description: Full ECR image URI for the aws/audio-tools worker image.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC used by the ECS Fargate worker.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Public subnets with internet routing so the worker can fetch audio/model assets.
+  ProductionOrigin:
+    Type: String
+    Default: https://ezwaypro.theartistcut.com
+  AmplifyOrigin:
+    Type: String
+    Default: https://main.d1wu55zn1feotm.amplifyapp.com
+  WorkerDesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 4
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures:
+      - arm64
+    Timeout: 15
+    MemorySize: 256
+
+Resources:
+  JobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-jobs'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: call_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: call_id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  TrackAnalysisTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-track-analysis'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: track_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: track_id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${AWS::StackName}-dlq'
+      MessageRetentionPeriod: 1209600
+
+  WorkQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${AWS::StackName}-jobs'
+      VisibilityTimeout: 3600
+      ReceiveMessageWaitTimeSeconds: 20
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-audio-tool-outputs
+            Status: Enabled
+            ExpirationInDays: 30
+
+  AudioToolsApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: '$default'
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref ProductionOrigin
+          - !Ref AmplifyOrigin
+        AllowHeaders:
+          - content-type
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        MaxAge: 600
+
+  AudioToolsApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: api/
+      Handler: handler.handler
+      Environment:
+        Variables:
+          JOBS_TABLE: !Ref JobsTable
+          TRACK_ANALYSIS_TABLE: !Ref TrackAnalysisTable
+          QUEUE_URL: !Ref WorkQueue
+          ALLOWED_ORIGINS: !Sub '${ProductionOrigin},${AmplifyOrigin}'
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref JobsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref TrackAnalysisTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt WorkQueue.QueueName
+      Events:
+        Health:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AudioToolsApi
+            Path: /health
+            Method: GET
+        CreateJob:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AudioToolsApi
+            Path: /jobs
+            Method: POST
+        GetJob:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AudioToolsApi
+            Path: /jobs/{callId}
+            Method: GET
+        GetTrackAnalysis:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AudioToolsApi
+            Path: /track-analysis/{trackId}
+            Method: GET
+
+  WorkerCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub '${AWS::StackName}-cluster'
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/${AWS::StackName}-worker'
+      RetentionInDays: 30
+
+  WorkerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Outbound-only security group for EZ-WAY Audio Tools worker
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+
+  WorkerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  WorkerTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: AudioToolsWorkerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:ChangeMessageVisibility
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt WorkQueue.Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !GetAtt JobsTable.Arn
+                  - !GetAtt TrackAnalysisTable.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub '${OutputBucket.Arn}/*'
+
+  WorkerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${AWS::StackName}-worker'
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: '4096'
+      Memory: '16384'
+      ExecutionRoleArn: !GetAtt WorkerExecutionRole.Arn
+      TaskRoleArn: !GetAtt WorkerTaskRole.Arn
+      EphemeralStorage:
+        SizeInGiB: 40
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: audio-tools-worker
+          Image: !Ref WorkerImageUri
+          Essential: true
+          Environment:
+            - Name: QUEUE_URL
+              Value: !Ref WorkQueue
+            - Name: JOBS_TABLE
+              Value: !Ref JobsTable
+            - Name: TRACK_ANALYSIS_TABLE
+              Value: !Ref TrackAnalysisTable
+            - Name: OUTPUT_BUCKET
+              Value: !Ref OutputBucket
+            - Name: VISIBILITY_TIMEOUT
+              Value: '3600'
+            - Name: PRESIGNED_SECONDS
+              Value: '86400'
+            - Name: TORCH_NUM_THREADS
+              Value: '4'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref WorkerLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: worker
+
+  WorkerService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - WorkerLogGroup
+    Properties:
+      ServiceName: !Sub '${AWS::StackName}-worker'
+      Cluster: !Ref WorkerCluster
+      TaskDefinition: !Ref WorkerTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref WorkerDesiredCount
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: !Ref SubnetIds
+          SecurityGroups:
+            - !Ref WorkerSecurityGroup
+
+Outputs:
+  AudioToolsApiBase:
+    Description: Base URL to verify before assigning audio-tools-api.theartistcut.com
+    Value: !Sub 'https://${AudioToolsApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  WorkQueueUrl:
+    Value: !Ref WorkQueue
+  JobsTableName:
+    Value: !Ref JobsTable
+  TrackAnalysisTableName:
+    Value: !Ref TrackAnalysisTable
+  OutputBucketName:
+    Value: !Ref OutputBucket
+  WorkerClusterName:
+    Value: !Ref WorkerCluster
