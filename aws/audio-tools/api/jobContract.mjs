@@ -30,6 +30,9 @@ export function normalizeJobRequest(payload) {
     track_name: cleanString(payload.track_name) || 'track',
   };
 
+  const sourceFingerprint = cleanString(payload.source_fingerprint);
+  if (sourceFingerprint) normalized.source_fingerprint = sourceFingerprint;
+
   if (action === 'stems') {
     const mode = cleanString(payload.mode) || 'vocals_instrumental';
     if (!SUPPORTED_STEM_MODES.has(mode)) {
