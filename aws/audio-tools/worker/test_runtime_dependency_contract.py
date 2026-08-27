@@ -4,6 +4,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 REQUIREMENTS = ROOT / "aws" / "audio-tools" / "requirements.txt"
+DOCKERFILE = ROOT / "aws" / "audio-tools" / "Dockerfile"
 WORKER = ROOT / "aws" / "audio-tools" / "worker" / "worker.py"
 
 
@@ -16,6 +17,16 @@ class AwsAudioToolsRuntimeDependencyContractTests(unittest.TestCase):
         self.assertIn("demucs-infer>=4.2.2", requirements)
         self.assertIn('"demucs-infer"', worker)
         self.assertNotIn('"python", "-m", "demucs"', worker)
+
+    def test_cpu_worker_pins_cpu_only_torch_outside_generic_requirements(self):
+        requirements = REQUIREMENTS.read_text(encoding="utf-8")
+        dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+
+        self.assertNotIn("torch>=", requirements)
+        self.assertNotIn("torchaudio>=", requirements)
+        self.assertIn("https://download.pytorch.org/whl/cpu", dockerfile)
+        self.assertIn("torch==2.5.0", dockerfile)
+        self.assertIn("torchaudio==2.5.0", dockerfile)
 
 
 if __name__ == "__main__":
