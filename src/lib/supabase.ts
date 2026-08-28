@@ -49,10 +49,10 @@ async function readTableCount(table: string) {
 
 function readOnlyTable(table: string) {
   return {
-    select() {
+    select(..._args: unknown[]) {
       return {
-        limit: async () => readTableCount(table),
-        single: async () => {
+        limit: async (..._limitArgs: unknown[]) => readTableCount(table),
+        single: async (..._singleArgs: unknown[]) => {
           const result = await readTableCount(table);
           return { ...result, data: null };
         },
@@ -67,6 +67,6 @@ export const supabase = {
   },
 };
 
-export async function getSupabaseClient() {
+export async function getSupabaseClient(..._args: unknown[]) {
   return supabase;
 }
