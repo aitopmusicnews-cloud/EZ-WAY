@@ -26,6 +26,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install AWS app-data Lambda dependencies
+        run: npm install --prefix aws/app-data/api --ignore-scripts --no-audit --no-fund
+
       - name: Music Intelligence core tests
         run: node --experimental-strip-types --test src/services/musicIntelligenceCore.test.ts
 
@@ -34,6 +37,9 @@ jobs:
 
       - name: Cognito owner auth tests
         run: node --experimental-strip-types --test src/services/auth.test.ts
+
+      - name: EZ-WAY data store tests
+        run: node --experimental-strip-types --test src/services/dataStore.test.ts
 
       - name: Copyrights core tests
         run: node --experimental-strip-types --test src/services/copyrightsCore.test.ts
