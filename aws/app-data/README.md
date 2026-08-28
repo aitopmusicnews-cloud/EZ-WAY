@@ -49,20 +49,25 @@ Do not apply those values to Amplify yet.
 
 ## Live smoke test
 
-First complete the Cognito temporary-password challenge in the EZ-WAY sign-in UI if the admin was newly created. Then use the permanent owner password only as an ephemeral CloudShell environment variable:
+Use an existing permanent Cognito password, or the temporary password delivered by Cognito for a newly created admin. The smoke script can complete `NEW_PASSWORD_REQUIRED` itself when `SMOKE_ADMIN_NEW_PASSWORD` is supplied.
 
 ```bash
 export EZWAY_API_BASE='<EzwayApiBase>'
 export COGNITO_USER_POOL_ID='<UserPoolId>'
 export COGNITO_CLIENT_ID='<UserPoolClientId>'
 export SMOKE_ADMIN_EMAIL='you@example.com'
-read -s -p 'Owner password: ' SMOKE_ADMIN_PASSWORD; echo
+read -s -p 'Current/temporary owner password: ' SMOKE_ADMIN_PASSWORD; echo
 export SMOKE_ADMIN_PASSWORD
+
+# Only needed for a newly created Cognito user using the temporary password:
+read -s -p 'New permanent owner password (or press Enter if already permanent): ' SMOKE_ADMIN_NEW_PASSWORD; echo
+export SMOKE_ADMIN_NEW_PASSWORD
+
 bash aws/app-data/smoke-test.sh
-unset SMOKE_ADMIN_PASSWORD
+unset SMOKE_ADMIN_PASSWORD SMOKE_ADMIN_NEW_PASSWORD
 ```
 
-The smoke script never prints the password or ID token. It requires all of these to pass:
+The smoke script never prints passwords or the ID token. It requires all of these to pass:
 
 ```text
 health: ok
