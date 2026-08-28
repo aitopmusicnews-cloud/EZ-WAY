@@ -551,8 +551,6 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
       id,
       track_id: incoming.track_id,
       playlist_id: incoming.playlist_id,
-      video_url: videoUrl,
-      thumbnail_url: thumbnailUrl || '/ogbeatz_logo.svg',
       style: incoming.style || 'minimalist',
       status: incoming.status || 'ready',
       created_at: incoming.created_at || new Date().toISOString(),
