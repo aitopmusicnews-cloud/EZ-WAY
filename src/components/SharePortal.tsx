@@ -1,13 +1,13 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { 
-  Play, Pause, Download, ThumbsUp, ThumbsDown, 
-  MessageSquare, Send, Music, Clock, Lock, ChevronRight,
-  Share2, Volume2, Globe, Sparkles
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Clock, Download, Globe, Lock, MessageSquare, Music, Pause, Play,
+  Send, Sparkles, ThumbsDown, ThumbsUp, Volume2,
 } from 'lucide-react';
-import { Track, ShareLink, Playlist } from '../types';
+import { motion } from 'motion/react';
+import type { Playlist, ShareLink, Track } from '../types';
 import { cn } from '../lib/utils';
-import { motion, AnimatePresence } from 'motion/react';
 import { useMediaStore } from '../context/MediaStoreContext';
+import { dataStore } from '../services/dataStore';
 
 interface SharePortalProps {
   track?: Track;
@@ -15,541 +15,306 @@ interface SharePortalProps {
   shareLink: ShareLink;
 }
 
+const isPublicPortal = () => {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  return Boolean(params.get('token')?.trim() || params.get('share')?.trim());
+};
+
+const formatTime = (seconds: number) => {
+  const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  const mins = Math.floor(safe / 60);
+  const secs = Math.floor(safe % 60);
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+};
+
 export default function SharePortal({ track: initialTrack, playlist, shareLink }: SharePortalProps) {
-  const { tracks: allTracks, addActivity, sendMessage, messages, updateTrack, addToast } = useMediaStore();
+  const {
+    tracks: allTracks,
+    addActivity,
+    sendMessage,
+    messages,
+    updateTrack,
+    addToast,
+  } = useMediaStore();
   const [activeTrack, setActiveTrack] = useState<Track | null>(initialTrack || null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(initialTrack?.duration || 0);
   const [rating, setRating] = useState<'up' | 'down' | null>(null);
   const [comment, setComment] = useState('');
-  const [comments, setComments] = useState<any[]>([]);
-
+  const [localComments, setLocalComments] = useState<Array<{ id: string; user: string; text: string; time: string }>>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const playlistTracks = useMemo(() => {
     if (!playlist) return [];
-    return allTracks.filter(t => playlist.track_ids.includes(t.id));
+    const byId = new Map(allTracks.map((track) => [track.id, track]));
+    return playlist.track_ids.map((id) => byId.get(id)).filter(Boolean) as Track[];
   }, [playlist, allTracks]);
 
   useEffect(() => {
-    if (playlistTracks.length > 0 && !activeTrack) {
-        setActiveTrack(playlistTracks[0]);
-    }
-  }, [playlistTracks, activeTrack]);
+    if (!activeTrack && playlistTracks.length) setActiveTrack(playlistTracks[0]);
+  }, [activeTrack, playlistTracks]);
 
   useEffect(() => {
-    if (activeTrack?.file_url) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      audioRef.current = new Audio(activeTrack.file_url);
-      audioRef.current.addEventListener('timeupdate', () => {
-        setProgress(audioRef.current?.currentTime || 0);
-      });
-      audioRef.current.addEventListener('loadedmetadata', () => {
-        setDuration(audioRef.current?.duration || 0);
-      });
-      audioRef.current.addEventListener('ended', () => {
-        setIsPlaying(false);
-      });
-      audioRef.current.addEventListener('error', (e) => {
-        console.error("Share portal audio error:", e);
-        setIsPlaying(false);
-      });
-    }
-
+    const url = activeTrack?.file_url;
+    if (!url) return;
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    const onTime = () => setProgress(audio.currentTime || 0);
+    const onMeta = () => setDuration(audio.duration || activeTrack.duration || 0);
+    const onEnded = () => setIsPlaying(false);
+    const onError = () => setIsPlaying(false);
+    audio.addEventListener('timeupdate', onTime);
+    audio.addEventListener('loadedmetadata', onMeta);
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('error', onError);
     return () => {
-      audioRef.current?.pause();
-      audioRef.current = null;
+      audio.pause();
+      audio.removeEventListener('timeupdate', onTime);
+      audio.removeEventListener('loadedmetadata', onMeta);
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('error', onError);
+      if (audioRef.current === audio) audioRef.current = null;
     };
-  }, [activeTrack?.file_url]);
+  }, [activeTrack?.file_url, activeTrack?.duration]);
+
+  const postPublic = async (event: {
+    type: 'play' | 'thumbs_up' | 'thumbs_down' | 'comment';
+    track_id?: string;
+    content?: string;
+  }) => {
+    await dataStore.postPublicShareEvent(shareLink.token, event);
+  };
 
   const logTrackPlay = async (track: Track) => {
     try {
+      if (isPublicPortal()) {
+        await postPublic({ type: 'play', track_id: track.id });
+        await updateTrack(track.id, { plays: (track.plays || 0) + 1 });
+        return;
+      }
       await updateTrack(track.id, { plays: (track.plays || 0) + 1 });
-      addActivity({
-        type: 'play' as any,
-        user: 'Industry Client' + (shareLink.recipient_email ? ` (${shareLink.recipient_email})` : ''),
-        action: 'streamed track reference' as any,
+      await addActivity({
+        type: 'play',
+        user: `Industry Client${shareLink.recipient_email ? ` (${shareLink.recipient_email})` : ''}`,
+        action: 'streamed track reference',
         target: track.name,
         client_id: shareLink.client_id,
         track_id: track.id,
-        playlist_id: playlist?.id
+        playlist_id: playlist?.id,
       });
-    } catch (e) {
-      console.error("Error logging track play in SharePortal:", e);
+    } catch (error) {
+      console.error('[SharePortal] Play telemetry failed', error);
     }
   };
 
   const togglePlay = async () => {
-    if (audioRef.current) {
-      try {
-        if (isPlaying) {
-          audioRef.current.pause();
-          setIsPlaying(false);
-        } else {
-          await audioRef.current.play();
-          setIsPlaying(true);
-          if (activeTrack) {
-            logTrackPlay(activeTrack);
-          }
-        }
-      } catch (error) {
-        console.error("Share portal playback failed:", error);
+    const audio = audioRef.current;
+    if (!audio) return;
+    try {
+      if (isPlaying) {
+        audio.pause();
+        setIsPlaying(false);
+      } else {
+        await audio.play();
+        setIsPlaying(true);
+        if (activeTrack) void logTrackPlay(activeTrack);
       }
+    } catch (error) {
+      console.error('[SharePortal] Playback failed', error);
     }
   };
 
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const pct = Math.max(0, Math.min(1, x / rect.width));
-    if (audioRef.current) {
-      audioRef.current.currentTime = pct * duration;
-    }
-  };
-
-  const formatTime = (time: number) => {
-    const mins = Math.floor(time / 60);
-    const secs = Math.floor(time % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  const handleSeek = (event: React.MouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    if (audioRef.current) audioRef.current.currentTime = pct * duration;
   };
 
   const handleRating = async (type: 'up' | 'down') => {
-    if (rating === type) {
-      setRating(null);
-      return;
-    }
+    if (!activeTrack) return;
     setRating(type);
-    
-    addActivity({
-      type: type === 'up' ? 'social' as any : 'system' as any,
-      user: 'Industry Client' + (shareLink.recipient_email ? ` (${shareLink.recipient_email})` : ''),
-      action: type === 'up' ? 'thumbs_up' as any : 'thumbs_down' as any,
-      target: activeTrack?.name || playlist?.name || 'Asset',
-      details: type === 'up' ? 'High-priority approval.' : 'Requested revision cycle.',
-      client_id: shareLink.client_id,
-      track_id: activeTrack?.id,
-      playlist_id: playlist?.id
-    });
-
-    if (shareLink.client_id) {
-       const ratingMessage = type === 'up' 
-         ? `[Mix Approval]: Approved the mix for reference "${activeTrack?.name || 'Asset'}"!` 
-         : `[Revision Request]: Flagged "${activeTrack?.name || 'Asset'}" for revision adjustments.`;
-       await sendMessage(shareLink.client_id, ratingMessage, null, 'inbound');
-    }
-
-    if (type === 'up' && activeTrack) {
-       // Gracefully update likes/approval metrics
-       await updateTrack(activeTrack.id, { likes: (activeTrack.likes || 0) + 1 });
-       addToast("Mix approval synced to live dashboard!", 'success');
-    } else if (type === 'down' && activeTrack) {
-       addToast("Revision request logged. Our studio team has been notified.", 'success');
-    }
-  };
-
-  const handleComment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!comment.trim()) return;
-    
-    const newComment = { id: Date.now().toString(), user: 'Industry Client', text: comment, time: 'Just now' };
-    setComments(prev => [newComment, ...prev]);
-    
-    addActivity({
-      type: 'comment' as any,
-      user: 'Industry Client' + (shareLink.recipient_email ? ` (${shareLink.recipient_email})` : ''),
-      action: 'commented on',
-      target: activeTrack?.name || playlist?.name || 'Asset',
-      details: comment,
-      client_id: shareLink.client_id,
-      track_id: activeTrack?.id,
-      playlist_id: playlist?.id
-    });
-
-    if (shareLink.client_id) {
-       await sendMessage(shareLink.client_id, `[Feedback on ${activeTrack?.name || 'Asset'}]: ${comment}`, null, 'inbound');
-    }
-
-    setComment('');
-  };
-
-  // Synchronized historical comments from the database messages table
-  const dbComments = useMemo(() => {
-    if (!messages) return [];
-    
-    return messages
-      .filter(m => {
-        const matchClient = shareLink.client_id ? m.client_id === shareLink.client_id : true;
-        const matchTrackName = activeTrack ? m.content.includes(activeTrack.name) : true;
-        return m.direction === 'inbound' && matchClient && matchTrackName;
-      })
-      .map(m => {
-        let cleanText = m.content;
-        cleanText = cleanText.replace(/^\[Feedback on [^\]]+\]:\s*/i, "");
-        cleanText = cleanText.replace(/^\[Industry Feedback on [^\]]+\]:\s*/i, "");
-        cleanText = cleanText.replace(/^\[Mix Approval\]:\s*/i, "👍 ");
-        cleanText = cleanText.replace(/^\[Revision Request\]:\s*/i, "👎 ");
-
-        return {
-          id: m.id,
-          user: 'Industry Client',
-          text: cleanText,
-          time: new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
-      });
-  }, [messages, shareLink.client_id, activeTrack]);
-
-  const displayedComments = useMemo(() => {
-    const merged = [...comments];
-    dbComments.forEach(dc => {
-      if (!merged.some(mc => mc.id === dc.id)) {
-        merged.push(dc);
+    try {
+      if (isPublicPortal()) {
+        await postPublic({ type: type === 'up' ? 'thumbs_up' : 'thumbs_down', track_id: activeTrack.id });
+        if (type === 'up') await updateTrack(activeTrack.id, { likes: (activeTrack.likes || 0) + 1 });
+      } else {
+        await addActivity({
+          type: type === 'up' ? 'social' : 'system',
+          user: `Industry Client${shareLink.recipient_email ? ` (${shareLink.recipient_email})` : ''}`,
+          action: type === 'up' ? 'thumbs_up' : 'thumbs_down',
+          target: activeTrack.name,
+          details: type === 'up' ? 'High-priority approval.' : 'Requested revision cycle.',
+          client_id: shareLink.client_id,
+          track_id: activeTrack.id,
+          playlist_id: playlist?.id,
+        });
+        if (shareLink.client_id) {
+          const message = type === 'up'
+            ? `[Mix Approval]: Approved the mix for reference "${activeTrack.name}"!`
+            : `[Revision Request]: Flagged "${activeTrack.name}" for revision adjustments.`;
+          await sendMessage(shareLink.client_id, message, null, 'inbound');
+        }
+        if (type === 'up') await updateTrack(activeTrack.id, { likes: (activeTrack.likes || 0) + 1 });
       }
-    });
-    return merged;
-  }, [comments, dbComments]);
+      addToast(type === 'up' ? 'Mix approval recorded.' : 'Revision request recorded.', 'success');
+    } catch (error: any) {
+      addToast(`Feedback could not be recorded: ${error?.message || error}`, 'error');
+    }
+  };
 
-  // Read rating status dynamically from the database feedback history
-  const currentTrackRating = useMemo(() => {
-     if (!messages || !activeTrack || !shareLink.client_id) return rating;
-     const lastRatingMsg = messages
-       .filter(m => m.client_id === shareLink.client_id && m.content.includes(activeTrack.name))
-       .filter(m => m.content.includes('[Mix Approval]') || m.content.includes('[Revision Request]'))
-       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
-     
-     if (lastRatingMsg) {
-        return lastRatingMsg.content.includes('[Mix Approval]') ? 'up' : 'down';
-     }
-     return rating;
-  }, [messages, activeTrack, shareLink.client_id, rating]);
+  const handleComment = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const content = comment.trim();
+    if (!content || !activeTrack) return;
+    const optimistic = { id: `local-${Date.now()}`, user: 'Industry Client', text: content, time: 'Just now' };
+    setLocalComments((prev) => [optimistic, ...prev]);
+    setComment('');
+    try {
+      if (isPublicPortal()) {
+        await postPublic({ type: 'comment', track_id: activeTrack.id, content });
+      } else {
+        await addActivity({
+          type: 'message',
+          user: `Industry Client${shareLink.recipient_email ? ` (${shareLink.recipient_email})` : ''}`,
+          action: 'commented on',
+          target: activeTrack.name,
+          details: content,
+          client_id: shareLink.client_id,
+          track_id: activeTrack.id,
+          playlist_id: playlist?.id,
+        });
+        if (shareLink.client_id) {
+          await sendMessage(shareLink.client_id, `[Feedback on ${activeTrack.name}]: ${content}`, null, 'inbound');
+        }
+      }
+    } catch (error: any) {
+      addToast(`Comment could not be recorded: ${error?.message || error}`, 'error');
+    }
+  };
+
+  const historicalComments = useMemo(() => messages
+    .filter((message) => {
+      const clientMatches = shareLink.client_id ? message.client_id === shareLink.client_id : true;
+      const trackMatches = activeTrack ? message.content.includes(activeTrack.name) : true;
+      return message.direction === 'inbound' && clientMatches && trackMatches;
+    })
+    .map((message) => ({
+      id: message.id,
+      user: 'Industry Client',
+      text: message.content
+        .replace(/^\[Feedback on [^\]]+\]:\s*/i, '')
+        .replace(/^\[Industry Feedback on [^\]]+\]:\s*/i, '')
+        .replace(/^\[Mix Approval\]:\s*/i, '👍 ')
+        .replace(/^\[Revision Request\]:\s*/i, '👎 '),
+      time: new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    })), [messages, shareLink.client_id, activeTrack]);
+
+  const comments = [...localComments, ...historicalComments.filter((item) => !localComments.some((local) => local.id === item.id))];
+  const progressPct = duration > 0 ? Math.min(100, (progress / duration) * 100) : 0;
 
   return (
-    <div className="min-h-screen bg-black text-white selection:bg-orange-500 selection:text-black overflow-x-hidden font-sans">
-      {/* Dynamic Blurred Background */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-         <AnimatePresence mode="wait">
-            <motion.div 
-               key={activeTrack?.image_url}
-               initial={{ opacity: 0 }}
-               animate={{ opacity: 0.3 }}
-               exit={{ opacity: 0 }}
-               transition={{ duration: 1 }}
-               className="absolute inset-0 grayscale blur-[120px] scale-150"
-               style={{ 
-                  backgroundImage: `url(${activeTrack?.image_url})`,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center'
-               }}
-            />
-         </AnimatePresence>
-         <div className="absolute inset-0 bg-black/60" />
-      </div>
+    <div className="min-h-screen bg-black text-white selection:bg-orange-500 selection:text-black font-sans">
+      <div className="fixed inset-0 pointer-events-none opacity-20 blur-[120px] scale-125 bg-center bg-cover"
+        style={{ backgroundImage: activeTrack?.image_url ? `url(${activeTrack.image_url})` : undefined }} />
+      <div className="fixed inset-0 pointer-events-none bg-black/70" />
 
       <div className="relative z-10 p-6 md:p-12 lg:p-20">
-        <header className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-8 mb-20">
+        <header className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-8 mb-16">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-3xl overflow-hidden bg-white/5 border border-white/10 flex items-center justify-center backdrop-blur-3xl">
+            <div className="w-14 h-14 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center">
               <Sparkles className="w-8 h-8 text-orange-500" />
             </div>
             <div>
-              <div className="text-[10px] font-black tracking-[0.4em] text-orange-500 uppercase leading-none mb-1">Authenticated Delivery</div>
-              <h1 className="text-3xl font-black tracking-tighter uppercase italic flex items-center gap-2">
-                THE BEATZ WAY <span className="text-zinc-600 font-medium">HUB</span>
-              </h1>
+              <div className="text-[10px] font-black tracking-[0.4em] text-orange-500 uppercase">Authenticated Delivery</div>
+              <h1 className="text-3xl font-black tracking-tighter uppercase italic">THE BEATZ WAY <span className="text-zinc-600">HUB</span></h1>
             </div>
           </div>
-          
-          <div className="flex items-center gap-12">
-            <div className="hidden md:flex flex-col items-end">
-               <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">
-                  <Globe className="w-3 h-3" /> Encrypted Endpoint
-               </div>
-               <span className="text-[10px] text-zinc-700 font-mono mt-1">SESSION_TOKEN: {shareLink.token.slice(0, 12)}</span>
+          <div className="flex items-center gap-6">
+            <div className="hidden md:block text-right">
+              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-500"><Globe className="w-3 h-3" /> Encrypted Endpoint</div>
+              <span className="text-[10px] text-zinc-700 font-mono">TOKEN: {shareLink.token.slice(0, 12)}</span>
             </div>
             {shareLink.expires_at && (
-              <div className="px-5 py-2 rounded-2xl bg-zinc-900/50 border border-zinc-800 backdrop-blur-xl flex items-center gap-3">
+              <div className="px-4 py-2 rounded-2xl bg-zinc-900/70 border border-zinc-800 flex items-center gap-3">
                 <Clock className="w-4 h-4 text-orange-500" />
-                <div className="flex flex-col">
-                  <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500">Portal Access Expiry</span>
-                  <span className="text-[10px] font-bold">{new Date(shareLink.expires_at).toLocaleDateString()}</span>
-                </div>
+                <div><div className="text-[8px] uppercase text-zinc-500">Expires</div><div className="text-[10px] font-bold">{new Date(shareLink.expires_at).toLocaleDateString()}</div></div>
               </div>
             )}
           </div>
         </header>
 
-        <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-16">
-          
-          {/* Left: Player & Visuals (8 Cols) */}
-          <div className="lg:col-span-12 xl:col-span-7 space-y-12">
-            <div className="flex flex-col md:flex-row gap-12 items-center md:items-start group">
-               <motion.div 
-                 initial={{ scale: 0.9, opacity: 0 }}
-                 animate={{ scale: 1, opacity: 1 }}
-                 className="relative w-full max-w-[400px] aspect-square rounded-[4rem] overflow-hidden shadow-[0_0_120px_rgba(249,115,22,0.15)] border-2 border-white/5 bg-zinc-900 group"
-               >
-                  <img src={activeTrack?.image_url || "/ogbeatz_logo.svg"} className="w-full h-full object-cover transition-transform duration-[20s] group-hover:scale-110" referrerPolicy="no-referrer" />
-                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-500 backdrop-blur-sm">
-                    <button 
-                      onClick={togglePlay}
-                      className="w-28 h-28 bg-white text-black rounded-full flex items-center justify-center hover:scale-110 active:scale-95 transition-transform shadow-2xl"
-                    >
-                      {isPlaying ? <Pause className="w-12 h-12 fill-current" /> : <Play className="w-12 h-12 fill-current ml-2" />}
-                    </button>
-                  </div>
-               </motion.div>
-
-               <div className="flex-1 space-y-8 text-center md:text-left py-4">
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-center md:justify-start gap-4">
-                       <div className="px-3 py-1 bg-orange-500 text-black text-[9px] font-black uppercase tracking-[0.2em] rounded-md">MASTER</div>
-                       <div className="text-zinc-500 text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-                          <Volume2 className="w-3.5 h-3.5" /> Reference Mix V2.4
-                       </div>
-                    </div>
-                    <h2 className="text-5xl md:text-8xl font-black tracking-tighter leading-none italic uppercase">{activeTrack?.name || 'Untitled'}</h2>
-                    <p className="text-2xl text-zinc-400 font-medium tracking-tight">{activeTrack?.artist || 'Unknown Artist'}</p>
-                  </div>
-
-                  {/* Metadata Indicators */}
-                  <div className="flex flex-wrap items-center justify-center md:justify-start gap-6">
-                     <div className="flex flex-col">
-                        <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none mb-2">Tempo</span>
-                        <span className="text-xl font-mono font-bold">{activeTrack?.bpm || '--'} BPM</span>
-                     </div>
-                     <div className="w-px h-8 bg-white/5" />
-                     <div className="flex flex-col">
-                        <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none mb-2">Tonal Key</span>
-                        <span className="text-xl font-mono font-bold uppercase">{activeTrack?.key_signature || '--'}</span>
-                     </div>
-                     <div className="w-px h-8 bg-white/5" />
-                     <div className="flex flex-col">
-                        <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest leading-none mb-2">Duration</span>
-                        <span className="text-xl font-mono font-bold">{formatTime(duration || activeTrack?.duration || 0)}</span>
-                     </div>
-                  </div>
-               </div>
-            </div>
-
-            {/* Custom Pro Waveform / Progress Bar */}
-            <div className="space-y-6">
-               <div 
-                 onClick={handleSeek}
-                 className="h-20 w-full group relative cursor-pointer flex items-center"
-               >
-                  <div className="absolute inset-0 bg-white/5 rounded-3xl backdrop-blur-sm border border-white/5" />
-                  <div className="absolute inset-x-8 inset-y-6 flex items-center justify-between gap-1 overflow-hidden pointer-events-none">
-                     {[...Array(60)].map((_, i) => {
-                        const progressPct = (progress / (duration || 1)) * 100;
-                        const barPct = (i / 60) * 100;
-                        const active = barPct <= progressPct;
-                        return (
-                          <motion.div 
-                            key={i}
-                            animate={{ 
-                              height: active && isPlaying ? [20, 40, 20] : 10,
-                              backgroundColor: active ? '#f97316' : 'rgba(255,255,255,0.1)'
-                            }}
-                            transition={{ 
-                              duration: 0.5, 
-                              repeat: active && isPlaying ? Infinity : 0, 
-                              delay: i * 0.02 
-                            }}
-                            className="flex-1 rounded-full"
-                          />
-                        );
-                     })}
-                  </div>
-                  {/* Invisible Seek Overlay */}
-                  <div className="absolute inset-0 z-10" />
-               </div>
-               
-               <div className="flex justify-between text-[10px] font-mono text-zinc-600 uppercase tracking-widest px-4">
-                  <div className="flex items-center gap-2">
-                     <div className="w-2 h-2 rounded-full bg-orange-500" />
-                     <span>{formatTime(progress)}</span>
-                  </div>
-                  <span>{formatTime(duration || activeTrack?.duration || 0)}</span>
-               </div>
-            </div>
-          </div>
-
-          {/* Right: Interaction Panel (4 Cols) */}
-          <div className="lg:col-span-12 xl:col-span-5 space-y-12">
-            <div className="bg-zinc-950/40 border border-white/5 backdrop-blur-3xl p-10 md:p-12 rounded-[4rem] shadow-2xl space-y-12">
-               
-               <div className="space-y-8">
+        <main className="max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-12 gap-12">
+          <section className="xl:col-span-7 space-y-8">
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="grid md:grid-cols-[minmax(260px,380px)_1fr] gap-10 items-center">
+              <div className="aspect-square rounded-[3rem] overflow-hidden border border-white/10 bg-zinc-950 shadow-2xl">
+                <img src={activeTrack?.image_url || '/ogbeatz_logo.svg'} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              </div>
+              <div className="space-y-7">
+                <div>
+                  <div className="flex items-center gap-3 mb-3"><span className="px-3 py-1 rounded-md bg-orange-500 text-black text-[9px] font-black tracking-widest">MASTER</span><span className="text-[10px] uppercase tracking-widest text-zinc-500 flex items-center gap-2"><Volume2 className="w-3 h-3" /> Reference Mix</span></div>
+                  <h2 className="text-5xl md:text-7xl font-black tracking-tighter uppercase italic leading-none">{activeTrack?.name || 'Untitled'}</h2>
+                  <p className="text-xl text-zinc-400 mt-3">{activeTrack?.artist || 'Unknown Artist'}</p>
+                </div>
+                <div className="flex gap-8 text-sm font-mono">
+                  <div><div className="text-[9px] uppercase text-zinc-600">Tempo</div>{activeTrack?.bpm || '--'} BPM</div>
+                  <div><div className="text-[9px] uppercase text-zinc-600">Key</div>{activeTrack?.key_signature || '--'}</div>
+                  <div><div className="text-[9px] uppercase text-zinc-600">Duration</div>{formatTime(duration || activeTrack?.duration || 0)}</div>
+                </div>
+                <div className="space-y-3">
+                  <div onClick={handleSeek} className="h-2 rounded-full bg-zinc-900 cursor-pointer overflow-hidden"><div className="h-full bg-orange-500" style={{ width: `${progressPct}%` }} /></div>
                   <div className="flex items-center justify-between">
-                     <h3 className="text-xl font-black uppercase tracking-tight">Review Protocol</h3>
-                     {shareLink.download_enabled && (
-                        <button 
-                          onClick={async () => {
-                             if (activeTrack?.file_url) {
-                                try {
-                                  addToast("Initializing secure high-fidelity download stream...", "info");
-                                  const response = await fetch(activeTrack.file_url);
-                                  const blob = await response.blob();
-                                  const blobUrl = window.URL.createObjectURL(blob);
-                                  const a = document.createElement('a');
-                                  a.href = blobUrl;
-                                  a.download = `${activeTrack.name}_MASTER_24BIT.wav`;
-                                  document.body.appendChild(a);
-                                  a.click();
-                                  document.body.removeChild(a);
-                                  window.URL.revokeObjectURL(blobUrl);
-                                  addToast("Master reference successfully downloaded!", "success");
-                                  
-                                  addActivity({
-                                    type: 'download',
-                                    user: 'Industry Client' + (shareLink.recipient_email ? ` (${shareLink.recipient_email})` : ''),
-                                    action: 'downloaded master',
-                                    target: activeTrack.name,
-                                    client_id: shareLink.client_id,
-                                    track_id: activeTrack.id
-                                  });
-                                } catch (err) {
-                                  console.warn("Direct blob download error, running fallback link redirect:", err);
-                                  const a = document.createElement('a');
-                                  a.href = activeTrack.file_url;
-                                  a.download = `${activeTrack.name}_MASTER.mp3`;
-                                  a.click();
-                                }
-                             }
-                          }}
-                          className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-orange-500 hover:text-white transition-colors animate-pulse"
-                        >
-                           <Download className="w-4 h-4" /> Download WAV
-                        </button>
-                     )}
+                    <span className="text-[10px] font-mono text-zinc-600">{formatTime(progress)}</span>
+                    <button onClick={togglePlay} disabled={!activeTrack?.file_url} className="w-16 h-16 rounded-full bg-white text-black flex items-center justify-center disabled:opacity-30 hover:scale-105 transition-transform">
+                      {isPlaying ? <Pause className="w-7 h-7 fill-current" /> : <Play className="w-7 h-7 fill-current ml-1" />}
+                    </button>
+                    <span className="text-[10px] font-mono text-zinc-600">{formatTime(duration)}</span>
                   </div>
+                </div>
+                {shareLink.download_enabled && activeTrack?.file_url && (
+                  <a href={activeTrack.file_url} download className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-zinc-800 hover:border-orange-500 text-xs font-black uppercase tracking-widest"><Download className="w-4 h-4" /> Download Master</a>
+                )}
+              </div>
+            </motion.div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                     <button 
-                       onClick={() => handleRating('up')}
-                       className={cn(
-                         "flex flex-col items-center justify-center gap-5 p-10 rounded-[2.5rem] border transition-all duration-500",
-                         currentTrackRating === 'up' 
-                         ? "bg-emerald-500 border-emerald-400 text-black shadow-[0_0_50px_rgba(16,185,129,0.2)]" 
-                         : "bg-white/5 border-white/5 text-emerald-500/50 hover:border-emerald-500/30 hover:bg-emerald-500/5"
-                       )}
-                     >
-                        <ThumbsUp className={cn("w-10 h-10", currentTrackRating === 'up' && "fill-current")} />
-                        <span className="text-[9px] font-black uppercase tracking-widest">Approve Mix</span>
-                     </button>
-                     <button 
-                       onClick={() => handleRating('down')}
-                       className={cn(
-                         "flex flex-col items-center justify-center gap-5 p-10 rounded-[2.5rem] border transition-all duration-500",
-                         currentTrackRating === 'down' 
-                         ? "bg-red-500 border-red-400 text-black shadow-[0_0_50px_rgba(239,68,68,0.2)]" 
-                         : "bg-white/5 border-white/5 text-red-500/50 hover:border-red-500/30 hover:bg-red-500/5"
-                       )}
-                     >
-                        <ThumbsDown className={cn("w-10 h-10", currentTrackRating === 'down' && "fill-current")} />
-                        <span className="text-[9px] font-black uppercase tracking-widest">Revisions</span>
-                     </button>
-                  </div>
-               </div>
+            {playlistTracks.length > 1 && (
+              <div className="bg-zinc-950/80 border border-zinc-900 rounded-3xl p-5 space-y-2">
+                <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3 flex items-center gap-2"><Music className="w-4 h-4" /> Collection Tracks</div>
+                {playlistTracks.map((track) => (
+                  <button key={track.id} onClick={() => { setActiveTrack(track); setIsPlaying(false); setProgress(0); }} className={cn('w-full flex items-center justify-between p-4 rounded-2xl border text-left transition-all', activeTrack?.id === track.id ? 'border-orange-500/40 bg-orange-500/5' : 'border-zinc-900 hover:border-zinc-800')}>
+                    <div><div className="font-bold">{track.name}</div><div className="text-[10px] text-zinc-600">{track.artist}</div></div>
+                    <div className="text-[10px] font-mono text-zinc-500">{track.bpm || '--'} BPM</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
 
-               <div className="space-y-6">
-                  <div className="flex items-center gap-3 text-zinc-400 text-[10px] font-black uppercase tracking-[0.2em]">
-                     <MessageSquare className="w-4 h-4 text-orange-500" /> Professional Feedback
-                  </div>
-
-                  {playlist && (
-                    <div className="grid grid-cols-1 gap-2 max-h-[220px] overflow-y-auto pr-2 custom-scrollbar">
-                       {playlistTracks.map((t, idx) => (
-                         <button 
-                           key={t.id}
-                           onClick={() => setActiveTrack(t)}
-                           className={cn(
-                             "w-full flex items-center justify-between p-4 rounded-[1.2rem] border transition-all group text-left",
-                             activeTrack?.id === t.id 
-                             ? "bg-white border-white text-black font-black" 
-                             : "bg-white/5 border-white/5 text-zinc-500 hover:border-white/10 hover:bg-white/10"
-                           )}
-                         >
-                           <div className="flex items-center gap-4 overflow-hidden min-w-0">
-                              <span className={cn("text-[9px] font-mono shrink-0", activeTrack?.id === t.id ? "text-zinc-600" : "text-zinc-800")}>{(idx + 1).toString().padStart(2, '0')}</span>
-                              <span className="text-[10px] uppercase tracking-tight truncate">{t.name}</span>
-                           </div>
-                           {activeTrack?.id === t.id ? <Play className="w-3.5 h-3.5 fill-current shrink-0" /> : <ChevronRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />}
-                         </button>
-                       ))}
-                    </div>
-                  )}
-
-                  <form onSubmit={handleComment} className="space-y-4">
-                     <div className="relative">
-                       <textarea 
-                          value={comment}
-                          onChange={(e) => setComment(e.target.value)}
-                          placeholder={`Submit timestamps or vocal revision notes for ${activeTrack?.name || 'active master'}...`}
-                          className="w-full h-36 bg-white/5 border border-white/5 rounded-[2rem] p-6 pr-16 text-xs focus:outline-none focus:border-orange-500 transition-all resize-none placeholder:text-zinc-700 leading-relaxed"
-                       />
-                       <button 
-                         type="submit"
-                         disabled={!comment.trim()}
-                         className="absolute bottom-5 right-5 w-10 h-10 bg-white text-black rounded-xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-xl disabled:opacity-50 disabled:scale-100"
-                       >
-                          <Send className="w-4 h-4" />
-                       </button>
-                     </div>
-                  </form>
-
-                  <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                    <AnimatePresence initial={false}>
-                      {displayedComments.map(c => (
-                        <motion.div 
-                          key={c.id}
-                          initial={{ opacity: 0, x: 20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          className="bg-zinc-900 border border-white/5 p-5 rounded-[2rem] space-y-3"
-                        >
-                          <div className="flex items-center justify-between">
-                             <span className="text-[9px] font-black uppercase text-orange-500 tracking-widest">{c.user}</span>
-                             <span className="text-[8px] text-zinc-700 uppercase font-mono">{c.time}</span>
-                          </div>
-                          <p className="text-xs text-zinc-300 leading-relaxed italic">"{c.text}"</p>
-                        </motion.div>
-                      ))}
-                      {displayedComments.length === 0 && (
-                        <div className="text-center py-10 bg-white/[0.01] border border-dashed border-white/5 rounded-[1.5rem]">
-                           <p className="text-[9px] text-zinc-600 font-bold uppercase tracking-wider">No feedback threads logged for this reference.</p>
-                        </div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-               </div>
+          <aside className="xl:col-span-5 space-y-6">
+            <div className="bg-zinc-950/90 border border-zinc-900 rounded-[2rem] p-7 space-y-6">
+              <div className="flex items-center gap-3"><Lock className="w-4 h-4 text-orange-500" /><div><h3 className="font-black uppercase tracking-wider">Client Review</h3><p className="text-[10px] text-zinc-600 uppercase tracking-widest">Feedback is token-scoped to this delivery</p></div></div>
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={() => handleRating('up')} disabled={!activeTrack} className={cn('p-5 rounded-2xl border flex flex-col items-center gap-2 font-black uppercase text-[10px] tracking-widest transition-all', rating === 'up' ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400' : 'border-zinc-800 hover:border-emerald-500/50')}><ThumbsUp className="w-6 h-6" /> Approve</button>
+                <button onClick={() => handleRating('down')} disabled={!activeTrack} className={cn('p-5 rounded-2xl border flex flex-col items-center gap-2 font-black uppercase text-[10px] tracking-widest transition-all', rating === 'down' ? 'bg-rose-500/15 border-rose-500 text-rose-400' : 'border-zinc-800 hover:border-rose-500/50')}><ThumbsDown className="w-6 h-6" /> Revision</button>
+              </div>
+              <form onSubmit={handleComment} className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 flex items-center gap-2"><MessageSquare className="w-4 h-4" /> Mix Notes</label>
+                <textarea value={comment} onChange={(event) => setComment(event.target.value)} maxLength={4000} rows={4} placeholder="Leave time-stamped creative or revision notes..." className="w-full bg-black border border-zinc-800 rounded-2xl p-4 text-sm outline-none focus:border-orange-500 resize-none" />
+                <button type="submit" disabled={!comment.trim() || !activeTrack} className="w-full bg-orange-500 text-black rounded-xl px-4 py-3 font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 disabled:opacity-40"><Send className="w-4 h-4" /> Send Feedback</button>
+              </form>
             </div>
-          </div>
+
+            <div className="bg-zinc-950/90 border border-zinc-900 rounded-[2rem] p-7">
+              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-4">Review History</div>
+              <div className="space-y-3 max-h-[360px] overflow-y-auto">
+                {comments.length ? comments.map((item) => (
+                  <div key={item.id} className="bg-black/60 border border-zinc-900 rounded-2xl p-4"><div className="flex items-center justify-between mb-2"><span className="text-[10px] font-black uppercase text-orange-500">{item.user}</span><span className="text-[9px] text-zinc-700">{item.time}</span></div><p className="text-sm text-zinc-300 leading-relaxed">{item.text}</p></div>
+                )) : <p className="text-xs text-zinc-600 italic">No feedback has been submitted yet.</p>}
+              </div>
+            </div>
+          </aside>
         </main>
-
-        <footer className="mt-32 pb-20 max-w-7xl mx-auto border-t border-white/5 pt-16 flex flex-col md:flex-row items-center justify-between gap-12">
-            <div className="flex flex-col items-center md:items-start gap-4">
-               <div className="flex items-center gap-3">
-                 <div className="w-10 h-10 rounded-2xl overflow-hidden bg-orange-500 flex items-center justify-center">
-                    <Sparkles className="w-6 h-6 text-black" />
-                 </div>
-                 <span className="text-2xl font-black tracking-tighter uppercase italic">THE BEATZ WAY</span>
-               </div>
-               <p className="text-[9px] font-black uppercase tracking-[0.4em] text-zinc-700 pl-1">Unified Artist Distribution Engine</p>
-            </div>
-
-            <div className="flex items-center gap-12 opacity-40 grayscale hover:grayscale-0 hover:opacity-100 transition-all">
-                <div className="flex flex-col items-end">
-                   <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Secured by</span>
-                   <span className="text-[10px] font-black text-white italic">CRYPTO_GATE</span>
-                </div>
-                <div className="flex gap-1">
-                   <div className="w-1 h-8 bg-zinc-800" />
-                   <div className="w-1 h-12 bg-zinc-700" />
-                   <div className="w-1 h-6 bg-zinc-800" />
-                </div>
-            </div>
-        </footer>
       </div>
     </div>
   );
