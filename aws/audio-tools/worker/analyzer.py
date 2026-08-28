@@ -161,14 +161,13 @@ class MusicIntelligenceEngine:
     def __init__(self) -> None:
         configure_model_cache()
         import torch
-        from allin1_infer import AllInOneSession
+        from allin1_infer import analyze
         from transformers import ClapModel, ClapProcessor
 
         requested_threads = int(os.getenv("TORCH_NUM_THREADS", "4"))
         torch.set_num_threads(max(1, requested_threads))
         self.device = torch.device("cpu")
-        self.structure = AllInOneSession(model="harmonix-all", device="cpu")
-        self.structure.load()
+        self.structure_analyze = analyze
         self.clap_processor = ClapProcessor.from_pretrained(CLAP_MODEL_ID)
         self.clap_model = ClapModel.from_pretrained(CLAP_MODEL_ID).to(self.device)
         self.clap_model.eval()
@@ -215,7 +214,15 @@ class MusicIntelligenceEngine:
         with tempfile.TemporaryDirectory(prefix="ezway-aws-analysis-") as temp_name:
             temp_dir = Path(temp_name)
             source = download_audio(file_url, temp_dir)
-            structure_result = self.structure.infer(str(source))
+            structure_result = self.structure_analyze(
+                str(source),
+                model="harmonix-all",
+                device="cpu",
+                demix_dir=temp_dir / "allin1-demix",
+                spec_dir=temp_dir / "allin1-spec",
+                keep_byproducts=False,
+                multiprocess=False,
+            )
             sections = [
                 {"start": float(segment.start), "end": float(segment.end), "label": str(segment.label)}
                 for segment in structure_result.segments
