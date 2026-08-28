@@ -137,3 +137,27 @@ export const rowToProfile = (row = {}) => ({
   bio: asString(row.bio),
   social_links: parseJsonObject(row.social_links),
 });
+
+export async function resolveMediaUrls(entity, item, presignRead) {
+  if (!item || typeof presignRead !== 'function') return item;
+  const output = { ...item };
+  const resolve = async (keyField, urlField, emptyValue = null) => {
+    if (output[keyField]) output[urlField] = await presignRead(output[keyField]);
+    else if (output[urlField] == null) output[urlField] = emptyValue;
+  };
+
+  if (entity === 'tracks') {
+    await Promise.all([resolve('file_key', 'file_url'), resolve('image_key', 'image_url')]);
+  } else if (entity === 'playlists') {
+    await resolve('image_key', 'image_url', undefined);
+  } else if (entity === 'clients') {
+    await resolve('avatar_key', 'avatar_url', undefined);
+  } else if (entity === 'messages') {
+    await resolve('image_key', 'image_url');
+  } else if (entity === 'promo_videos') {
+    await Promise.all([resolve('video_key', 'video_url', ''), resolve('thumbnail_key', 'thumbnail_url', '')]);
+  } else if (entity === 'profiles') {
+    await resolve('avatar_key', 'avatar_url', '');
+  }
+  return output;
+}
