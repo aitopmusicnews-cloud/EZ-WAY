@@ -10,14 +10,9 @@ set -euo pipefail
 REGION="${AWS_REGION:-us-west-2}"
 API_BASE="${EZWAY_API_BASE%/}"
 
-for command in aws curl python; do
+for command in aws curl python base64; do
   command -v "$command" >/dev/null 2>&1 || { echo "Missing required command: $command" >&2; exit 1; }
 done
-
-json_field() {
-  local field="$1"
-  python -c "import json,sys; value=json.load(sys.stdin); print(value$field if value$field is not None else '')"
-}
 
 uuid() {
   python -c 'import uuid; print(uuid.uuid4())'
@@ -28,11 +23,7 @@ CLIENT_ID="$(uuid)"
 SHARE_ID="$(uuid)"
 SHARE_TOKEN="smoke-$(uuid)"
 FIXTURE="$(mktemp --suffix=.png)"
-trap 'rm -f "$FIXTURE"' EXIT
-
-# A tiny generated PNG fixture; no binary test asset is committed.
-printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2mH0AAAAASUVORK5CYII=' | base64 --decode > "$FIXTURE"
-FIXTURE_SIZE="$(wc -c < "$FIXTURE" | tr -d ' ')"
+ID_TOKEN=""
 
 cleanup() {
   set +e
@@ -41,20 +32,57 @@ cleanup() {
     curl -fsS -X DELETE "$API_BASE/clients/$CLIENT_ID" -H "Authorization: Bearer $ID_TOKEN" >/dev/null 2>&1 || true
     curl -fsS -X DELETE "$API_BASE/tracks/$TRACK_ID" -H "Authorization: Bearer $ID_TOKEN" >/dev/null 2>&1 || true
   fi
+  rm -f "$FIXTURE"
 }
-trap 'cleanup; rm -f "$FIXTURE"' EXIT
+trap cleanup EXIT
+
+# A tiny generated PNG fixture; no binary test asset is committed.
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2mH0AAAAASUVORK5CYII=' | base64 --decode > "$FIXTURE"
+FIXTURE_SIZE="$(wc -c < "$FIXTURE" | tr -d ' ')"
+
+AUTH_PARAMETERS="$(python - <<'PY'
+import json, os
+print(json.dumps({
+    'USERNAME': os.environ['SMOKE_ADMIN_EMAIL'],
+    'PASSWORD': os.environ['SMOKE_ADMIN_PASSWORD'],
+}))
+PY
+)"
 
 AUTH_JSON="$(aws cognito-idp initiate-auth \
   --region "$REGION" \
   --client-id "$COGNITO_CLIENT_ID" \
   --auth-flow USER_PASSWORD_AUTH \
-  --auth-parameters "USERNAME=$SMOKE_ADMIN_EMAIL,PASSWORD=$SMOKE_ADMIN_PASSWORD" \
+  --auth-parameters "$AUTH_PARAMETERS" \
   --output json)"
 
 CHALLENGE="$(printf '%s' "$AUTH_JSON" | python -c 'import json,sys; print(json.load(sys.stdin).get("ChallengeName", ""))')"
+if [[ "$CHALLENGE" == "NEW_PASSWORD_REQUIRED" ]]; then
+  : "${SMOKE_ADMIN_NEW_PASSWORD:?Set SMOKE_ADMIN_NEW_PASSWORD to complete the Cognito temporary-password challenge}"
+  SESSION="$(printf '%s' "$AUTH_JSON" | python -c 'import json,sys; print(json.load(sys.stdin).get("Session", ""))')"
+  CHALLENGE_RESPONSES="$(python - <<'PY'
+import json, os
+print(json.dumps({
+    'USERNAME': os.environ['SMOKE_ADMIN_EMAIL'],
+    'NEW_PASSWORD': os.environ['SMOKE_ADMIN_NEW_PASSWORD'],
+}))
+PY
+)"
+  AUTH_JSON="$(aws cognito-idp respond-to-auth-challenge \
+    --region "$REGION" \
+    --client-id "$COGNITO_CLIENT_ID" \
+    --challenge-name NEW_PASSWORD_REQUIRED \
+    --challenge-responses "$CHALLENGE_RESPONSES" \
+    --session "$SESSION" \
+    --output json)"
+  CHALLENGE="$(printf '%s' "$AUTH_JSON" | python -c 'import json,sys; print(json.load(sys.stdin).get("ChallengeName", ""))')"
+elif [[ -n "$CHALLENGE" ]]; then
+  echo "Unsupported Cognito smoke-test challenge: $CHALLENGE" >&2
+  exit 1
+fi
+
 if [[ -n "$CHALLENGE" ]]; then
-  echo "Smoke-test credentials require Cognito challenge: $CHALLENGE" >&2
-  echo "Complete that challenge in EZ-WAY first, then rerun with the permanent password." >&2
+  echo "Cognito authentication did not reach a signed-in session." >&2
   exit 1
 fi
 
