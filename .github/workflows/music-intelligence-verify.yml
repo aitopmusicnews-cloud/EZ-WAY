@@ -47,8 +47,8 @@ jobs:
       - name: AWS Audio Tools job contract tests
         run: node --test aws/audio-tools/api/jobContract.test.mjs
 
-      - name: AWS app data row tests
-        run: node --test aws/app-data/api/rows.test.mjs
+      - name: AWS app data API tests
+        run: node --test aws/app-data/api/contract.test.mjs aws/app-data/api/rows.test.mjs
 
       - name: AWS worker tests
         run: python -m unittest discover -s aws/audio-tools/worker -p 'test_*.py' -v
@@ -57,7 +57,7 @@ jobs:
         run: python -m py_compile aws/audio-tools/worker/*.py
 
       - name: AWS API syntax check
-        run: node --check aws/audio-tools/api/handler.mjs aws/audio-tools/api/jobContract.mjs aws/music-intelligence/handler.mjs aws/app-data/api/rows.mjs aws/app-data/scripts/migrate.mjs
+        run: node --check aws/audio-tools/api/handler.mjs aws/audio-tools/api/jobContract.mjs aws/music-intelligence/handler.mjs aws/app-data/api/db.mjs aws/app-data/api/contract.mjs aws/app-data/api/handler.mjs aws/app-data/api/rows.mjs aws/app-data/scripts/migrate.mjs
 
       - name: AWS infrastructure lint
         run: |
