@@ -32,6 +32,9 @@ jobs:
       - name: AWS Music Intelligence frontend tests
         run: node --experimental-strip-types --test src/services/musicIntelligenceAws.test.ts
 
+      - name: Cognito owner auth tests
+        run: node --experimental-strip-types --test src/services/auth.test.ts
+
       - name: Copyrights core tests
         run: node --experimental-strip-types --test src/services/copyrightsCore.test.ts
 
