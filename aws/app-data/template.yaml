@@ -231,55 +231,106 @@ Resources:
             Method: GET
         TracksCreate:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /tracks, Method: POST }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /tracks
+            Method: POST
         TracksPatch:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /tracks/{id}, Method: PATCH }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /tracks/{id}
+            Method: PATCH
         TracksDelete:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /tracks/{id}, Method: DELETE }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /tracks/{id}
+            Method: DELETE
         PlaylistsCreate:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /playlists, Method: POST }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /playlists
+            Method: POST
         PlaylistsPatch:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /playlists/{id}, Method: PATCH }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /playlists/{id}
+            Method: PATCH
         PlaylistsDelete:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /playlists/{id}, Method: DELETE }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /playlists/{id}
+            Method: DELETE
         ClientsCreate:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /clients, Method: POST }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /clients
+            Method: POST
         ClientsPatch:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /clients/{id}, Method: PATCH }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /clients/{id}
+            Method: PATCH
         ClientsDelete:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /clients/{id}, Method: DELETE }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /clients/{id}
+            Method: DELETE
         ShareLinksCreate:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /share-links, Method: POST }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /share-links
+            Method: POST
         ShareLinksDelete:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /share-links/{id}, Method: DELETE }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /share-links/{id}
+            Method: DELETE
         ActivitiesCreate:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /activities, Method: POST }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /activities
+            Method: POST
         MessagesCreate:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /messages, Method: POST }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /messages
+            Method: POST
         ProfilePut:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /profile, Method: PUT }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /profile
+            Method: PUT
         PromoVideosCreate:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /promo-videos, Method: POST }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /promo-videos
+            Method: POST
         PromoVideosDelete:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /promo-videos/{id}, Method: DELETE }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /promo-videos/{id}
+            Method: DELETE
         UploadPresign:
           Type: HttpApi
-          Properties: { ApiId: !Ref EzwayHttpApi, Path: /uploads/presign, Method: POST }
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /uploads/presign
+            Method: POST
         PublicShareGet:
           Type: HttpApi
           Properties:
