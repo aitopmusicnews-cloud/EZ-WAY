@@ -10,9 +10,11 @@ export interface Track {
   size: number;
   type: string;
   file_url: string | null;
+  file_key?: string | null;
   file_data?: Blob;
   _brokenBlob?: boolean;
   image_url?: string | null;
+  image_key?: string | null;
   image_data?: Blob;
   plays: number;
   likes: number;
@@ -25,6 +27,7 @@ export interface Playlist {
   name: string;
   description: string;
   image_url?: string;
+  image_key?: string | null;
   track_ids: string[];
   start_color: string;
   end_color: string;
@@ -41,6 +44,7 @@ export interface Client {
   company?: string;
   phone?: string;
   avatar_url?: string;
+  avatar_key?: string | null;
   created_at: string;
 }
 
@@ -76,6 +80,7 @@ export interface Message {
   recipient_id: string;
   content: string;
   image_url?: string | null;
+  image_key?: string | null;
   direction: 'inbound' | 'outbound';
   timestamp: string;
   is_read: boolean;
@@ -87,6 +92,7 @@ export interface UserProfile {
   artist_name: string;
   email: string;
   avatar_url: string;
+  avatar_key?: string | null;
   bio: string;
   social_links?: {
     instagram?: string;
@@ -100,8 +106,10 @@ export interface PromoVideo {
   track_id?: string;
   playlist_id?: string;
   video_url: string;
+  video_key?: string | null;
   video_data?: Blob;
   thumbnail_url: string;
+  thumbnail_key?: string | null;
   thumbnail_data?: Blob;
   style: string;
   status: 'processing' | 'ready' | 'error';
