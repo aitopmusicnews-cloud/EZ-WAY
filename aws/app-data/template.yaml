@@ -1,0 +1,314 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: EZ-WAY fresh AWS application data layer
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  ProductionOrigin:
+    Type: String
+    Default: https://ezwaypro.theartistcut.com
+  AmplifyOrigin:
+    Type: String
+    Default: https://main.d1wu55zn1feotm.amplifyapp.com
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: nodejs22.x
+    Architectures:
+      - arm64
+    Environment:
+      Variables:
+        DB_CLUSTER_ARN: !GetAtt DatabaseCluster.DBClusterArn
+        DB_SECRET_ARN: !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
+        DB_NAME: ezway
+        MEDIA_BUCKET: !Ref MediaBucket
+        ALLOWED_ORIGINS: !Sub '${ProductionOrigin},${AmplifyOrigin}'
+
+Resources:
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EZ-WAY Aurora Data API cluster security group
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: EZ-WAY Aurora subnet group
+      SubnetIds: !Ref SubnetIds
+
+  DatabaseCluster:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      Engine: aurora-postgresql
+      DatabaseName: ezway
+      MasterUsername: ezwayadmin
+      ManageMasterUserPassword: true
+      StorageEncrypted: true
+      EnableHttpEndpoint: true
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      VpcSecurityGroupIds:
+        - !GetAtt DatabaseSecurityGroup.GroupId
+      BackupRetentionPeriod: 7
+      CopyTagsToSnapshot: true
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0.5
+        MaxCapacity: 2
+
+  DatabaseInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: aurora-postgresql
+      DBClusterIdentifier: !Ref DatabaseCluster
+      DBInstanceClass: db.serverless
+      PubliclyAccessible: false
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins:
+              - !Ref ProductionOrigin
+              - !Ref AmplifyOrigin
+            AllowedMethods:
+              - GET
+              - HEAD
+              - PUT
+            AllowedHeaders:
+              - '*'
+            ExposedHeaders:
+              - ETag
+            MaxAge: 3600
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub '${AWS::StackName}-users'
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 7
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub '${AWS::StackName}-web'
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: days
+
+  EzwayHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref ProductionOrigin
+          - !Ref AmplifyOrigin
+        AllowHeaders:
+          - Authorization
+          - Content-Type
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+          - OPTIONS
+        MaxAge: 3600
+      Auth:
+        DefaultAuthorizer: CognitoJwt
+        Authorizers:
+          CognitoJwt:
+            IdentitySource: '$request.header.Authorization'
+            JwtConfiguration:
+              issuer: !Sub 'https://cognito-idp.${AWS::Region}.${AWS::URLSuffix}/${UserPool}'
+              audience:
+                - !Ref UserPoolClient
+
+  DataApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: api/
+      Handler: handler.handler
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - rds-data:ExecuteStatement
+                - rds-data:BeginTransaction
+                - rds-data:CommitTransaction
+                - rds-data:RollbackTransaction
+              Resource: !GetAtt DatabaseCluster.DBClusterArn
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+              Resource: !Sub '${MediaBucket.Arn}/*'
+      Events:
+        Health:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /health
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        Bootstrap:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /bootstrap
+            Method: GET
+        Diagnostics:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /diagnostics
+            Method: GET
+        TracksCreate:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /tracks, Method: POST }
+        TracksPatch:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /tracks/{id}, Method: PATCH }
+        TracksDelete:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /tracks/{id}, Method: DELETE }
+        PlaylistsCreate:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /playlists, Method: POST }
+        PlaylistsPatch:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /playlists/{id}, Method: PATCH }
+        PlaylistsDelete:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /playlists/{id}, Method: DELETE }
+        ClientsCreate:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /clients, Method: POST }
+        ClientsPatch:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /clients/{id}, Method: PATCH }
+        ClientsDelete:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /clients/{id}, Method: DELETE }
+        ShareLinksCreate:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /share-links, Method: POST }
+        ShareLinksDelete:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /share-links/{id}, Method: DELETE }
+        ActivitiesCreate:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /activities, Method: POST }
+        MessagesCreate:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /messages, Method: POST }
+        ProfilePut:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /profile, Method: PUT }
+        PromoVideosCreate:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /promo-videos, Method: POST }
+        PromoVideosDelete:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /promo-videos/{id}, Method: DELETE }
+        UploadPresign:
+          Type: HttpApi
+          Properties: { ApiId: !Ref EzwayHttpApi, Path: /uploads/presign, Method: POST }
+        PublicShareGet:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /public/share/{token}
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        PublicShareEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /public/share/{token}/events
+            Method: POST
+            Auth:
+              Authorizer: NONE
+
+Outputs:
+  EzwayApiBase:
+    Value: !Sub 'https://${EzwayHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  DatabaseClusterArn:
+    Value: !GetAtt DatabaseCluster.DBClusterArn
+  DatabaseSecretArn:
+    Value: !GetAtt DatabaseCluster.MasterUserSecret.SecretArn
+  DatabaseName:
+    Value: ezway
+  MediaBucketName:
+    Value: !Ref MediaBucket
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
