@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normalizePatch,
+  normalizePublicEvent,
   normalizeShareCreate,
   normalizeTrackCreate,
 } from './contract.mjs';
@@ -32,4 +33,14 @@ test('share links target exactly one asset', () => {
     }),
     /exactly one/i,
   );
+});
+
+test('public feedback accepts only token-scoped review events', () => {
+  const trackId = '00000000-0000-4000-8000-000000000002';
+  assert.equal(normalizePublicEvent({ type: 'play', track_id: trackId }).type, 'play');
+  assert.equal(normalizePublicEvent({ type: 'thumbs_up', track_id: trackId }).type, 'thumbs_up');
+  assert.equal(normalizePublicEvent({ type: 'thumbs_down', track_id: trackId }).type, 'thumbs_down');
+  assert.equal(normalizePublicEvent({ type: 'comment', track_id: trackId, content: 'Bring the vocal up.' }).content, 'Bring the vocal up.');
+  assert.throws(() => normalizePublicEvent({ type: 'delete_track', track_id: trackId }), /event/i);
+  assert.throws(() => normalizePublicEvent({ type: 'comment', track_id: trackId, content: '   ' }), /comment/i);
 });
