@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/music-intelligence-analyzer
+      - feature/aws-music-intelligence
   pull_request:
     branches:
       - main
@@ -25,8 +26,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install AWS app-data Lambda dependencies
+        run: npm install --prefix aws/app-data/api --ignore-scripts --no-audit --no-fund
+
       - name: Music Intelligence core tests
         run: node --experimental-strip-types --test src/services/musicIntelligenceCore.test.ts
+
+      - name: AWS Music Intelligence frontend tests
+        run: node --experimental-strip-types --test src/services/musicIntelligenceAws.test.ts
+
+      - name: Cognito owner auth tests
+        run: node --experimental-strip-types --test src/services/auth.test.ts
+
+      - name: EZ-WAY data store tests
+        run: node --experimental-strip-types --test src/services/dataStore.test.ts
+
+      - name: MediaStore AWS migration tests
+        run: node --experimental-strip-types --test src/services/mediaStoreMigration.test.ts
 
       - name: Copyrights core tests
         run: node --experimental-strip-types --test src/services/copyrightsCore.test.ts
@@ -40,14 +56,38 @@ jobs:
       - name: YouTube upload dropdown tests
         run: node --experimental-strip-types --test src/services/youtubeUploadCore.test.ts
 
-      - name: Python core tests
-        run: python -m unittest discover -s modal -p 'test_music_intelligence_core.py' -v
+      - name: AWS Audio Tools job contract tests
+        run: node --test aws/audio-tools/api/jobContract.test.mjs
 
-      - name: Python syntax check
-        run: python -m py_compile modal/audio_tools_agent_v5.py modal/music_intelligence_core.py
+      - name: AWS app data API tests
+        run: node --test aws/app-data/api/contract.test.mjs aws/app-data/api/rows.test.mjs aws/app-data/api/storage.test.mjs
 
-      - name: AWS Lambda syntax check
-        run: node --check aws/music-intelligence/handler.mjs
+      - name: AWS worker tests
+        run: python -m unittest discover -s aws/audio-tools/worker -p 'test_*.py' -v
+
+      - name: AWS worker syntax check
+        run: python -m py_compile aws/audio-tools/worker/*.py
+
+      - name: AWS API syntax check
+        run: node --check aws/audio-tools/api/handler.mjs aws/audio-tools/api/jobContract.mjs aws/music-intelligence/handler.mjs aws/app-data/api/db.mjs aws/app-data/api/contract.mjs aws/app-data/api/handler.mjs aws/app-data/api/rows.mjs aws/app-data/api/storage.mjs aws/app-data/scripts/migrate.mjs
+
+      - name: AWS infrastructure lint
+        run: |
+          python -m pip install --quiet cfn-lint
+          cfn-lint aws/audio-tools/template.yaml
+          cfn-lint aws/app-data/template.yaml
+
+      - name: AWS deployment script syntax check
+        run: bash -n aws/audio-tools/deploy.sh aws/app-data/deploy.sh aws/app-data/smoke-test.sh
+
+      - name: No Modal production runtime references
+        run: |
+          test ! -d modal
+          ! grep -R -E 'modal\.run|modal deploy' AUDIO_TOOLS.md src aws/audio-tools
+
+      - name: No Supabase credentials or runtime SDK imports
+        run: |
+          ! grep -R -E '@supabase/supabase-js|VITE_SUPABASE_|service_role' src/lib src/context src/services vite.config.ts .env.production
 
       - name: TypeScript check
         run: npm run lint

@@ -1,5 +1,6 @@
 import type { Track } from '../types';
 import { runAudioToolsJob } from './audioTools';
+import { resolveMusicIntelligenceReadBase } from './musicIntelligenceAws';
 import {
   buildAnalysisSourceFingerprint,
   hasUsableMusicIntelligenceProfile,
@@ -21,18 +22,28 @@ export interface TrackAnalysisRecord {
   updated_at?: string;
 }
 
-const getCloudApiBase = (): string => {
+const getEnv = (name: string): string => {
   try {
-    return String((import.meta as any).env?.VITE_MUSIC_INTELLIGENCE_API_URL || '')
-      .trim()
-      .replace(/\/+$/, '');
+    return String((import.meta as any).env?.[name] || '').trim();
   } catch {
     return '';
   }
 };
 
-const getCloudRecordUrl = (trackId: string): string => {
-  const base = getCloudApiBase();
+const getCloudReadBase = (): string => resolveMusicIntelligenceReadBase(
+  getEnv('VITE_MUSIC_INTELLIGENCE_API_URL'),
+  getEnv('VITE_AUDIO_TOOLS_URL'),
+);
+
+const getCloudWriteBase = (): string => getEnv('VITE_MUSIC_INTELLIGENCE_API_URL').replace(/\/+$/, '');
+
+const getCloudReadRecordUrl = (trackId: string): string => {
+  const base = getCloudReadBase();
+  return base ? `${base}/${encodeURIComponent(trackId)}` : '';
+};
+
+const getCloudWriteRecordUrl = (trackId: string): string => {
+  const base = getCloudWriteBase();
   return base ? `${base}/${encodeURIComponent(trackId)}` : '';
 };
 
@@ -53,19 +64,7 @@ const writeLocalRecord = (record: TrackAnalysisRecord) => {
     cache[record.track_id] = record;
     localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cache));
   } catch {
-    // Local cache is a best-effort development/offline fallback only.
-  }
-};
-
-const deleteLocalRecord = (trackId: string) => {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    const cache = readLocalCache();
-    if (!cache[trackId]) return;
-    delete cache[trackId];
-    localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cache));
-  } catch {
-    // Best effort only.
+    // Browser cache is best-effort; AWS is canonical after a successful worker analysis.
   }
 };
 
@@ -94,7 +93,8 @@ const unwrapRecordResponse = (payload: unknown): TrackAnalysisRecord | null => {
 };
 
 export async function getTrackAnalysisRecord(trackId: string): Promise<TrackAnalysisRecord | null> {
-  const cloudUrl = getCloudRecordUrl(trackId);
+  const local = readLocalCache()[trackId] || null;
+  const cloudUrl = getCloudReadRecordUrl(trackId);
   if (cloudUrl) {
     try {
       const response = await fetch(cloudUrl, {
@@ -102,10 +102,7 @@ export async function getTrackAnalysisRecord(trackId: string): Promise<TrackAnal
         headers: { Accept: 'application/json' },
       });
 
-      if (response.status === 404) {
-        deleteLocalRecord(trackId);
-        return null;
-      }
+      if (response.status === 404) return local;
       if (!response.ok) {
         throw new Error(`AWS Music Intelligence lookup failed (${response.status}).`);
       }
@@ -115,14 +112,14 @@ export async function getTrackAnalysisRecord(trackId: string): Promise<TrackAnal
         writeLocalRecord(record);
         return record;
       }
-      return null;
+      return local;
     } catch (error) {
       console.warn('[MusicIntelligence] AWS profile lookup unavailable; using local cache.', error);
-      return readLocalCache()[trackId] || null;
+      return local;
     }
   }
 
-  return readLocalCache()[trackId] || null;
+  return local;
 }
 
 export async function getTrackMusicIntelligence(trackId: string): Promise<MusicIntelligenceProfile | null> {
@@ -140,7 +137,9 @@ export async function saveTrackAnalysisRecord(record: TrackAnalysisRecord): Prom
 
   writeLocalRecord(normalized);
 
-  const cloudUrl = getCloudRecordUrl(record.track_id);
+  // Browser writes are allowed only when a separate authenticated profile API is explicitly configured.
+  // The AWS Audio Tools worker writes successful canonical profiles server-side.
+  const cloudUrl = getCloudWriteRecordUrl(record.track_id);
   if (!cloudUrl) return;
 
   const response = await fetch(cloudUrl, {

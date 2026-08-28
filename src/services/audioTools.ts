@@ -1,5 +1,8 @@
 import { Track } from '../types';
-import type { MusicIntelligenceProfile } from './musicIntelligenceCore';
+import {
+  buildAnalysisSourceFingerprint,
+  type MusicIntelligenceProfile,
+} from './musicIntelligenceCore';
 
 export type AudioToolAction = 'analysis' | 'lyrics' | 'stems';
 export type StemMode = 'vocals_instrumental' | 'full';
@@ -88,7 +91,7 @@ export async function startAudioToolsJob(
 ): Promise<AudioToolJobResult> {
   const baseUrl = getBaseUrl();
   if (!baseUrl) {
-    throw new Error('Audio Tools is not configured yet. Add VITE_AUDIO_TOOLS_URL to the app environment.');
+    throw new Error('AWS Audio Tools is not configured yet. Add VITE_AUDIO_TOOLS_URL after the AWS endpoint is deployed.');
   }
 
   if (!track.file_url || track.file_url.startsWith('blob:')) {
@@ -104,7 +107,7 @@ export async function startAudioToolsJob(
       file_url: track.file_url,
       track_name: track.name,
       track_id: track.id,
-      public_base_url: baseUrl,
+      source_fingerprint: buildAnalysisSourceFingerprint(track),
     }),
   });
 
@@ -121,14 +124,14 @@ export async function pollAudioToolsJob(
   timeoutMs = 30 * 60 * 1000,
 ): Promise<AudioToolJobResult> {
   const baseUrl = getBaseUrl();
-  if (!baseUrl) throw new Error('Audio Tools is not configured.');
+  if (!baseUrl) throw new Error('AWS Audio Tools is not configured.');
 
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const response = await fetch(`${baseUrl}/jobs/${encodeURIComponent(callId)}`);
 
     if (response.status === 202) {
-      onProgress?.('Processing audio…');
+      onProgress?.('Processing audio on AWS…');
       await new Promise((resolve) => setTimeout(resolve, 3000));
       continue;
     }
@@ -139,12 +142,12 @@ export async function pollAudioToolsJob(
 
     const result = (await response.json()) as AudioToolJobResult;
     if (result.status === 'failed') {
-      throw new Error(stringifyBackendError(result.error) || 'Audio Tools job failed.');
+      throw new Error(stringifyBackendError(result.error) || 'AWS Audio Tools job failed.');
     }
     return result;
   }
 
-  throw new Error('Audio Tools job timed out before a result was returned.');
+  throw new Error('AWS Audio Tools job timed out before a result was returned.');
 }
 
 export async function runAudioToolsJob(
@@ -155,8 +158,8 @@ export async function runAudioToolsJob(
 ): Promise<AudioToolJobResult> {
   const accepted = await startAudioToolsJob(track, action, mode);
   if (!accepted.call_id) {
-    throw new Error('Audio Tools did not return a job identifier.');
+    throw new Error('AWS Audio Tools did not return a job identifier.');
   }
-  onProgress?.('Job accepted…');
+  onProgress?.('AWS job accepted…');
   return pollAudioToolsJob(accepted.call_id, onProgress);
 }

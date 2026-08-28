@@ -33,10 +33,7 @@ def aggregate_rankings(
             counts[clean_label] += 1
 
     ranked = [
-        {
-            "label": label,
-            "score": totals[label] / max(1, counts[label]),
-        }
+        {"label": label, "score": totals[label] / max(1, counts[label])}
         for label in totals
     ]
     ranked.sort(key=lambda item: (-float(item["score"]), str(item["label"]).lower()))
@@ -66,10 +63,7 @@ def segments_to_chapters(segments: Iterable[dict[str, Any]]) -> list[dict[str, A
         except (TypeError, ValueError):
             continue
 
-        display = {
-            "inst": "Instrumental",
-        }.get(label, label.replace("_", " ").title())
-
+        display = {"inst": "Instrumental"}.get(label, label.replace("_", " ").title())
         chapters.append(
             {
                 "label": display,
@@ -98,26 +92,20 @@ def build_profile(
     keywords: list[str] | None = None,
     evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    clean_genres = [
-        {"label": str(item.get("label") or "").strip(), "score": normalize_probability(item.get("score"))}
-        for item in genres
-        if str(item.get("label") or "").strip()
-    ]
-    clean_moods = [
-        {"label": str(item.get("label") or "").strip(), "score": normalize_probability(item.get("score"))}
-        for item in moods
-        if str(item.get("label") or "").strip()
-    ]
-    clean_instruments = [
-        {"label": str(item.get("label") or "").strip(), "score": normalize_probability(item.get("score"))}
-        for item in instruments
-        if str(item.get("label") or "").strip()
-    ]
-    clean_styles = [
-        {"label": str(item.get("label") or "").strip(), "score": normalize_probability(item.get("score"))}
-        for item in (styles or [])
-        if str(item.get("label") or "").strip()
-    ]
+    def clean_ranked(items):
+        return [
+            {
+                "label": str(item.get("label") or "").strip(),
+                "score": normalize_probability(item.get("score")),
+            }
+            for item in items
+            if str(item.get("label") or "").strip()
+        ]
+
+    clean_genres = clean_ranked(genres)
+    clean_moods = clean_ranked(moods)
+    clean_instruments = clean_ranked(instruments)
+    clean_styles = clean_ranked(styles or [])
 
     primary_genre = clean_genres[0]["label"] if clean_genres else "Unknown"
     primary_genre_score = float(clean_genres[0]["score"]) if clean_genres else 0.0
