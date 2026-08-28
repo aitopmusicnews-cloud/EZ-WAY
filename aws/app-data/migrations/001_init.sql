@@ -5,7 +5,9 @@ CREATE TABLE IF NOT EXISTS tracks (
   duration INTEGER NOT NULL DEFAULT 0,
   bpm INTEGER NOT NULL DEFAULT 0,
   key_signature TEXT NOT NULL DEFAULT '',
+  file_url TEXT,
   file_key TEXT,
+  image_url TEXT,
   image_key TEXT,
   size BIGINT NOT NULL DEFAULT 0,
   type TEXT NOT NULL DEFAULT 'audio/mpeg',
@@ -25,6 +27,7 @@ CREATE TABLE IF NOT EXISTS playlists (
   track_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
   start_color TEXT NOT NULL DEFAULT '#f97316',
   end_color TEXT NOT NULL DEFAULT '#ea580c',
+  image_url TEXT,
   image_key TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -35,6 +38,7 @@ CREATE TABLE IF NOT EXISTS clients (
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
   phone TEXT,
+  avatar_url TEXT,
   avatar_key TEXT,
   company TEXT,
   status TEXT NOT NULL CHECK (status IN ('online','offline','away')) DEFAULT 'offline',
@@ -78,6 +82,7 @@ CREATE TABLE IF NOT EXISTS messages (
   client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
   recipient_id TEXT,
   content TEXT NOT NULL,
+  image_url TEXT,
   image_key TEXT,
   direction TEXT NOT NULL CHECK (direction IN ('inbound','outbound')),
   timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -89,13 +94,16 @@ CREATE TABLE IF NOT EXISTS promo_videos (
   id UUID PRIMARY KEY,
   track_id UUID REFERENCES tracks(id) ON DELETE CASCADE,
   playlist_id UUID REFERENCES playlists(id) ON DELETE CASCADE,
-  video_key TEXT NOT NULL,
+  video_url TEXT,
+  video_key TEXT,
+  thumbnail_url TEXT,
   thumbnail_key TEXT,
   style TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('processing','ready','error')) DEFAULT 'processing',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   name TEXT,
-  title TEXT
+  title TEXT,
+  CHECK (video_url IS NOT NULL OR video_key IS NOT NULL)
 );
 -- statement-breakpoint
 
@@ -115,6 +123,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   artist_name TEXT NOT NULL DEFAULT '',
   bio TEXT NOT NULL DEFAULT '',
   email TEXT NOT NULL DEFAULT '',
+  avatar_url TEXT,
   avatar_key TEXT,
   social_links JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
