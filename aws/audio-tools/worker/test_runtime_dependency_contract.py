@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[3]
 REQUIREMENTS = ROOT / "aws" / "audio-tools" / "requirements.txt"
 DOCKERFILE = ROOT / "aws" / "audio-tools" / "Dockerfile"
 WORKER = ROOT / "aws" / "audio-tools" / "worker" / "worker.py"
+ANALYZER = ROOT / "aws" / "audio-tools" / "worker" / "analyzer.py"
 
 
 class AwsAudioToolsRuntimeDependencyContractTests(unittest.TestCase):
@@ -27,6 +28,12 @@ class AwsAudioToolsRuntimeDependencyContractTests(unittest.TestCase):
         self.assertIn("https://download.pytorch.org/whl/cpu", dockerfile)
         self.assertIn("torch==2.5.0", dockerfile)
         self.assertIn("torchaudio==2.5.0", dockerfile)
+
+    def test_analyzer_uses_published_all_in_one_api(self):
+        analyzer = ANALYZER.read_text(encoding="utf-8")
+
+        self.assertIn("from allin1_infer import analyze", analyzer)
+        self.assertNotIn("AllInOneSession", analyzer)
 
 
 if __name__ == "__main__":
