@@ -62,12 +62,22 @@ const cleanBase = (value: unknown) => String(value ?? '').trim().replace(/\/+$/,
 
 const stripBrowserFields = <T extends Record<string, any>>(value: T): Record<string, unknown> => {
   const output: Record<string, unknown> = {};
-  const ignored = new Set([
-    'file_data', 'image_data', 'video_data', 'thumbnail_data', '_brokenBlob',
-    'file_url', 'image_url', 'video_url', 'thumbnail_url', 'avatar_url',
-  ]);
+  const ignored = new Set(['file_data', 'image_data', 'video_data', 'thumbnail_data', '_brokenBlob']);
   for (const [key, item] of Object.entries(value || {})) {
     if (!ignored.has(key) && item !== undefined) output[key] = item;
+  }
+
+  const stablePairs = [
+    ['file_key', 'file_url'],
+    ['image_key', 'image_url'],
+    ['avatar_key', 'avatar_url'],
+    ['video_key', 'video_url'],
+    ['thumbnail_key', 'thumbnail_url'],
+  ] as const;
+  for (const [keyField, urlField] of stablePairs) {
+    if (output[keyField]) delete output[urlField];
+    const url = output[urlField];
+    if (typeof url === 'string' && (url.startsWith('blob:') || url.startsWith('data:'))) delete output[urlField];
   }
   return output;
 };
@@ -78,31 +88,15 @@ export function createDataStoreClient(options: ClientOptions) {
   const fetchImpl = options.fetchImpl || globalThis.fetch.bind(globalThis);
 
   if (!apiBase) {
-    const configurationError = () => {
-      throw new Error('EZ-WAY data API is not configured.');
-    };
+    const configurationError = () => { throw new Error('EZ-WAY data API is not configured.'); };
     return {
-      health: configurationError,
-      diagnostics: configurationError,
-      bootstrap: configurationError,
-      createTrack: configurationError,
-      updateTrack: configurationError,
-      deleteTrack: configurationError,
-      createPlaylist: configurationError,
-      updatePlaylist: configurationError,
-      deletePlaylist: configurationError,
-      createClient: configurationError,
-      updateClient: configurationError,
-      deleteClient: configurationError,
-      createShareLink: configurationError,
-      deleteShareLink: configurationError,
-      createActivity: configurationError,
-      createMessage: configurationError,
-      putProfile: configurationError,
-      createPromoVideo: configurationError,
-      deletePromoVideo: configurationError,
-      uploadFile: configurationError,
-      getPublicShare: configurationError,
+      health: configurationError, diagnostics: configurationError, bootstrap: configurationError,
+      createTrack: configurationError, updateTrack: configurationError, deleteTrack: configurationError,
+      createPlaylist: configurationError, updatePlaylist: configurationError, deletePlaylist: configurationError,
+      createClient: configurationError, updateClient: configurationError, deleteClient: configurationError,
+      createShareLink: configurationError, deleteShareLink: configurationError, createActivity: configurationError,
+      createMessage: configurationError, putProfile: configurationError, createPromoVideo: configurationError,
+      deletePromoVideo: configurationError, uploadFile: configurationError, getPublicShare: configurationError,
       postPublicShareEvent: configurationError,
     } as any;
   }
@@ -118,7 +112,6 @@ export function createDataStoreClient(options: ClientOptions) {
         if (!token) throw new DataStoreError('Owner sign-in is required.', 401);
         headers.Authorization = `Bearer ${token}`;
       }
-
       const res = await fetchImpl(`${apiBase}${path}`, { ...init, headers, signal: controller.signal });
       const text = res.status === 204 ? '' : await res.text();
       let body: any = null;
@@ -190,9 +183,7 @@ export function createDataStoreClient(options: ClientOptions) {
 
     getPublicShare: (token: string) => request<PublicSharePayload | null>(`/public/share/${encoded(token)}`, {}, false),
     postPublicShareEvent: (token: string, event: PublicShareEvent) => request<void>(
-      `/public/share/${encoded(token)}/events`,
-      jsonInit('POST', event),
-      false,
+      `/public/share/${encoded(token)}/events`, jsonInit('POST', event), false,
     ),
   };
 }
