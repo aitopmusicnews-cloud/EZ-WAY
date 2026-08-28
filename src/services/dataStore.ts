@@ -8,7 +8,7 @@ import type {
   Track,
   UserProfile,
 } from '../types';
-import { getIdToken } from './auth';
+import { getIdToken } from './auth.ts';
 
 export interface BootstrapPayload {
   tracks: Track[];
