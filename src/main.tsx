@@ -4,6 +4,8 @@ import App from './App';
 import './index.css';
 import { MediaStoreProvider } from './context/MediaStoreContext';
 import { AudioProvider } from './context/AudioContext';
+import { AuthProvider } from './context/AuthContext';
+import AuthGate from './components/AuthGate';
 
 // Handle Vite dynamic chunk loading errors gracefully
 if (typeof window !== 'undefined') {
@@ -40,11 +42,15 @@ if (container) {
   const root = createRoot(container);
   root.render(
     <React.StrictMode>
-      <MediaStoreProvider>
-        <AudioProvider>
-          <App />
-        </AudioProvider>
-      </MediaStoreProvider>
+      <AuthProvider>
+        <AuthGate>
+          <MediaStoreProvider>
+            <AudioProvider>
+              <App />
+            </AudioProvider>
+          </MediaStoreProvider>
+        </AuthGate>
+      </AuthProvider>
     </React.StrictMode>
   );
 }
