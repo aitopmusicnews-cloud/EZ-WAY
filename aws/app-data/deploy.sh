@@ -107,8 +107,7 @@ HEALTH="$(curl -fsS "$EZWAY_API_BASE/health")"
 printf '%s\n' "$HEALTH"
 
 echo
-echo="Frontend values (do not apply to production until smoke-test.sh passes):"
-echo "$echo"
+echo "Frontend values (do not apply to production until smoke-test.sh passes):"
 echo "VITE_EZWAY_API_URL=$EZWAY_API_BASE"
 echo "VITE_COGNITO_USER_POOL_ID=$USER_POOL_ID"
 echo "VITE_COGNITO_USER_POOL_CLIENT_ID=$USER_POOL_CLIENT_ID"
