@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseJsonArray, rowToTrack, rowToPlaylist, rowToProfile } from './rows.mjs';
+import { parseJsonArray, resolveMediaUrls, rowToTrack, rowToPlaylist, rowToProfile } from './rows.mjs';
 
 test('JSONB arrays return normal frontend arrays', () => {
   assert.deepEqual(rowToTrack({ id: 't1', name: 'Song', tags: '["R&B","Smooth"]' }).tags, ['R&B', 'Smooth']);
@@ -24,4 +24,12 @@ test('profile social links preserve object JSON', () => {
     social_links: '{"instagram":"https://example.com"}'
   });
   assert.deepEqual(profile.social_links, { instagram: 'https://example.com' });
+});
+
+test('private media keys resolve to temporary URLs without changing keys', async () => {
+  const track = rowToTrack({ id: 't1', name: 'Song', file_key: 'tracks/audio/t1/file.wav', image_key: 'tracks/artwork/t1/cover.png' });
+  const resolved = await resolveMediaUrls('tracks', track, async (key) => `https://signed.example/${key}`);
+  assert.equal(resolved.file_key, 'tracks/audio/t1/file.wav');
+  assert.equal(resolved.file_url, 'https://signed.example/tracks/audio/t1/file.wav');
+  assert.equal(resolved.image_url, 'https://signed.example/tracks/artwork/t1/cover.png');
 });
