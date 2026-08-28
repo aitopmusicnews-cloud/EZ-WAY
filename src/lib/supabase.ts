@@ -1,76 +1,72 @@
-import { createClient } from '@supabase/supabase-js';
+import { dataStore } from '../services/dataStore';
 
-function cleanEnvValue(val: any): string {
-  if (!val) return "";
-  let s = String(val).trim();
-  if (s.startsWith('"') && s.endsWith('"')) {
-    s = s.slice(1, -1).trim();
+const metaEnv = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env || {});
+
+/**
+ * Temporary compatibility names for the existing Settings UI.
+ * No Supabase SDK, URL, key, or database credential exists in this module.
+ * The facade exposes only fixed AWS diagnostics counts and rejects unknown tables.
+ */
+export const supabaseUrl = String(metaEnv.VITE_EZWAY_API_URL || '').trim();
+export const supabaseAnonKey = '';
+
+const KNOWN_TABLES = new Set([
+  'tracks',
+  'playlists',
+  'clients',
+  'share_links',
+  'messages',
+  'profiles',
+  'activities',
+  'promo_videos',
+  'promo_packs',
+  'todos',
+]);
+
+const unknownTable = (table: string) => ({
+  data: null,
+  count: null,
+  error: { code: '42P01', message: `Unknown EZ-WAY table: ${table}` },
+});
+
+async function readTableCount(table: string) {
+  if (!KNOWN_TABLES.has(table)) return unknownTable(table);
+  try {
+    const diagnostics = await dataStore.diagnostics();
+    return {
+      data: [],
+      count: Number(diagnostics.tables?.[table] || 0),
+      error: null,
+    };
+  } catch (error: any) {
+    return {
+      data: null,
+      count: null,
+      error: { code: 'AWS_DIAGNOSTICS', message: error?.message || 'AWS diagnostics failed.' },
+    };
   }
-  if (s.startsWith("'") && s.endsWith("'")) {
-    s = s.slice(1, -1).trim();
-  }
-  if (s === "" || s === "undefined" || s === "null") {
-    return "";
-  }
-  return s;
 }
 
-// Get URL and Key robustly across environments (Node server, Vite dev, Vite production)
-let rawUrl = "";
-let rawKey = "";
-
-try {
-  // Try reading standard Vite client-side environment variables first (populated on build or dev server)
-  rawUrl = ((import.meta as any).env?.VITE_SUPABASE_URL as string) || ((import.meta as any).env?.SUPABASE_URL as string) || "";
-  rawKey = ((import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string) || ((import.meta as any).env?.SUPABASE_ANON_KEY as string) || "";
-} catch (e) {
-  // Ignore env access errors
+function readOnlyTable(table: string) {
+  return {
+    select() {
+      return {
+        limit: async () => readTableCount(table),
+        single: async () => {
+          const result = await readTableCount(table);
+          return { ...result, data: null };
+        },
+      };
+    },
+  };
 }
 
-// Fallback to process.env literal replacement.
-// We must NOT use optional chaining (process.env?.SUPABASE_URL) because Vite's define plugin 
-// strictly matches the exact string literal 'process.env.SUPABASE_URL'.
-if (!rawUrl && typeof process !== 'undefined' && process.env) {
-  try {
-    rawUrl = (process.env.SUPABASE_URL as string) || "";
-  } catch (e) {}
-}
-if (!rawUrl && typeof process !== 'undefined' && process.env) {
-  try {
-    rawUrl = (process.env.VITE_SUPABASE_URL as string) || "";
-  } catch (e) {}
-}
-
-if (!rawKey && typeof process !== 'undefined' && process.env) {
-  try {
-    rawKey = (process.env.SUPABASE_ANON_KEY as string) || "";
-  } catch (e) {}
-}
-if (!rawKey && typeof process !== 'undefined' && process.env) {
-  try {
-    rawKey = (process.env.VITE_SUPABASE_ANON_KEY as string) || "";
-  } catch (e) {}
-}
-
-export let supabaseUrl = cleanEnvValue(rawUrl);
-export let supabaseAnonKey = cleanEnvValue(rawKey);
-
-// Fallback to active sandbox template if completely unconfigured
-if (!supabaseUrl) {
-  supabaseUrl = 'https://flpyrkjpgvazpdortrtn.supabase.co';
-}
-if (!supabaseAnonKey) {
-  supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZscHlya2pwZ3ZhenBkb3J0cnRuIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODY0NDEzMCwiZXhwIjoyMDk0MjIwMTMwfQ.lxtnlOykzyGUpV5S1Q1AOGVqOXlgpt3ZGq16TJTDkxY';
-}
-
-// Export a reassignment-friendly client
-// --- PASTE THIS AT THE BOTTOM OF YOUR supabase.ts FILE ---
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = {
+  from(table: string) {
+    return readOnlyTable(String(table || '').trim());
+  },
+};
 
 export async function getSupabaseClient() {
-  if (!supabase) {
-    throw new Error("Supabase client failed to initialize. Check your URL and Key.");
-  }
   return supabase;
 }
