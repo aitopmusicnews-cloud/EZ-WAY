@@ -57,8 +57,40 @@ interface ClientOptions {
   fetchImpl?: typeof fetch;
 }
 
+interface WorkspaceMediaUploadOptions {
+  bootstrapConnected: boolean;
+  cloudApiConfigured: boolean;
+  category: string;
+  relatedId: string;
+  file: File;
+  createLocalUrl: (file: File) => string;
+  cloudUpload: (
+    category: string,
+    relatedId: string,
+    file: File,
+  ) => Promise<{ url: string; objectKey: string }>;
+}
+
 const metaEnv = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env || {});
 const cleanBase = (value: unknown) => String(value ?? '').trim().replace(/\/+$/, '');
+
+export async function uploadMediaForWorkspace({
+  bootstrapConnected,
+  cloudApiConfigured,
+  category,
+  relatedId,
+  file,
+  createLocalUrl,
+  cloudUpload,
+}: WorkspaceMediaUploadOptions): Promise<{ url: string; objectKey: string | null }> {
+  // Bootstrap availability controls cached workspace data, not whether the configured
+  // upload API can accept a file. Keep this value explicit to prevent re-coupling them.
+  void bootstrapConnected;
+  if (!cloudApiConfigured) {
+    return { url: createLocalUrl(file), objectKey: null };
+  }
+  return cloudUpload(category, relatedId, file);
+}
 
 const stripBrowserFields = <T extends Record<string, any>>(value: T): Record<string, unknown> => {
   const output: Record<string, unknown> = {};
@@ -90,6 +122,7 @@ export function createDataStoreClient(options: ClientOptions) {
   if (!apiBase) {
     const configurationError = () => { throw new Error('EZ-WAY data API is not configured.'); };
     return {
+      configured: false,
       health: configurationError, diagnostics: configurationError, bootstrap: configurationError,
       createTrack: configurationError, updateTrack: configurationError, deleteTrack: configurationError,
       createPlaylist: configurationError, updatePlaylist: configurationError, deletePlaylist: configurationError,
@@ -135,6 +168,7 @@ export function createDataStoreClient(options: ClientOptions) {
   const encoded = (value: string) => encodeURIComponent(value);
 
   return {
+    configured: true,
     health: () => request<{ status: 'ok'; provider: 'aws' }>('/health', {}, false),
     diagnostics: () => request<DiagnosticsPayload>('/diagnostics'),
     bootstrap: () => request<BootstrapPayload>('/bootstrap'),
