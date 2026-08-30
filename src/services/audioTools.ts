@@ -1,8 +1,8 @@
-import { Track } from '../types';
+import type { Track } from '../types.ts';
 import {
   buildAnalysisSourceFingerprint,
   type MusicIntelligenceProfile,
-} from './musicIntelligenceCore';
+} from './musicIntelligenceCore.ts';
 
 export type AudioToolAction = 'analysis' | 'lyrics' | 'stems';
 export type StemMode = 'vocals_instrumental' | 'full';

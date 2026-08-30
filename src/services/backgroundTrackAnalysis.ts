@@ -1,9 +1,9 @@
-import type { Track } from '../types';
-import { analyzeAndPersistTrack } from './musicIntelligence';
+import type { Track } from '../types.ts';
+import { analyzeAndPersistTrack } from './musicIntelligence.ts';
 import {
   profileToLegacyTrackUpdates,
   type MusicIntelligenceProfile,
-} from './musicIntelligenceCore';
+} from './musicIntelligenceCore.ts';
 
 interface UploadedTrackAnalysisOptions {
   track: Track;

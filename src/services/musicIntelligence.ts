@@ -1,13 +1,13 @@
-import type { Track } from '../types';
-import { runAudioToolsJob } from './audioTools';
-import { resolveMusicIntelligenceReadBase } from './musicIntelligenceAws';
+import type { Track } from '../types.ts';
+import { runAudioToolsJob } from './audioTools.ts';
+import { resolveMusicIntelligenceReadBase } from './musicIntelligenceAws.ts';
 import {
   buildAnalysisSourceFingerprint,
   hasUsableMusicIntelligenceProfile,
   profileToLegacyTrackUpdates,
   shouldReuseAnalysis,
   type MusicIntelligenceProfile,
-} from './musicIntelligenceCore';
+} from './musicIntelligenceCore.ts';
 
 export const MUSIC_INTELLIGENCE_VERSION = 'music-intelligence-v1';
 const LOCAL_CACHE_KEY = 'ezway_music_intelligence_v1';
