@@ -76,3 +76,29 @@ test('upload requests a presign then PUTs the original file', async () => {
   assert.equal(result.objectKey, 'tracks/audio/t1/file.wav');
   assert.equal(result.url, 'https://s3.example.com/signed-get');
 });
+
+test('configured cloud uploads are not blocked by a failed workspace bootstrap', async () => {
+  const dataStoreModule = await import('./dataStore.ts');
+  const uploadMediaForWorkspace = (dataStoreModule as any).uploadMediaForWorkspace;
+
+  assert.equal(typeof uploadMediaForWorkspace, 'function');
+
+  const file = new File([new Uint8Array([1, 2, 3])], 'song.wav', { type: 'audio/wav' });
+  const result = await uploadMediaForWorkspace({
+    bootstrapConnected: false,
+    cloudApiConfigured: true,
+    category: 'tracks',
+    relatedId: 'track-1',
+    file,
+    createLocalUrl: () => 'blob:local-only',
+    cloudUpload: async () => ({
+      url: 'https://s3.example.com/signed-get',
+      objectKey: 'tracks/audio/track-1/song.wav',
+    }),
+  });
+
+  assert.deepEqual(result, {
+    url: 'https://s3.example.com/signed-get',
+    objectKey: 'tracks/audio/track-1/song.wav',
+  });
+});
