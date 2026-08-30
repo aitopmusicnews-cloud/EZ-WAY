@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { v4 as uuidv4 } from 'uuid';
 import type { Track, Playlist, Client, Activity, ShareLink, UserProfile, Message, PromoVideo } from '@/src/types';
 import { analyzeAudioDsp } from '@/src/services/audioDsp';
-import { dataStore } from '@/src/services/dataStore';
+import { dataStore, uploadMediaForWorkspace } from '@/src/services/dataStore';
 
 interface MediaStoreContextType {
   tracks: Track[];
@@ -619,10 +619,17 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
 
   const uploadFile = async (bucket: string, file: File): Promise<string | null> => {
     try {
-      if (!connected) return URL.createObjectURL(file);
       const relatedId = uuidv4();
-      const uploaded = await dataStore.uploadFile(uploadCategory(bucket), relatedId, file);
-      pendingMediaKeys.current.set(uploaded.url, uploaded.objectKey);
+      const uploaded = await uploadMediaForWorkspace({
+        bootstrapConnected: connected,
+        cloudApiConfigured: dataStore.configured,
+        category: uploadCategory(bucket),
+        relatedId,
+        file,
+        createLocalUrl: URL.createObjectURL,
+        cloudUpload: dataStore.uploadFile,
+      });
+      if (uploaded.objectKey) pendingMediaKeys.current.set(uploaded.url, uploaded.objectKey);
       return uploaded.url;
     } catch (error: any) {
       console.error('[MediaStore] AWS media upload failed', error);
