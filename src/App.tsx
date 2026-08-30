@@ -93,6 +93,7 @@ import { Track, ShareLink, Client, Playlist } from "./types";
 import { cn } from "./lib/utils";
 import { getSupabaseClient, supabaseUrl } from "./lib/supabase";
 import JSZip from "jszip";
+import { runManualTrackAnalysis } from "./services/musicIntelligence";
 
 // Helper to parse extended AI metadata from encoded tag keys
 export const getTrackInfoFromTags = (tags: string[] | undefined | null) => {
@@ -453,7 +454,6 @@ export default function App() {
     incrementShareLinkAccess,
     getShareContent,
     uploadFile,
-    analyzeTrack,
     analysisEngine,
     setAnalysisEngine,
     toasts,
@@ -1105,18 +1105,11 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
       "info",
     );
     try {
-      const result = await analyzeTrack(track.name, track.duration, track.file_data as File | null, track.file_url);
-      if (result) {
-        await updateTrack(track.id, {
-          bpm: result.bpm,
-          key_signature: result.key,
-          tags: result.tags,
-        });
-        addToast(
-          `Successfully updated parameters for "${track.name}"!`,
-          "success",
-        );
-      }
+      await runManualTrackAnalysis(track, updateTrack);
+      addToast(
+        `Successfully updated parameters for "${track.name}"!`,
+        "success",
+      );
     } catch (err: any) {
       console.error("Manual AI Analysis error:", err);
       addToast(`AI Diagnostics failed: ${err.message || err}`, "error");
