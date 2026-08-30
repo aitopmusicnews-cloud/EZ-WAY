@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  applyManualGenreOverride,
   hasUsableMusicIntelligenceProfile,
   profileToLegacyTrackUpdates,
 } from './musicIntelligenceCore.ts';
@@ -41,10 +42,102 @@ test('profileToLegacyTrackUpdates preserves custom tags and replaces analyzer ta
     'mood:Moody',
     'vibe:Trap Soul',
     'instruments:808 Bass, Electric Piano',
-    'alternative r&b',
     'trap soul',
     'Master',
   ]);
+});
+
+test('profileToLegacyTrackUpdates hides uncertain genre guesses and keeps one verified genre only', () => {
+  const profile = {
+    version: 'music-intelligence-v1',
+    analyzed_at: '2026-08-30T00:00:00Z',
+    bpm: 140,
+    key: 'F Minor',
+    camelot_key: '4A',
+    primary_genre: 'Latin Pop',
+    genre_confident: false,
+    genres: [
+      { label: 'Latin Pop', score: 0.51 },
+      { label: 'Afrobeats', score: 0.50 },
+      { label: 'Boom Bap', score: 0.49 },
+    ],
+    moods: [],
+    styles: [],
+    instruments: [],
+    sections: [],
+    chapters: [],
+    keywords: ['Latin Pop', 'Afrobeats', 'Boom Bap', 'club-ready'],
+    evidence: {},
+    warnings: ['Genre classification is uncertain'],
+  };
+
+  const updates = profileToLegacyTrackUpdates(profile, [
+    'genre_category:Latin Pop',
+    'Latin Pop',
+    'Afrobeats',
+    'Boom Bap',
+    'Master',
+  ]);
+
+  assert.equal(updates.tags.some((tag) => tag.startsWith('genre_category:')), false);
+  assert.equal(updates.tags.includes('Latin Pop'), false);
+  assert.equal(updates.tags.includes('Afrobeats'), false);
+  assert.equal(updates.tags.includes('Boom Bap'), false);
+  assert.equal(updates.tags.includes('club-ready'), true);
+  assert.equal(updates.tags.includes('Master'), true);
+});
+
+test('profileToLegacyTrackUpdates keeps a manual Trap override through reanalysis', () => {
+  const profile = {
+    version: 'music-intelligence-v1',
+    analyzed_at: '2026-08-30T00:00:00Z',
+    bpm: 140,
+    primary_genre: 'Latin Pop',
+    genre_confident: true,
+    genres: [
+      { label: 'Latin Pop', score: 0.72 },
+      { label: 'Afrobeats', score: 0.61 },
+      { label: 'Boom Bap', score: 0.58 },
+    ],
+    moods: [],
+    styles: [],
+    instruments: [],
+    sections: [],
+    chapters: [],
+    keywords: ['Latin Pop', 'Afrobeats', 'Boom Bap'],
+    evidence: {},
+    warnings: [],
+  };
+
+  const updates = profileToLegacyTrackUpdates(profile, [
+    'genre_override:Trap',
+    'genre_category:Latin Pop',
+    'Latin Pop',
+    'Afrobeats',
+    'Boom Bap',
+    'Master',
+  ]);
+
+  assert.deepEqual(
+    updates.tags.filter((tag) => tag.startsWith('genre_category:')),
+    ['genre_category:Trap'],
+  );
+  assert.equal(updates.tags.includes('genre_override:Trap'), true);
+  assert.equal(updates.tags.includes('Latin Pop'), false);
+  assert.equal(updates.tags.includes('Afrobeats'), false);
+  assert.equal(updates.tags.includes('Boom Bap'), false);
+});
+
+test('applyManualGenreOverride replaces old genre metadata without deleting custom tags', () => {
+  const tags = applyManualGenreOverride([
+    'genre_category:Latin Pop',
+    'genre_override:R&B',
+    'Latin Pop',
+    'Afrobeats',
+    'Master',
+  ], 'Trap');
+
+  assert.deepEqual(tags, ['Master', 'genre_override:Trap', 'genre_category:Trap']);
 });
 
 test('analysis source fingerprint changes when the audio source changes', async () => {

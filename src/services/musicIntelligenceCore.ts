@@ -54,7 +54,32 @@ const ANALYZER_TAG_PREFIXES = [
   'analysis_version:',
 ];
 
+const MANUAL_GENRE_PREFIX = 'genre_override:';
+
+const CLASSIFIER_GENRE_LABELS = [
+  'Hip-Hop', 'Trap', 'Drill', 'Boom Bap', 'Lo-fi Hip-Hop', 'R&B',
+  'Alternative R&B', 'Neo Soul', 'Soul', 'Gospel', 'Pop', 'Indie Pop',
+  'Rock', 'Alternative Rock', 'Metal', 'Punk', 'Jazz', 'Blues', 'Funk',
+  'Reggae', 'Dancehall', 'Afrobeats', 'Amapiano', 'Reggaeton', 'Latin Pop',
+  'House', 'Techno', 'Trance', 'Drum and Bass', 'Dubstep', 'Ambient',
+  'Cinematic', 'Synthwave', 'Phonk', 'Country', 'Folk', 'Classical',
+];
+
 const clean = (value: unknown) => String(value ?? '').trim();
+
+const classifierGenreKeys = new Set(
+  CLASSIFIER_GENRE_LABELS.map((label) => label.toLocaleLowerCase()),
+);
+
+const isClassifierGenre = (value: unknown) => classifierGenreKeys.has(
+  clean(value).toLocaleLowerCase(),
+);
+
+const readTagValue = (tags: string[], prefix: string) => {
+  const normalizedPrefix = prefix.toLocaleLowerCase();
+  const tag = tags.find((candidate) => clean(candidate).toLocaleLowerCase().startsWith(normalizedPrefix));
+  return tag ? clean(tag).slice(prefix.length).trim() : '';
+};
 
 const dedupeCaseInsensitive = (values: string[]) => {
   const seen = new Set<string>();
@@ -70,6 +95,28 @@ const dedupeCaseInsensitive = (values: string[]) => {
   return result;
 };
 
+export const applyManualGenreOverride = (
+  existingTags: string[] = [],
+  genre: string,
+): string[] => {
+  const verifiedGenre = clean(genre);
+  const preservedTags = existingTags.filter((tag) => {
+    const normalized = clean(tag).toLocaleLowerCase();
+    return normalized
+      && !normalized.startsWith('genre_category:')
+      && !normalized.startsWith(MANUAL_GENRE_PREFIX)
+      && !isClassifierGenre(tag);
+  });
+
+  if (!verifiedGenre) return dedupeCaseInsensitive(preservedTags);
+
+  return dedupeCaseInsensitive([
+    ...preservedTags,
+    `${MANUAL_GENRE_PREFIX}${verifiedGenre}`,
+    `genre_category:${verifiedGenre}`,
+  ]);
+};
+
 export const profileToLegacyTrackUpdates = (
   profile: MusicIntelligenceProfile,
   existingTags: string[] = [],
@@ -81,20 +128,33 @@ export const profileToLegacyTrackUpdates = (
     .map((item) => clean(item.label))
     .filter(Boolean);
 
+  const manualGenre = readTagValue(existingTags || [], MANUAL_GENRE_PREFIX);
+  const verifiedGenre = manualGenre || (
+    profile.genre_confident
+    && profile.primary_genre
+    && clean(profile.primary_genre).toLocaleLowerCase() !== 'unknown'
+      ? clean(profile.primary_genre)
+      : ''
+  );
+
   const preservedTags = (existingTags || []).filter((tag) => {
     const normalized = clean(tag).toLocaleLowerCase();
-    return normalized && !ANALYZER_TAG_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+    return normalized
+      && !ANALYZER_TAG_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+      && !isClassifierGenre(tag);
   });
+
+  const visibleKeywords = (profile.keywords || [])
+    .filter((keyword) => !isClassifierGenre(keyword))
+    .slice(0, 8);
 
   const analyzerTags = [
     profile.camelot_key ? `camelot_key:${clean(profile.camelot_key)}` : '',
-    profile.primary_genre && profile.primary_genre !== 'Unknown'
-      ? `genre_category:${clean(profile.primary_genre)}`
-      : '',
+    verifiedGenre ? `genre_category:${verifiedGenre}` : '',
     mood ? `mood:${mood}` : '',
     style ? `vibe:${style}` : '',
     instrumentLabels.length ? `instruments:${instrumentLabels.join(', ')}` : '',
-    ...(profile.keywords || []).slice(0, 8),
+    ...visibleKeywords,
     ...preservedTags,
   ];
 

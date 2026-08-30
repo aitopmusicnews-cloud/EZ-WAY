@@ -6,7 +6,7 @@ import {
   Sparkles, Quote, Edit
 } from 'lucide-react';
 import { Track } from '../types';
-import { getTrackInfoFromTags } from '../App';
+import { getTrackInfoFromTags } from '../services/trackTagMetadata';
 import { useAudio } from '../context/AudioContext';
 import { parseLrc, isLrcFormat } from '../utils/lrcParser';
 

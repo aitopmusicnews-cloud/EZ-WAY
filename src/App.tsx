@@ -94,42 +94,8 @@ import { cn } from "./lib/utils";
 import { getSupabaseClient, supabaseUrl } from "./lib/supabase";
 import JSZip from "jszip";
 import { runManualTrackAnalysis } from "./services/musicIntelligence";
-
-// Helper to parse extended AI metadata from encoded tag keys
-export const getTrackInfoFromTags = (tags: string[] | undefined | null) => {
-  const info = {
-    camelotKey: "",
-    genreCategory: "",
-    mood: "",
-    vibe: "",
-    instruments: "",
-    pitch: "",
-    cleanTags: [] as string[],
-  };
-
-  if (!tags || !Array.isArray(tags)) return info;
-
-  tags.forEach((tag) => {
-    if (!tag) return;
-    if (tag.startsWith("camelot_key:")) {
-      info.camelotKey = tag.replace("camelot_key:", "").trim();
-    } else if (tag.startsWith("genre_category:")) {
-      info.genreCategory = tag.replace("genre_category:", "").trim();
-    } else if (tag.startsWith("mood:")) {
-      info.mood = tag.replace("mood:", "").trim();
-    } else if (tag.startsWith("vibe:")) {
-      info.vibe = tag.replace("vibe:", "").trim();
-    } else if (tag.startsWith("instruments:")) {
-      info.instruments = tag.replace("instruments:", "").trim();
-    } else if (tag.startsWith("pitch:")) {
-      info.pitch = tag.replace("pitch:", "").trim();
-    } else {
-      info.cleanTags.push(tag);
-    }
-  });
-
-  return info;
-};
+import { applyManualGenreOverride } from "./services/musicIntelligenceCore";
+import { getTrackInfoFromTags } from "./services/trackTagMetadata";
 
 export default function App() {
   const [theme, setTheme] = useState<"dark" | "light">(() => {
@@ -945,11 +911,25 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
           const tr = tracks.find((t) => t.id === trackId);
           if (tr) {
             let updatedTagsList: string[] = [];
+            const manualGenreTag = tagsToApply.find((tag) =>
+              tag.toLocaleLowerCase().startsWith("genre_override:")
+            );
+            const manualGenre = manualGenreTag?.slice("genre_override:".length).trim() || "";
+            const nonGenreTags = tagsToApply.filter((tag) => {
+              const normalized = tag.toLocaleLowerCase();
+              return !normalized.startsWith("genre_override:")
+                && !normalized.startsWith("genre_category:");
+            });
             if (overwrite) {
-              updatedTagsList = tagsToApply;
+              updatedTagsList = manualGenre
+                ? [...applyManualGenreOverride([], manualGenre), ...nonGenreTags]
+                : tagsToApply;
             } else {
               const existing = tr.tags || [];
-              const merged = new Set([...existing, ...tagsToApply]);
+              const baseTags = manualGenre
+                ? applyManualGenreOverride(existing, manualGenre)
+                : existing;
+              const merged = new Set([...baseTags, ...nonGenreTags]);
               updatedTagsList = Array.from(merged);
             }
             await updateTrack(trackId, { tags: updatedTagsList });
@@ -6218,7 +6198,7 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
                   onClick={async () => {
                     const compiledTags: string[] = [];
                     if (batchGenre) {
-                      compiledTags.push(`genre_category:${batchGenre}`);
+                      compiledTags.push(`genre_override:${batchGenre}`);
                     }
                     if (batchMood) {
                       compiledTags.push(`mood:${batchMood}`);
