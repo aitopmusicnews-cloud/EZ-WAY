@@ -4,6 +4,7 @@ import { resolveMusicIntelligenceReadBase } from './musicIntelligenceAws';
 import {
   buildAnalysisSourceFingerprint,
   hasUsableMusicIntelligenceProfile,
+  profileToLegacyTrackUpdates,
   shouldReuseAnalysis,
   type MusicIntelligenceProfile,
 } from './musicIntelligenceCore';
@@ -228,6 +229,27 @@ export async function analyzeAndPersistTrack(
     } catch (persistenceError) {
       console.warn('[MusicIntelligence] Could not persist the analysis failure state.', persistenceError);
     }
+    throw error;
+  }
+}
+
+export async function runManualTrackAnalysis(
+  track: Track,
+  updateTrack: (trackId: string, updates: Partial<Track>) => Promise<void>,
+  analyze: typeof analyzeAndPersistTrack = analyzeAndPersistTrack,
+): Promise<MusicIntelligenceProfile> {
+  await updateTrack(track.id, { status: 'processing' });
+
+  try {
+    const profile = await analyze(track, { force: true });
+    const legacyUpdates = profileToLegacyTrackUpdates(profile, track.tags || []);
+    await updateTrack(track.id, {
+      ...legacyUpdates,
+      status: 'ready',
+    });
+    return profile;
+  } catch (error) {
+    await updateTrack(track.id, { status: 'error' });
     throw error;
   }
 }
