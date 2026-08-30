@@ -4,8 +4,7 @@ import {
   ListPlus, CheckCircle, AlertCircle, Loader2, Play, Info 
 } from 'lucide-react';
 import { useMediaStore } from '../context/MediaStoreContext';
-import { analyzeAndPersistTrack } from '../services/musicIntelligence';
-import { profileToLegacyTrackUpdates } from '../services/musicIntelligenceCore';
+import { runUploadedTrackAnalysis } from '../services/backgroundTrackAnalysis';
 
 interface BulkFileItem {
   id: string;
@@ -145,28 +144,22 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
         lyrics: lyrics || undefined,
       });
 
-      try {
-        const profile = await analyzeAndPersistTrack(createdTrack, {
-          force: true,
-          onProgress: (status) => setUploadStatus(status),
-        });
-        const legacyUpdates = profileToLegacyTrackUpdates(profile, createdTrack.tags || []);
-        await updateTrack(createdTrack.id, {
-          ...legacyUpdates,
-          status: 'ready',
-        });
-        addToast(`Track "${createdTrack.name}" uploaded and analyzed`, "success");
-      } catch (analysisError: any) {
-        console.error("Automatic Music Intelligence analysis failed:", analysisError);
-        await updateTrack(createdTrack.id, { status: 'error' });
-        addToast(
-          `Track "${createdTrack.name}" was uploaded, but analysis needs retry: ${analysisError?.message || analysisError}`,
-          "error",
-        );
-      }
-      
       setUploadStatus(null);
-      onSuccess();
+      const backgroundWork = runUploadedTrackAnalysis({
+        track: createdTrack,
+        updateTrack,
+        onUploadComplete: () => {
+          addToast(`Track "${createdTrack.name}" uploaded. Analysis is running in the background.`, "success");
+          onSuccess();
+        },
+      });
+      void backgroundWork.then((result) => {
+        if (result === 'ready') {
+          addToast(`Music Intelligence is ready for "${createdTrack.name}".`, "success");
+        } else {
+          addToast(`Track "${createdTrack.name}" is saved, but analysis needs a retry.`, "error");
+        }
+      });
     } catch (e: any) {
       console.error("Upload process failed:", e);
       setUploadStatus(null);
@@ -174,7 +167,7 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
     }
   };
 
-  // Run the Bulk Upload Workflow (queue-based, sequential to avoid hammering analysis endpoints)
+  // Upload source files sequentially; each saved track queues analysis independently in the background.
   const handleUploadBulk = async () => {
     if (bulkFiles.length === 0 || isBulkUploading) return;
 
@@ -235,24 +228,19 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
           image_data: bulkArtwork || undefined,
         });
 
-        // Step 4: Run one canonical Music Intelligence job and reuse its saved result app-wide.
-        updateItemState({ status: 'analyzing', statusText: 'Analyzing music intelligence...', progress: 65 });
-        try {
-          const profile = await analyzeAndPersistTrack(createdTrack, {
-            force: true,
-            onProgress: (status) => updateItemState({ statusText: status, progress: 80 }),
-          });
-          const legacyUpdates = profileToLegacyTrackUpdates(profile, createdTrack.tags || []);
-          await updateTrack(createdTrack.id, {
-            ...legacyUpdates,
-            status: 'ready',
-          });
-        } catch (analysisError) {
-          await updateTrack(createdTrack.id, { status: 'error' });
-          throw analysisError;
-        }
-
-        updateItemState({ status: 'completed', statusText: 'Master Analyzed & Synced!', progress: 100 });
+        // Step 4: Release the upload queue immediately and let Music Intelligence continue independently.
+        const backgroundWork = runUploadedTrackAnalysis({
+          track: createdTrack,
+          updateTrack,
+          onUploadComplete: () => {
+            updateItemState({ status: 'completed', statusText: 'Uploaded • Analyzing in background', progress: 100 });
+          },
+        });
+        void backgroundWork.then((result) => {
+          updateItemState(result === 'ready'
+            ? { status: 'completed', statusText: 'Analysis ready', progress: 100 }
+            : { status: 'failed', statusText: 'Uploaded • Retry analysis', progress: 100 });
+        });
         setBulkProgressGlobal(prev => ({ ...prev, successCount: prev.successCount + 1 }));
       } catch (err: any) {
         console.error(`Bulk item upload failed for ${currentItem.file.name}:`, err);
@@ -262,7 +250,8 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
     }
 
     setIsBulkUploading(false);
-    addToast("Bulk upload batch process complete!", "success");
+    addToast("Bulk upload complete. Music Intelligence is continuing in the background.", "success");
+    onSuccess();
   };
 
   const removeBulkFile = (id: string) => {
