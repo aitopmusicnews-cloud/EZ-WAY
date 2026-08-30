@@ -26,8 +26,8 @@ class AwsAudioToolsRuntimeDependencyContractTests(unittest.TestCase):
         self.assertNotIn("torch>=", requirements)
         self.assertNotIn("torchaudio>=", requirements)
         self.assertIn("https://download.pytorch.org/whl/cpu", dockerfile)
-        self.assertIn("torch==2.5.0", dockerfile)
-        self.assertIn("torchaudio==2.5.0", dockerfile)
+        self.assertIn("torch==2.6.0", dockerfile)
+        self.assertIn("torchaudio==2.6.0", dockerfile)
 
     def test_analyzer_uses_published_all_in_one_api(self):
         analyzer = ANALYZER.read_text(encoding="utf-8")
