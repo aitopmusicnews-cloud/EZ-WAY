@@ -15,6 +15,7 @@ import {
   X,
   FileText,
   Music2,
+  Sparkles,
 } from 'lucide-react';
 import { Track, Playlist } from '../types';
 import { cn } from '../lib/utils';
@@ -42,6 +43,18 @@ interface TrackOptionsMenuProps {
 
 type AudioDialog = 'lyrics' | 'stems' | null;
 
+export function TrackAnalyzeMenuItem({ onAnalyze }: { onAnalyze: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onAnalyze}
+      className="w-full flex items-center gap-3 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-orange-400 hover:bg-orange-500/10 rounded-xl transition-colors"
+    >
+      <Sparkles className="w-3.5 h-3.5 text-orange-500" /> Analyze Track
+    </button>
+  );
+}
+
 export default function TrackOptionsMenu({
   track,
   onEdit,
@@ -52,6 +65,7 @@ export default function TrackOptionsMenu({
   onCreateVideo,
   onAddToPlaylist,
   playlists,
+  onAnalyze,
   onViewDetails,
   className,
 }: TrackOptionsMenuProps) {
@@ -140,6 +154,9 @@ export default function TrackOptionsMenu({
             <button onClick={() => { onEdit(); setIsOpen(false); }} className="w-full flex items-center gap-3 px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-zinc-900 rounded-xl transition-colors">
               <Edit3 className="w-3.5 h-3.5" /> Edit Metadata
             </button>
+            {onAnalyze && (
+              <TrackAnalyzeMenuItem onAnalyze={() => { onAnalyze(); setIsOpen(false); }} />
+            )}
             <button onClick={() => openAudioDialog('lyrics')} className="w-full flex items-center gap-3 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-orange-400 hover:bg-orange-500/10 rounded-xl transition-colors">
               <Mic2 className="w-3.5 h-3.5 text-orange-500" /> Synced Lyrics
             </button>
