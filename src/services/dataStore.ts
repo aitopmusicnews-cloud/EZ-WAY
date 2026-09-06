@@ -9,6 +9,8 @@ import type {
   UserProfile,
 } from '../types';
 import { getIdToken } from './auth.ts';
+import { getTrackAnalysisRecord, type TrackAnalysisRecord } from './musicIntelligence.ts';
+import { resolveTrackAnalysisRecovery } from './trackAnalysisRecovery.ts';
 
 export interface BootstrapPayload {
   tracks: Track[];
@@ -55,6 +57,7 @@ interface ClientOptions {
   apiBase: string;
   getToken?: () => string | null;
   fetchImpl?: typeof fetch;
+  getAnalysisRecord?: (trackId: string) => Promise<TrackAnalysisRecord | null>;
 }
 
 interface WorkspaceMediaUploadOptions {
@@ -118,6 +121,7 @@ export function createDataStoreClient(options: ClientOptions) {
   const apiBase = cleanBase(options.apiBase);
   const tokenProvider = options.getToken || getIdToken;
   const fetchImpl = options.fetchImpl || globalThis.fetch.bind(globalThis);
+  const analysisRecordProvider = options.getAnalysisRecord || getTrackAnalysisRecord;
 
   if (!apiBase) {
     const configurationError = () => { throw new Error('EZ-WAY data API is not configured.'); };
@@ -167,11 +171,31 @@ export function createDataStoreClient(options: ClientOptions) {
   const jsonInit = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) });
   const encoded = (value: string) => encodeURIComponent(value);
 
+  async function bootstrapWithRecoveredTrackAnalysis(): Promise<BootstrapPayload> {
+    const payload = await request<BootstrapPayload>('/bootstrap');
+    const recoveredTracks = await Promise.all((payload.tracks || []).map(async (track) => {
+      if (track.status === 'ready') return track;
+      try {
+        const record = await analysisRecordProvider(track.id);
+        const recovery = resolveTrackAnalysisRecovery(track, record);
+        if (!recovery) return track;
+        return await request<Track>(
+          `/tracks/${encoded(track.id)}`,
+          jsonInit('PATCH', stripBrowserFields(recovery as Record<string, any>)),
+        );
+      } catch (error) {
+        console.warn(`[DataStore] Could not reconcile Music Intelligence for track ${track.id}.`, error);
+        return track;
+      }
+    }));
+    return { ...payload, tracks: recoveredTracks };
+  }
+
   return {
     configured: true,
     health: () => request<{ status: 'ok'; provider: 'aws' }>('/health', {}, false),
     diagnostics: () => request<DiagnosticsPayload>('/diagnostics'),
-    bootstrap: () => request<BootstrapPayload>('/bootstrap'),
+    bootstrap: bootstrapWithRecoveredTrackAnalysis,
 
     createTrack: (track: Track) => request<Track>('/tracks', jsonInit('POST', stripBrowserFields(track))),
     updateTrack: (id: string, updates: Partial<Track>) => request<Track>(`/tracks/${encoded(id)}`, jsonInit('PATCH', stripBrowserFields(updates as any))),
