@@ -1,18 +1,34 @@
-name: Cleanup Transform Diagnostic Once
+name: Verified Ghost UI Cleanup Once
 
 on:
   push:
     branches:
       - refactor/remove-ghost-ui-v2
 
+permissions:
+  contents: write
+
 jobs:
-  diagnose:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout cleanup branch
+        uses: actions/checkout@v4
         with:
           ref: refactor/remove-ghost-ui-v2
-      - name: Replay final cleanup transform
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply audited cleanup transform
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -21,22 +37,84 @@ jobs:
           end = next(i for i, line in enumerate(src[start + 1:], start + 1) if line.strip() == '- name: Verify cleanup contract')
           run_line = next(i for i in range(start, end) if src[i].strip() == 'run: |')
           block = src[run_line + 1:end]
-          out = []
-          for line in block:
-              out.append(line[10:] if line.startswith('          ') else line)
+          out = [line[10:] if line.startswith('          ') else line for line in block]
           Path('/tmp/apply-cleanup.sh').write_text('\n'.join(out) + '\n')
           PY
           bash /tmp/apply-cleanup.sh
-      - name: Inspect transformed status JSX
+
+      - name: Remove final synthetic status residue
         run: |
           python - <<'PY'
           from pathlib import Path
-          source = Path('src/App.tsx').read_text().splitlines()
-          needles = ('System Status', 'Storage Usage', 'Database Latency', 'API Uptime', 'Cloud Sync Active')
-          matches = [i for i, line in enumerate(source, 1) if any(n in line for n in needles)]
-          print(f'remaining_status_matches={matches}')
-          for i in matches:
-              print(f'--- around line {i} ---')
-              for n in range(max(1, i - 15), min(len(source), i + 20) + 1):
-                  print(f'{n}: {source[n-1]}')
+
+          path = Path('src/App.tsx')
+          app = path.read_text()
+          cloud = app.find('Cloud Sync Active')
+          if cloud < 0:
+              raise SystemExit('expected transformed status residue not found')
+
+          residue_start = app.rfind('      <div className="flex items-center gap-2">', 0, cloud)
+          grid_start = app.find('          <div className="grid grid-cols-2 gap-4">', cloud)
+          residue_end_marker = '          </div>\n        </div>\n'
+          residue_end = app.find(residue_end_marker, grid_start)
+
+          if residue_start < 0 or grid_start < 0 or residue_end < 0:
+              raise SystemExit('unable to isolate transformed status residue safely')
+
+          residue_end += len(residue_end_marker)
+          app = app[:residue_start] + app[residue_end:]
+
+          forbidden = [
+              'System Status',
+              'Cloud Sync Active',
+              'Database Latency',
+              'Storage Usage',
+              'API Uptime',
+              'Testing DB...',
+              'Connection Error',
+              'Test DB',
+          ]
+          remaining = [label for label in forbidden if label in app]
+          if remaining:
+              raise SystemExit(f'stale status UI remains: {remaining}')
+
+          path.write_text(app)
           PY
+
+      - name: Verify retained and removed features
+        run: |
+          test -f src/components/YouTubeHubLegacy.tsx
+          test -f src/components/AdminSignIn.tsx
+          test -f src/components/AuthGate.tsx
+          test -f src/components/ExportMasterModal.tsx
+          test -f src/components/VoiceAssistant.tsx
+          test -f src/components/CopyrightsStudio.tsx
+          test -f src/components/AlbumCoverStudio.tsx
+          test ! -f src/components/ReleasesHub.tsx
+          test ! -f src/components/WatermarkRemover.tsx
+          ! grep -R -i -E '\bflux\b' src/App.tsx src/components/Shell.tsx src/components/VoiceAssistant.tsx src/types.ts
+
+      - name: Ghost UI cleanup contract
+        run: node --experimental-strip-types --test src/services/ghostUiCleanup.test.ts
+
+      - name: Interactive control wiring tests
+        run: node --experimental-strip-types --test src/services/buttonAudit.test.ts src/services/trackActionButtons.test.ts
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit verified cleanup
+        run: |
+          rm -f .github/workflows/ghost-ui-cleanup-once.yml
+          rm -f .github/workflows/ghost-ui-cleanup-final-once.yml
+          rm -f .github/workflows/ghost-ui-cleanup-v3-once.yml
+          rm -f .github/workflows/voice-watermark-diagnostic-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "refactor: remove ghost UI and stale settings"
+          git push origin HEAD:refactor/remove-ghost-ui-v2
