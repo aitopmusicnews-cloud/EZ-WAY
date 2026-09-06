@@ -1,0 +1,161 @@
+name: Ghost UI Cleanup Once
+
+on:
+  push:
+    branches:
+      - refactor/remove-ghost-ui-v2
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout cleanup branch
+        uses: actions/checkout@v4
+        with:
+          ref: refactor/remove-ghost-ui-v2
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply audited ghost UI cleanup
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              if old not in text:
+                  raise SystemExit(f'missing expected block: {label}')
+              return text.replace(old, new, 1)
+
+          # Shared typed navigation contract.
+          types_path = Path('src/types.ts')
+          types = types_path.read_text()
+          if 'export type AppView' not in types:
+              app_view = """export type AppView =\n  | 'dashboard'\n  | 'tracks'\n  | 'playlists'\n  | 'clients'\n  | 'messages'\n  | 'sharing'\n  | 'activity'\n  | 'settings'\n  | 'profile'\n  | 'client-detail'\n  | 'videos'\n  | 'youtube'\n  | 'analyzer'\n  | 'copyrights'\n  | 'albumcover';\n\n"""
+              types = app_view + types
+          types_path.write_text(types)
+
+          # Shell: replace any-based navigation with AppView.
+          shell_path = Path('src/components/Shell.tsx')
+          shell = shell_path.read_text()
+          shell = replace_once(
+              shell,
+              "import { trackNeedsCoverPrompt } from '../services/albumCoverCore';",
+              "import { trackNeedsCoverPrompt } from '../services/albumCoverCore';\nimport type { AppView } from '../types';\nimport type { LucideIcon } from 'lucide-react';",
+              'Shell type imports',
+          )
+          shell = replace_once(
+              shell,
+              """interface ShellProps {\n  children: React.ReactNode;\n  activeView: string;\n  onViewChange: (view: any) => void;\n}\n""",
+              """interface ShellProps {\n  children: React.ReactNode;\n  activeView: AppView;\n  onViewChange: (view: AppView) => void;\n}\n\ninterface ShellNavItem {\n  id: AppView;\n  label: string;\n  icon: LucideIcon;\n}\n""",
+              'Shell props',
+          )
+          shell = replace_once(shell, '  const primaryItems = [', '  const primaryItems: ShellNavItem[] = [', 'primary nav type')
+          shell = replace_once(shell, '  const secondaryItems = [', '  const secondaryItems: ShellNavItem[] = [', 'secondary nav type')
+          shell = replace_once(shell, "  const profileItem = { id: 'profile', label: 'Profile', icon: User };", "  const profileItem: ShellNavItem = { id: 'profile', label: 'Profile', icon: User };", 'profile nav type')
+          shell = replace_once(
+              shell,
+              "  const NavItem = ({ item, mobile = false, nested = false }: { item: (typeof primaryItems)[number]; mobile?: boolean; nested?: boolean; key?: React.Key }) => (",
+              "  const NavItem = ({ item, mobile = false, nested = false }: { item: ShellNavItem; mobile?: boolean; nested?: boolean; key?: React.Key }) => (",
+              'NavItem prop type',
+          )
+          shell_path.write_text(shell)
+
+          # Voice Assistant: keep the feature, remove only the dead watermark command and any navigation any.
+          voice_path = Path('src/components/VoiceAssistant.tsx')
+          voice = voice_path.read_text()
+          voice = replace_once(
+              voice,
+              "import { cn } from '../lib/utils';",
+              "import { cn } from '../lib/utils';\nimport type { AppView } from '../types';",
+              'VoiceAssistant type import',
+          )
+          voice = replace_once(
+              voice,
+              """interface VoiceAssistantProps {\n  activeView: string;\n  onViewChange: (view: any) => void;\n}\n""",
+              """interface VoiceAssistantProps {\n  activeView: AppView;\n  onViewChange: (view: AppView) => void;\n}\n""",
+              'VoiceAssistant props',
+          )
+          watermark_block = """      if (clean.includes('watermark') || clean.includes('protection')) {\n        onViewChange('watermark');\n        setLastAction('Navigated to Watermark Protection');\n        speakResponse('Engaging copyright protection modules. Audio security console open.');\n        return;\n      }\n"""
+          voice = replace_once(voice, watermark_block, '', 'dead watermark voice command')
+          voice_path.write_text(voice)
+
+          # App: remove unreachable Releases route, stale Supabase diagnostics state/UI, and use AppView.
+          app_path = Path('src/App.tsx')
+          app = app_path.read_text()
+          app = replace_once(app, 'import ReleasesHub from "./components/ReleasesHub";\n', '', 'Releases import')
+          app = replace_once(
+              app,
+              'import { Track, ShareLink, Client, Playlist } from "./types";',
+              'import { Track, ShareLink, Client, Playlist, AppView } from "./types";',
+              'AppView import',
+          )
+          app = replace_once(app, 'import { getSupabaseClient, supabaseUrl } from "./lib/supabase";\n', '', 'Supabase facade import')
+          old_active_view = """  const [activeView, setActiveView] = useState<\n    | \"dashboard\"\n    | \"tracks\"\n    | \"playlists\"\n    | \"clients\"\n    | \"messages\"\n    | \"sharing\"\n    | \"activity\"\n    | \"settings\"\n    | \"profile\"\n    | \"client-detail\"\n    | \"videos\"\n    | \"youtube\"\n    | \"analyzer\"\n  >(\"dashboard\");"""
+          app = replace_once(app, old_active_view, '  const [activeView, setActiveView] = useState<AppView>("dashboard");', 'activeView union')
+
+          db_start = app.find('  const [dbStatus, setDbStatus] = useState<{')
+          db_end = app.find('  // Handle Pollinations BYOP')
+          if db_start < 0 or db_end < 0 or db_end <= db_start:
+              raise SystemExit('unable to locate stale database diagnostics state block')
+          app = app[:db_start] + app[db_end:]
+
+          settings_probe_effect = """  useEffect(() => {\n    if (activeView === \"settings\") {\n      runDatabaseInspection();\n    }\n  }, [activeView]);\n\n"""
+          app = replace_once(app, settings_probe_effect, '', 'settings database inspection effect')
+          app = replace_once(app, '        {activeView === "releases" && <ReleasesHub />}\n', '', 'Releases route render')
+
+          settings_start = app.find('        {/* Settings View */}\n')
+          player_marker = '      <AudioPlayer onEdit={(track) => setEditingTrack(track)} />'
+          settings_end = app.find(player_marker)
+          if settings_start < 0 or settings_end < 0 or settings_end <= settings_start:
+              raise SystemExit('unable to locate Settings view replacement boundaries')
+
+          settings_view = """        {/* Settings View */}\n        {activeView === \"settings\" && (\n          <div className=\"p-8 space-y-8 max-w-3xl\">\n            <div>\n              <h1 className=\"text-3xl font-black tracking-tighter uppercase text-white\">\n                System Configuration\n              </h1>\n              <p className=\"text-zinc-500 text-sm mt-1\">\n                Configure active workspace preferences.\n              </p>\n            </div>\n\n            <div className=\"grid grid-cols-1 md:grid-cols-2 gap-6\">\n              <div className=\"bg-zinc-950 border border-zinc-900 p-6 rounded-3xl space-y-4\">\n                <div>\n                  <h3 className=\"text-sm font-black uppercase tracking-widest text-zinc-300\">\n                    Demo Mock Data\n                  </h3>\n                  <p className=\"text-[11px] text-zinc-550 leading-relaxed font-bold uppercase tracking-wider mt-0.5\">\n                    Toggle pre-populated sample tracks, clients, playlists, and messages. Turn off to show only your uploaded content.\n                  </p>\n                </div>\n\n                <div className=\"flex items-center justify-between p-4 bg-zinc-900 rounded-2xl border border-zinc-800\">\n                  <div className=\"space-y-1\">\n                    <p className=\"text-xs font-bold uppercase tracking-wider\">Show Sample Data</p>\n                    <p className=\"text-[10px] text-zinc-550 font-medium\">\n                      {enableMockData ? \"Demo records are visible\" : \"Only your own content is shown\"}\n                    </p>\n                  </div>\n                  <button\n                    type=\"button\"\n                    onClick={() => setEnableMockData(!enableMockData)}\n                    className={cn(\n                      \"w-12 h-6 rounded-full transition-colors relative focus:outline-none cursor-pointer\",\n                      enableMockData ? \"bg-orange-500\" : \"bg-zinc-800\",\n                    )}\n                    aria-pressed={enableMockData}\n                    aria-label=\"Toggle sample data\"\n                  >\n                    <div\n                      className={cn(\n                        \"absolute top-1 w-4 h-4 bg-black rounded-full transition-transform\",\n                        enableMockData ? \"right-1\" : \"left-1\",\n                      )}\n                    />\n                  </button>\n                </div>\n\n                {!enableMockData && (\n                  <div className=\"p-3 bg-emerald-950/20 border border-emerald-900/30 rounded-xl\">\n                    <p className=\"text-[10px] text-emerald-400 font-black uppercase tracking-widest leading-normal\">\n                      ✓ Pristine Workspace Enabled\n                    </p>\n                    <p className=\"text-[9px] text-zinc-550 leading-normal mt-1\">\n                      All mock tracks, playlists, clients, messages, and activity records are hidden.\n                    </p>\n                  </div>\n                )}\n              </div>\n\n              <div className=\"bg-zinc-950 border border-zinc-900 p-6 rounded-3xl space-y-4\">\n                <h3 className=\"text-sm font-black uppercase tracking-widest text-zinc-400\">\n                  System UI Theme\n                </h3>\n                <p className=\"text-[11px] text-zinc-500 leading-relaxed uppercase font-bold tracking-wider\">\n                  Configure your studio layout appearance.\n                </p>\n                <div className=\"grid grid-cols-2 gap-3 pt-2\">\n                  <button\n                    type=\"button\"\n                    onClick={() => setTheme(\"dark\")}\n                    className={cn(\n                      \"flex flex-col items-center gap-3 p-4 rounded-2xl border text-center transition-all cursor-pointer\",\n                      theme === \"dark\"\n                        ? \"bg-zinc-900 border-orange-500 text-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.1)]\"\n                        : \"bg-black border-zinc-900 text-zinc-500 hover:border-zinc-805 hover:bg-zinc-900/40 hover:text-zinc-300\",\n                    )}\n                    aria-pressed={theme === \"dark\"}\n                  >\n                    <Moon className=\"w-5 h-5\" />\n                    <div>\n                      <span className=\"block text-xs font-black uppercase tracking-widest\">CYBERPUNK</span>\n                      <span className=\"block text-[8px] font-mono uppercase tracking-widest opacity-60\">Dark Ambient</span>\n                    </div>\n                  </button>\n\n                  <button\n                    type=\"button\"\n                    onClick={() => setTheme(\"light\")}\n                    className={cn(\n                      \"flex flex-col items-center gap-3 p-4 rounded-2xl border text-center transition-all cursor-pointer\",\n                      theme === \"light\"\n                        ? \"bg-zinc-100 border-orange-500 text-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.1)]\"\n                        : \"bg-black border-zinc-900 text-zinc-500 hover:border-zinc-805 hover:bg-zinc-900/40 hover:text-zinc-300\",\n                    )}\n                    aria-pressed={theme === \"light\"}\n                  >\n                    <Sun className=\"w-5 h-5\" />\n                    <div>\n                      <span className=\"block text-xs font-black uppercase tracking-widest\">MINIMALIST</span>\n                      <span className=\"block text-[8px] font-mono uppercase tracking-widest opacity-60\">High Light</span>\n                    </div>\n                  </button>\n                </div>\n              </div>\n            </div>\n          </div>\n        )}\n      </div>\n\n"""
+          app = app[:settings_start] + settings_view + app[settings_end:]
+          app_path.write_text(app)
+
+          # Delete stranded/obsolete files after removing all runtime references.
+          for retired in [
+              Path('src/components/ReleasesHub.tsx'),
+              Path('src/components/WatermarkRemover.tsx'),
+              Path('src/lib/supabase.ts'),
+          ]:
+              if retired.exists():
+                  retired.unlink()
+          PY
+
+      - name: Verify cleanup contract
+        run: node --experimental-strip-types --test src/services/ghostUiCleanup.test.ts
+
+      - name: Verify rendered button wiring
+        run: node --experimental-strip-types --test src/services/buttonAudit.test.ts src/services/trackActionButtons.test.ts
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Remove one-shot workflow and commit cleanup
+        run: |
+          rm .github/workflows/ghost-ui-cleanup-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No cleanup changes to commit."
+          else
+            git commit -m "refactor: remove ghost UI and stale settings"
+            git push origin HEAD:refactor/remove-ghost-ui-v2
+          fi
