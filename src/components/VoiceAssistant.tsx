@@ -7,10 +7,11 @@ import { useAudio } from '../context/AudioContext';
 import { useMediaStore } from '../context/MediaStoreContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import type { AppView } from '../types';
 
 interface VoiceAssistantProps {
-  activeView: string;
-  onViewChange: (view: any) => void;
+  activeView: AppView;
+  onViewChange: (view: AppView) => void;
 }
 
 const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -350,12 +351,6 @@ export default function VoiceAssistant({ activeView, onViewChange }: VoiceAssist
         onViewChange('videos');
         setLastAction('Navigated to Video Creator');
         speakResponse('Routing master audio to the video render bus.');
-        return;
-      }
-      if (clean.includes('watermark') || clean.includes('protection')) {
-        onViewChange('watermark');
-        setLastAction('Navigated to Watermark Protection');
-        speakResponse('Engaging copyright protection modules. Audio security console open.');
         return;
       }
       if (clean.includes('youtube') || clean.includes('hub')) {
@@ -717,12 +712,6 @@ export default function VoiceAssistant({ activeView, onViewChange }: VoiceAssist
         keywords: ["video maker", "videos", "creator", "render bus", "youtube video", "create video", "make video"],
         execute: () => onViewChange('videos'),
         confirmationPhrase: "Routing master audio to the video render bus."
-      },
-      {
-        description: "engage copyright watermark protection",
-        keywords: ["watermark", "protection", "security", "copyright"],
-        execute: () => onViewChange('watermark'),
-        confirmationPhrase: "Engaging copyright protection modules. Audio security console open."
       },
       {
         description: "connect uplink to YouTube Hub publishing deck",
@@ -1448,7 +1437,7 @@ export default function VoiceAssistant({ activeView, onViewChange }: VoiceAssist
                       <div>• <span className="text-zinc-300 font-bold">"Go to Analyzer"</span> (or a&r)</div>
                       <div>• <span className="text-zinc-300 font-bold">"Go to Clients"</span> (or directory)</div>
                       <div>• <span className="text-zinc-300 font-bold">"Go to Videos"</span> / <span className="text-zinc-300 font-bold">"YouTube Hub"</span></div>
-                      <div>• <span className="text-zinc-300 font-bold">"Go to Playlists"</span> / <span className="text-zinc-300 font-bold">"Watermark"</span></div>
+                      <div>• <span className="text-zinc-300 font-bold">"Go to Playlists"</span></div>
                     </div>
                   </div>
 
@@ -1556,7 +1545,6 @@ export default function VoiceAssistant({ activeView, onViewChange }: VoiceAssist
                       { label: "A&R Analyzer", cmd: "go to analyzer" },
                       { label: "YouTube Deck", cmd: "go to youtube" },
                       { label: "Roll / Cut Tape", cmd: "roll tape" },
-                      { label: "Copyright Guard", cmd: "go to watermark" }
                     ].map((btn, i) => (
                       <button
                         key={i}

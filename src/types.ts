@@ -1,3 +1,20 @@
+export type AppView =
+  | 'dashboard'
+  | 'tracks'
+  | 'playlists'
+  | 'clients'
+  | 'messages'
+  | 'sharing'
+  | 'activity'
+  | 'settings'
+  | 'profile'
+  | 'client-detail'
+  | 'videos'
+  | 'youtube'
+  | 'analyzer'
+  | 'copyrights'
+  | 'albumcover';
+
 export interface Track {
   id: string;
   name: string;
