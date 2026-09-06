@@ -1,4 +1,4 @@
-name: UI Status Diagnostic Once
+name: Cleanup Transform Diagnostic Once
 
 on:
   push:
@@ -12,16 +12,31 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: refactor/remove-ghost-ui-v2
-      - name: Show every synthetic status reference
+      - name: Replay final cleanup transform
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          src = Path('.github/workflows/ghost-ui-cleanup-final-once.yml').read_text().splitlines()
+          start = next(i for i, line in enumerate(src) if line.strip() == '- name: Apply final audited cleanup')
+          end = next(i for i, line in enumerate(src[start + 1:], start + 1) if line.strip() == '- name: Verify cleanup contract')
+          run_line = next(i for i in range(start, end) if src[i].strip() == 'run: |')
+          block = src[run_line + 1:end]
+          out = []
+          for line in block:
+              out.append(line[10:] if line.startswith('          ') else line)
+          Path('/tmp/apply-cleanup.sh').write_text('\n'.join(out) + '\n')
+          PY
+          bash /tmp/apply-cleanup.sh
+      - name: Inspect transformed status JSX
         run: |
           python - <<'PY'
           from pathlib import Path
           source = Path('src/App.tsx').read_text().splitlines()
           needles = ('System Status', 'Storage Usage', 'Database Latency', 'API Uptime', 'Cloud Sync Active')
-          matches = [(i, line) for i, line in enumerate(source, 1) if any(n in line for n in needles)]
-          print(f'status_matches={len(matches)}')
-          for i, _ in matches:
+          matches = [i for i, line in enumerate(source, 1) if any(n in line for n in needles)]
+          print(f'remaining_status_matches={matches}')
+          for i in matches:
               print(f'--- around line {i} ---')
-              for n in range(max(1, i - 5), min(len(source), i + 6) + 1):
+              for n in range(max(1, i - 15), min(len(source), i + 20) + 1):
                   print(f'{n}: {source[n-1]}')
           PY
