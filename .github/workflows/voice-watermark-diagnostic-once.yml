@@ -1,0 +1,28 @@
+name: Voice Watermark Diagnostic Once
+
+on:
+  push:
+    branches:
+      - refactor/remove-ghost-ui-v2
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/remove-ghost-ui-v2
+      - name: Show every VoiceAssistant watermark reference
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('src/components/VoiceAssistant.tsx').read_text().splitlines()
+          matches = [(i, line) for i, line in enumerate(source, 1) if 'watermark' in line.lower()]
+          print(f'watermark_matches={len(matches)}')
+          for i, line in matches:
+              start = max(1, i - 3)
+              end = min(len(source), i + 3)
+              print(f'--- around line {i} ---')
+              for n in range(start, end + 1):
+                  print(f'{n}: {source[n-1]}')
+          PY
