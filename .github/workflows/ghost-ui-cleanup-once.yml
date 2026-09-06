@@ -28,6 +28,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Locate remaining ghost references
+        run: |
+          grep -n -C 4 "onViewChange('watermark')" src/components/VoiceAssistant.tsx || true
+          grep -n -C 8 "Storage Usage" src/App.tsx || true
+
       - name: Apply audited ghost UI cleanup
         run: |
           python - <<'PY'
@@ -38,7 +43,6 @@ jobs:
                   raise SystemExit(f'missing expected block: {label}')
               return text.replace(old, new, 1)
 
-          # Shared typed navigation contract.
           types_path = Path('src/types.ts')
           types = types_path.read_text()
           if 'export type AppView' not in types:
@@ -46,61 +50,28 @@ jobs:
               types = app_view + types
           types_path.write_text(types)
 
-          # Shell: replace any-based navigation with AppView.
           shell_path = Path('src/components/Shell.tsx')
           shell = shell_path.read_text()
-          shell = replace_once(
-              shell,
-              "import { trackNeedsCoverPrompt } from '../services/albumCoverCore';",
-              "import { trackNeedsCoverPrompt } from '../services/albumCoverCore';\nimport type { AppView } from '../types';\nimport type { LucideIcon } from 'lucide-react';",
-              'Shell type imports',
-          )
-          shell = replace_once(
-              shell,
-              """interface ShellProps {\n  children: React.ReactNode;\n  activeView: string;\n  onViewChange: (view: any) => void;\n}\n""",
-              """interface ShellProps {\n  children: React.ReactNode;\n  activeView: AppView;\n  onViewChange: (view: AppView) => void;\n}\n\ninterface ShellNavItem {\n  id: AppView;\n  label: string;\n  icon: LucideIcon;\n}\n""",
-              'Shell props',
-          )
+          shell = replace_once(shell, "import { trackNeedsCoverPrompt } from '../services/albumCoverCore';", "import { trackNeedsCoverPrompt } from '../services/albumCoverCore';\nimport type { AppView } from '../types';\nimport type { LucideIcon } from 'lucide-react';", 'Shell type imports')
+          shell = replace_once(shell, """interface ShellProps {\n  children: React.ReactNode;\n  activeView: string;\n  onViewChange: (view: any) => void;\n}\n""", """interface ShellProps {\n  children: React.ReactNode;\n  activeView: AppView;\n  onViewChange: (view: AppView) => void;\n}\n\ninterface ShellNavItem {\n  id: AppView;\n  label: string;\n  icon: LucideIcon;\n}\n""", 'Shell props')
           shell = replace_once(shell, '  const primaryItems = [', '  const primaryItems: ShellNavItem[] = [', 'primary nav type')
           shell = replace_once(shell, '  const secondaryItems = [', '  const secondaryItems: ShellNavItem[] = [', 'secondary nav type')
           shell = replace_once(shell, "  const profileItem = { id: 'profile', label: 'Profile', icon: User };", "  const profileItem: ShellNavItem = { id: 'profile', label: 'Profile', icon: User };", 'profile nav type')
-          shell = replace_once(
-              shell,
-              "  const NavItem = ({ item, mobile = false, nested = false }: { item: (typeof primaryItems)[number]; mobile?: boolean; nested?: boolean; key?: React.Key }) => (",
-              "  const NavItem = ({ item, mobile = false, nested = false }: { item: ShellNavItem; mobile?: boolean; nested?: boolean; key?: React.Key }) => (",
-              'NavItem prop type',
-          )
+          shell = replace_once(shell, "  const NavItem = ({ item, mobile = false, nested = false }: { item: (typeof primaryItems)[number]; mobile?: boolean; nested?: boolean; key?: React.Key }) => (", "  const NavItem = ({ item, mobile = false, nested = false }: { item: ShellNavItem; mobile?: boolean; nested?: boolean; key?: React.Key }) => (", 'NavItem prop type')
           shell_path.write_text(shell)
 
-          # Voice Assistant: keep the feature, remove only the dead watermark command and any navigation any.
           voice_path = Path('src/components/VoiceAssistant.tsx')
           voice = voice_path.read_text()
-          voice = replace_once(
-              voice,
-              "import { cn } from '../lib/utils';",
-              "import { cn } from '../lib/utils';\nimport type { AppView } from '../types';",
-              'VoiceAssistant type import',
-          )
-          voice = replace_once(
-              voice,
-              """interface VoiceAssistantProps {\n  activeView: string;\n  onViewChange: (view: any) => void;\n}\n""",
-              """interface VoiceAssistantProps {\n  activeView: AppView;\n  onViewChange: (view: AppView) => void;\n}\n""",
-              'VoiceAssistant props',
-          )
+          voice = replace_once(voice, "import { cn } from '../lib/utils';", "import { cn } from '../lib/utils';\nimport type { AppView } from '../types';", 'VoiceAssistant type import')
+          voice = replace_once(voice, """interface VoiceAssistantProps {\n  activeView: string;\n  onViewChange: (view: any) => void;\n}\n""", """interface VoiceAssistantProps {\n  activeView: AppView;\n  onViewChange: (view: AppView) => void;\n}\n""", 'VoiceAssistant props')
           watermark_block = """      if (clean.includes('watermark') || clean.includes('protection')) {\n        onViewChange('watermark');\n        setLastAction('Navigated to Watermark Protection');\n        speakResponse('Engaging copyright protection modules. Audio security console open.');\n        return;\n      }\n"""
           voice = replace_once(voice, watermark_block, '', 'dead watermark voice command')
           voice_path.write_text(voice)
 
-          # App: remove unreachable Releases route, stale Supabase diagnostics state/UI, and use AppView.
           app_path = Path('src/App.tsx')
           app = app_path.read_text()
           app = replace_once(app, 'import ReleasesHub from "./components/ReleasesHub";\n', '', 'Releases import')
-          app = replace_once(
-              app,
-              'import { Track, ShareLink, Client, Playlist } from "./types";',
-              'import { Track, ShareLink, Client, Playlist, AppView } from "./types";',
-              'AppView import',
-          )
+          app = replace_once(app, 'import { Track, ShareLink, Client, Playlist } from "./types";', 'import { Track, ShareLink, Client, Playlist, AppView } from "./types";', 'AppView import')
           app = replace_once(app, 'import { getSupabaseClient, supabaseUrl } from "./lib/supabase";\n', '', 'Supabase facade import')
           old_active_view = """  const [activeView, setActiveView] = useState<\n    | \"dashboard\"\n    | \"tracks\"\n    | \"playlists\"\n    | \"clients\"\n    | \"messages\"\n    | \"sharing\"\n    | \"activity\"\n    | \"settings\"\n    | \"profile\"\n    | \"client-detail\"\n    | \"videos\"\n    | \"youtube\"\n    | \"analyzer\"\n  >(\"dashboard\");"""
           app = replace_once(app, old_active_view, '  const [activeView, setActiveView] = useState<AppView>("dashboard");', 'activeView union')
@@ -121,16 +92,11 @@ jobs:
           if settings_start < 0 or settings_end < 0 or settings_end <= settings_start:
               raise SystemExit('unable to locate Settings view replacement boundaries')
 
-          settings_view = """        {/* Settings View */}\n        {activeView === \"settings\" && (\n          <div className=\"p-8 space-y-8 max-w-3xl\">\n            <div>\n              <h1 className=\"text-3xl font-black tracking-tighter uppercase text-white\">\n                System Configuration\n              </h1>\n              <p className=\"text-zinc-500 text-sm mt-1\">\n                Configure active workspace preferences.\n              </p>\n            </div>\n\n            <div className=\"grid grid-cols-1 md:grid-cols-2 gap-6\">\n              <div className=\"bg-zinc-950 border border-zinc-900 p-6 rounded-3xl space-y-4\">\n                <div>\n                  <h3 className=\"text-sm font-black uppercase tracking-widest text-zinc-300\">\n                    Demo Mock Data\n                  </h3>\n                  <p className=\"text-[11px] text-zinc-550 leading-relaxed font-bold uppercase tracking-wider mt-0.5\">\n                    Toggle pre-populated sample tracks, clients, playlists, and messages. Turn off to show only your uploaded content.\n                  </p>\n                </div>\n\n                <div className=\"flex items-center justify-between p-4 bg-zinc-900 rounded-2xl border border-zinc-800\">\n                  <div className=\"space-y-1\">\n                    <p className=\"text-xs font-bold uppercase tracking-wider\">Show Sample Data</p>\n                    <p className=\"text-[10px] text-zinc-550 font-medium\">\n                      {enableMockData ? \"Demo records are visible\" : \"Only your own content is shown\"}\n                    </p>\n                  </div>\n                  <button\n                    type=\"button\"\n                    onClick={() => setEnableMockData(!enableMockData)}\n                    className={cn(\n                      \"w-12 h-6 rounded-full transition-colors relative focus:outline-none cursor-pointer\",\n                      enableMockData ? \"bg-orange-500\" : \"bg-zinc-800\",\n                    )}\n                    aria-pressed={enableMockData}\n                    aria-label=\"Toggle sample data\"\n                  >\n                    <div\n                      className={cn(\n                        \"absolute top-1 w-4 h-4 bg-black rounded-full transition-transform\",\n                        enableMockData ? \"right-1\" : \"left-1\",\n                      )}\n                    />\n                  </button>\n                </div>\n\n                {!enableMockData && (\n                  <div className=\"p-3 bg-emerald-950/20 border border-emerald-900/30 rounded-xl\">\n                    <p className=\"text-[10px] text-emerald-400 font-black uppercase tracking-widest leading-normal\">\n                      ✓ Pristine Workspace Enabled\n                    </p>\n                    <p className=\"text-[9px] text-zinc-550 leading-normal mt-1\">\n                      All mock tracks, playlists, clients, messages, and activity records are hidden.\n                    </p>\n                  </div>\n                )}\n              </div>\n\n              <div className=\"bg-zinc-950 border border-zinc-900 p-6 rounded-3xl space-y-4\">\n                <h3 className=\"text-sm font-black uppercase tracking-widest text-zinc-400\">\n                  System UI Theme\n                </h3>\n                <p className=\"text-[11px] text-zinc-500 leading-relaxed uppercase font-bold tracking-wider\">\n                  Configure your studio layout appearance.\n                </p>\n                <div className=\"grid grid-cols-2 gap-3 pt-2\">\n                  <button\n                    type=\"button\"\n                    onClick={() => setTheme(\"dark\")}\n                    className={cn(\n                      \"flex flex-col items-center gap-3 p-4 rounded-2xl border text-center transition-all cursor-pointer\",\n                      theme === \"dark\"\n                        ? \"bg-zinc-900 border-orange-500 text-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.1)]\"\n                        : \"bg-black border-zinc-900 text-zinc-500 hover:border-zinc-805 hover:bg-zinc-900/40 hover:text-zinc-300\",\n                    )}\n                    aria-pressed={theme === \"dark\"}\n                  >\n                    <Moon className=\"w-5 h-5\" />\n                    <div>\n                      <span className=\"block text-xs font-black uppercase tracking-widest\">CYBERPUNK</span>\n                      <span className=\"block text-[8px] font-mono uppercase tracking-widest opacity-60\">Dark Ambient</span>\n                    </div>\n                  </button>\n\n                  <button\n                    type=\"button\"\n                    onClick={() => setTheme(\"light\")}\n                    className={cn(\n                      \"flex flex-col items-center gap-3 p-4 rounded-2xl border text-center transition-all cursor-pointer\",\n                      theme === \"light\"\n                        ? \"bg-zinc-100 border-orange-500 text-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.1)]\"\n                        : \"bg-black border-zinc-900 text-zinc-500 hover:border-zinc-805 hover:bg-zinc-900/40 hover:text-zinc-300\",\n                    )}\n                    aria-pressed={theme === \"light\"}\n                  >\n                    <Sun className=\"w-5 h-5\" />\n                    <div>\n                      <span className=\"block text-xs font-black uppercase tracking-widest\">MINIMALIST</span>\n                      <span className=\"block text-[8px] font-mono uppercase tracking-widest opacity-60\">High Light</span>\n                    </div>\n                  </button>\n                </div>\n              </div>\n            </div>\n          </div>\n        )}\n      </div>\n\n"""
+          settings_view = """        {/* Settings View */}\n        {activeView === \"settings\" && (\n          <div className=\"p-8 space-y-8 max-w-3xl\">\n            <div>\n              <h1 className=\"text-3xl font-black tracking-tighter uppercase text-white\">System Configuration</h1>\n              <p className=\"text-zinc-500 text-sm mt-1\">Configure active workspace preferences.</p>\n            </div>\n            <div className=\"grid grid-cols-1 md:grid-cols-2 gap-6\">\n              <div className=\"bg-zinc-950 border border-zinc-900 p-6 rounded-3xl space-y-4\">\n                <div>\n                  <h3 className=\"text-sm font-black uppercase tracking-widest text-zinc-300\">Demo Mock Data</h3>\n                  <p className=\"text-[11px] text-zinc-550 leading-relaxed font-bold uppercase tracking-wider mt-0.5\">Toggle pre-populated sample tracks, clients, playlists, and messages. Turn off to show only your uploaded content.</p>\n                </div>\n                <div className=\"flex items-center justify-between p-4 bg-zinc-900 rounded-2xl border border-zinc-800\">\n                  <div className=\"space-y-1\">\n                    <p className=\"text-xs font-bold uppercase tracking-wider\">Show Sample Data</p>\n                    <p className=\"text-[10px] text-zinc-550 font-medium\">{enableMockData ? \"Demo records are visible\" : \"Only your own content is shown\"}</p>\n                  </div>\n                  <button type=\"button\" onClick={() => setEnableMockData(!enableMockData)} className={cn(\"w-12 h-6 rounded-full transition-colors relative focus:outline-none cursor-pointer\", enableMockData ? \"bg-orange-500\" : \"bg-zinc-800\")} aria-pressed={enableMockData} aria-label=\"Toggle sample data\">\n                    <div className={cn(\"absolute top-1 w-4 h-4 bg-black rounded-full transition-transform\", enableMockData ? \"right-1\" : \"left-1\")} />\n                  </button>\n                </div>\n                {!enableMockData && (\n                  <div className=\"p-3 bg-emerald-950/20 border border-emerald-900/30 rounded-xl\">\n                    <p className=\"text-[10px] text-emerald-400 font-black uppercase tracking-widest leading-normal\">✓ Pristine Workspace Enabled</p>\n                    <p className=\"text-[9px] text-zinc-550 leading-normal mt-1\">All mock tracks, playlists, clients, messages, and activity records are hidden.</p>\n                  </div>\n                )}\n              </div>\n              <div className=\"bg-zinc-950 border border-zinc-900 p-6 rounded-3xl space-y-4\">\n                <h3 className=\"text-sm font-black uppercase tracking-widest text-zinc-400\">System UI Theme</h3>\n                <p className=\"text-[11px] text-zinc-500 leading-relaxed uppercase font-bold tracking-wider\">Configure your studio layout appearance.</p>\n                <div className=\"grid grid-cols-2 gap-3 pt-2\">\n                  <button type=\"button\" onClick={() => setTheme(\"dark\")} className={cn(\"flex flex-col items-center gap-3 p-4 rounded-2xl border text-center transition-all cursor-pointer\", theme === \"dark\" ? \"bg-zinc-900 border-orange-500 text-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.1)]\" : \"bg-black border-zinc-900 text-zinc-500 hover:border-zinc-805 hover:bg-zinc-900/40 hover:text-zinc-300\")} aria-pressed={theme === \"dark\"}>\n                    <Moon className=\"w-5 h-5\" />\n                    <div><span className=\"block text-xs font-black uppercase tracking-widest\">CYBERPUNK</span><span className=\"block text-[8px] font-mono uppercase tracking-widest opacity-60\">Dark Ambient</span></div>\n                  </button>\n                  <button type=\"button\" onClick={() => setTheme(\"light\")} className={cn(\"flex flex-col items-center gap-3 p-4 rounded-2xl border text-center transition-all cursor-pointer\", theme === \"light\" ? \"bg-zinc-100 border-orange-500 text-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.1)]\" : \"bg-black border-zinc-900 text-zinc-500 hover:border-zinc-805 hover:bg-zinc-900/40 hover:text-zinc-300\")} aria-pressed={theme === \"light\"}>\n                    <Sun className=\"w-5 h-5\" />\n                    <div><span className=\"block text-xs font-black uppercase tracking-widest\">MINIMALIST</span><span className=\"block text-[8px] font-mono uppercase tracking-widest opacity-60\">High Light</span></div>\n                  </button>\n                </div>\n              </div>\n            </div>\n          </div>\n        )}\n      </div>\n\n"""
           app = app[:settings_start] + settings_view + app[settings_end:]
           app_path.write_text(app)
 
-          # Delete stranded/obsolete files after removing all runtime references.
-          for retired in [
-              Path('src/components/ReleasesHub.tsx'),
-              Path('src/components/WatermarkRemover.tsx'),
-              Path('src/lib/supabase.ts'),
-          ]:
+          for retired in [Path('src/components/ReleasesHub.tsx'), Path('src/components/WatermarkRemover.tsx'), Path('src/lib/supabase.ts')]:
               if retired.exists():
                   retired.unlink()
           PY
