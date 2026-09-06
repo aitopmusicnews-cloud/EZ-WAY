@@ -35,6 +35,12 @@ jobs:
       - name: AWS Music Intelligence frontend tests
         run: node --experimental-strip-types --test src/services/musicIntelligenceAws.test.ts
 
+      - name: Track analysis source refresh tests
+        run: node --experimental-strip-types --test src/services/musicIntelligenceSourceRefresh.test.ts
+
+      - name: Track action button wiring tests
+        run: node --experimental-strip-types --test src/services/trackActionButtons.test.ts
+
       - name: Track analysis recovery tests
         run: node --experimental-strip-types --test src/services/trackAnalysisRecovery.test.ts
 
