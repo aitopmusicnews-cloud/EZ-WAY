@@ -145,6 +145,7 @@ export default function App() {
   const [batchMode, setBatchMode] = useState<"append" | "overwrite">("append");
   const [sortBy, setSortBy] = useState<"date_added" | "name" | "bpm">("date_added");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [trackStatusFilter, setTrackStatusFilter] = useState<"all" | "ready" | "processing" | "error">("all");
   const [expandedTrackIds, setExpandedTrackIds] = useState<string[]>([]);
   const [clientSearchQuery, setClientSearchQuery] = useState("");
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
@@ -845,11 +846,13 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
   const filteredTracks = useMemo(() => {
     const filtered = tracks.filter((t) => {
       const q = searchQuery.toLowerCase();
-      return (
+      const matchesSearch = (
         t.name.toLowerCase().includes(q) ||
         t.artist.toLowerCase().includes(q) ||
         t.tags?.some((tag) => tag.toLowerCase().includes(q))
       );
+      const matchesStatus = trackStatusFilter === "all" || t.status === trackStatusFilter;
+      return matchesSearch && matchesStatus;
     });
 
     return [...filtered].sort((a, b) => {
@@ -868,7 +871,7 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
 
       return sortOrder === "asc" ? comparison : -comparison;
     });
-  }, [tracks, searchQuery, sortBy, sortOrder]);
+  }, [tracks, searchQuery, sortBy, sortOrder, trackStatusFilter]);
 
   const isAllTracksSelected = useMemo(() => {
     return (
@@ -2325,8 +2328,17 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
           </button>
         </div>
 
-        <button className="px-6 py-3 border border-zinc-900 rounded-2xl flex items-center gap-2 text-zinc-400 hover:text-white transition-colors self-stretch md:self-auto justify-center">
-          <Filter className="w-4 h-4" /> Filters
+        <button
+          type="button"
+          onClick={() => setTrackStatusFilter((current) => {
+            const order: Array<"all" | "ready" | "processing" | "error"> = ["all", "ready", "processing", "error"];
+            return order[(order.indexOf(current) + 1) % order.length];
+          })}
+          title={`Status filter: ${trackStatusFilter}`}
+          className="px-6 py-3 border border-zinc-900 rounded-2xl flex items-center gap-2 text-zinc-400 hover:text-white transition-colors self-stretch md:self-auto justify-center"
+        >
+          <Filter className="w-4 h-4" />
+          {trackStatusFilter === "all" ? "Filters" : `Filters: ${trackStatusFilter}`}
         </button>
       </div>
 
@@ -3894,7 +3906,12 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
-                  <button className="p-3 text-zinc-600 hover:text-white transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => setEditingClient(activeChatClient)}
+                    className="p-3 text-zinc-600 hover:text-white transition-colors"
+                    title="Edit contact settings"
+                  >
                     <Settings className="w-4 h-4" />
                   </button>
                 </div>
@@ -4119,7 +4136,12 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
                     </span>
                   </td>
                   <td className="px-8 py-6">
-                    <button className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 hover:text-rose-500 transition-all hover:scale-110">
+                    <button
+                      type="button"
+                      onClick={() => void deleteShareLink(link.id)}
+                      className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 hover:text-rose-500 transition-all hover:scale-110"
+                      title="Delete share link"
+                    >
                       <X className="w-4 h-4" />
                     </button>
                   </td>
