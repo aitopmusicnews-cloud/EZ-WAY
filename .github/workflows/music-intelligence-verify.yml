@@ -41,6 +41,9 @@ jobs:
       - name: Track action button wiring tests
         run: node --experimental-strip-types --test src/services/trackActionButtons.test.ts
 
+      - name: Rendered button action audit
+        run: node --experimental-strip-types --test src/services/buttonAudit.test.ts
+
       - name: Track analysis recovery tests
         run: node --experimental-strip-types --test src/services/trackAnalysisRecovery.test.ts
 
