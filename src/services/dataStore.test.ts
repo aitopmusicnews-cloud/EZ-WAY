@@ -21,6 +21,76 @@ test('owner requests attach the Cognito ID token', async () => {
   assert.equal((calls[0].headers as Record<string, string>).Authorization, 'Bearer id-token');
 });
 
+test('bootstrap repairs a stuck track from completed canonical analysis', async () => {
+  const track = {
+    id: '11111111-1111-4111-8111-111111111111',
+    name: 'Recovered Track',
+    artist: 'OGBeatz',
+    bpm: 0,
+    key_signature: 'Analyzing…',
+    duration: 180,
+    tags: ['custom-tag'],
+    status: 'processing',
+    size: 123456,
+    type: 'audio/mpeg',
+    file_url: 'https://example.com/audio.mp3?signature=fresh',
+    file_key: 'tracks/audio/example.mp3',
+    plays: 0,
+    likes: 0,
+    created_at: '2026-09-01T00:00:00.000Z',
+  } as const;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const client = createDataStoreClient({
+    apiBase: 'https://api.example.com',
+    getToken: () => 'id-token',
+    getAnalysisRecord: async () => ({
+      track_id: track.id,
+      analyzer_version: 'music-intelligence-v1',
+      status: 'ready',
+      source_fingerprint: 'v1-old-presigned-url',
+      profile: {
+        version: 'music-intelligence-v1',
+        analyzed_at: '2026-09-01T00:01:00.000Z',
+        bpm: 87,
+        key: 'D Major',
+        camelot_key: '10B',
+        primary_genre: 'Latin Pop',
+        genre_confident: true,
+        genres: [{ label: 'Latin Pop', score: 0.9 }],
+        moods: [{ label: 'Confident', score: 0.8 }],
+        styles: [{ label: 'Melodic Trap', score: 0.7 }],
+        instruments: [{ label: 'Lead Synth', score: 0.6 }],
+        sections: [],
+        chapters: [],
+        keywords: ['radio-ready'],
+        evidence: { provider: 'aws-ecs' },
+        warnings: [],
+      },
+    }),
+    fetchImpl: async (input, init) => {
+      const url = String(input);
+      calls.push({ url, init });
+      if (url.endsWith('/bootstrap')) {
+        return jsonResponse({
+          tracks: [track], playlists: [], clients: [], activities: [], share_links: [], messages: [], promo_videos: [], profile: null,
+        });
+      }
+      if (url.endsWith(`/tracks/${track.id}`)) {
+        const updates = JSON.parse(String(init?.body || '{}'));
+        return jsonResponse({ ...track, ...updates });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    },
+  });
+
+  const payload = await client.bootstrap();
+  assert.equal(payload.tracks[0].status, 'ready');
+  assert.equal(payload.tracks[0].bpm, 87);
+  assert.equal(payload.tracks[0].key_signature, 'D Major (10B)');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].init?.method, 'PATCH');
+});
+
 test('public share requests never attach owner Authorization', async () => {
   let headers: Record<string, string> = {};
   const client = createDataStoreClient({
