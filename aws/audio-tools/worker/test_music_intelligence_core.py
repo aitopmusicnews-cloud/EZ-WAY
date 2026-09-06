@@ -1,9 +1,11 @@
 import unittest
 
+from analyzer import STYLE_LABELS
 from music_intelligence_core import (
     aggregate_rankings,
     build_profile,
     normalize_probability,
+    select_confident_ranking,
     segments_to_chapters,
 )
 
@@ -23,6 +25,31 @@ class MusicIntelligenceCoreTests(unittest.TestCase):
         self.assertEqual([item["label"] for item in ranked], ["Trap", "R&B"])
         self.assertAlmostEqual(ranked[0]["score"], 0.7, places=6)
         self.assertAlmostEqual(ranked[1]["score"], 0.3, places=6)
+
+    def test_style_taxonomy_does_not_treat_instrumental_as_a_vibe(self):
+        self.assertNotIn("Instrumental", STYLE_LABELS)
+
+    def test_select_confident_ranking_rejects_near_tied_style_guesses(self):
+        ranked = [
+            {"label": "Melodic Trap", "score": 0.63},
+            {"label": "Trap Soul", "score": 0.62},
+            {"label": "Atmospheric", "score": 0.61},
+        ]
+        self.assertEqual(
+            select_confident_ranking(ranked, threshold=0.55, margin=0.03, limit=3),
+            [],
+        )
+
+    def test_select_confident_ranking_keeps_a_distinct_style_prediction(self):
+        ranked = [
+            {"label": "Atmospheric", "score": 0.72},
+            {"label": "Melodic Trap", "score": 0.61},
+            {"label": "Trap Soul", "score": 0.60},
+        ]
+        self.assertEqual(
+            select_confident_ranking(ranked, threshold=0.55, margin=0.03, limit=3),
+            ranked,
+        )
 
     def test_segments_to_chapters_drops_start_end_and_formats_labels(self):
         segments = [
