@@ -1,4 +1,5 @@
 import type { Track } from '../types.ts';
+import { getIdToken } from './auth.ts';
 import { runAudioToolsJob } from './audioTools.ts';
 import { resolveMusicIntelligenceReadBase } from './musicIntelligenceAws.ts';
 import {
@@ -31,12 +32,15 @@ const getEnv = (name: string): string => {
   }
 };
 
+const cleanBase = (value: unknown): string => String(value ?? '').trim().replace(/\/+$/, '');
+
 const getCloudReadBase = (): string => resolveMusicIntelligenceReadBase(
   getEnv('VITE_MUSIC_INTELLIGENCE_API_URL'),
   getEnv('VITE_AUDIO_TOOLS_URL'),
 );
 
-const getCloudWriteBase = (): string => getEnv('VITE_MUSIC_INTELLIGENCE_API_URL').replace(/\/+$/, '');
+const getCloudWriteBase = (): string => cleanBase(getEnv('VITE_MUSIC_INTELLIGENCE_API_URL'));
+const getAppDataBase = (): string => cleanBase(getEnv('VITE_EZWAY_API_URL'));
 
 const getCloudReadRecordUrl = (trackId: string): string => {
   const base = getCloudReadBase();
@@ -92,6 +96,47 @@ const unwrapRecordResponse = (payload: unknown): TrackAnalysisRecord | null => {
   if (!candidate || typeof candidate !== 'object' || !candidate.track_id) return null;
   return candidate as TrackAnalysisRecord;
 };
+
+interface RefreshTrackAnalysisSourceOptions {
+  apiBase?: string;
+  token?: string | null;
+  fetchImpl?: typeof fetch;
+}
+
+export async function refreshTrackAnalysisSource(
+  track: Track,
+  options: RefreshTrackAnalysisSourceOptions = {},
+): Promise<Track> {
+  // Tracks stored by object key receive temporary S3 read URLs. Refresh that URL
+  // immediately before an analysis job so a long-open browser tab never submits
+  // an expired source URL to the AWS worker.
+  if (!track.file_key) return track;
+
+  const apiBase = cleanBase(options.apiBase === undefined ? getAppDataBase() : options.apiBase);
+  const token = options.token === undefined ? getIdToken() : options.token;
+  const fetchImpl = options.fetchImpl || globalThis.fetch.bind(globalThis);
+  if (!apiBase || !token) return track;
+
+  try {
+    const response = await fetchImpl(`${apiBase}/bootstrap`, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`EZ-WAY source refresh failed (${response.status}).`);
+    }
+    const payload = await response.json() as { tracks?: Track[] };
+    const refreshed = (payload.tracks || []).find((candidate) => candidate.id === track.id);
+    if (!refreshed?.file_url || refreshed.file_url.startsWith('blob:')) return track;
+    return { ...track, ...refreshed };
+  } catch (error) {
+    console.warn('[MusicIntelligence] Could not refresh track source; using the current source URL.', error);
+    return track;
+  }
+}
 
 export async function getTrackAnalysisRecord(trackId: string): Promise<TrackAnalysisRecord | null> {
   const local = readLocalCache()[trackId] || null;
@@ -169,12 +214,13 @@ export async function analyzeAndPersistTrack(
   track: Track,
   options: AnalyzeMusicOptions = {},
 ): Promise<MusicIntelligenceProfile> {
-  if (!track.file_url || track.file_url.startsWith('blob:')) {
+  const analysisTrack = await refreshTrackAnalysisSource(track);
+  if (!analysisTrack.file_url || analysisTrack.file_url.startsWith('blob:')) {
     throw new Error('Music Intelligence requires the uploaded cloud audio URL.');
   }
 
-  const sourceFingerprint = buildAnalysisSourceFingerprint(track);
-  const saved = await getTrackAnalysisRecord(track.id);
+  const sourceFingerprint = buildAnalysisSourceFingerprint(analysisTrack);
+  const saved = await getTrackAnalysisRecord(analysisTrack.id);
 
   if (!options.force && saved?.profile && shouldReuseAnalysis(saved, sourceFingerprint, MUSIC_INTELLIGENCE_VERSION)) {
     options.onProgress?.('Using saved song analysis…');
@@ -188,7 +234,7 @@ export async function analyzeAndPersistTrack(
     : null;
 
   await saveTrackAnalysisRecord({
-    track_id: track.id,
+    track_id: analysisTrack.id,
     analyzer_version: MUSIC_INTELLIGENCE_VERSION,
     profile: previousGoodProfile || emptyProfile(),
     status: 'processing',
@@ -199,14 +245,14 @@ export async function analyzeAndPersistTrack(
 
   try {
     options.onProgress?.('Analyzing song structure, genre, mood, and production…');
-    const result = await runAudioToolsJob(track, 'analysis', undefined, options.onProgress);
+    const result = await runAudioToolsJob(analysisTrack, 'analysis', undefined, options.onProgress);
     if (!result.profile) {
       throw new Error('Music Intelligence did not return a song profile.');
     }
 
     const profile = result.profile;
     await saveTrackAnalysisRecord({
-      track_id: track.id,
+      track_id: analysisTrack.id,
       analyzer_version: profile.version || MUSIC_INTELLIGENCE_VERSION,
       profile,
       status: 'ready',
@@ -218,7 +264,7 @@ export async function analyzeAndPersistTrack(
   } catch (error: any) {
     try {
       await saveTrackAnalysisRecord({
-        track_id: track.id,
+        track_id: analysisTrack.id,
         analyzer_version: MUSIC_INTELLIGENCE_VERSION,
         profile: previousGoodProfile || emptyProfile(),
         status: 'error',

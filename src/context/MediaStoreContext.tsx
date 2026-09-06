@@ -126,7 +126,11 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
   const pendingMediaKeys = useRef(new Map<string, string>());
 
   const addToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    console.log(`[Toast Silenced] [${type}] ${message}`);
+    const id = uuidv4();
+    setToasts((prev) => [...prev, { id, message, type }].slice(-6));
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    }, 4500);
   };
   const removeToast = (id: string) => setToasts((prev) => prev.filter((toast) => toast.id !== id));
 

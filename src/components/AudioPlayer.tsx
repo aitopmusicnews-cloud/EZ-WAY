@@ -1,7 +1,6 @@
 import React from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, Maximize2, Music } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Volume2, Maximize2 } from 'lucide-react';
 import { useAudio } from '../context/AudioContext';
-import { cn } from '../lib/utils';
 
 import { Track } from '../types';
 
@@ -10,7 +9,19 @@ interface AudioPlayerProps {
 }
 
 export default function AudioPlayer({ onEdit }: AudioPlayerProps) {
-  const { activeTrack, isPlaying, progress, duration, resume, pause, seek, volume, setVolume } = useAudio();
+  const {
+    activeTrack,
+    isPlaying,
+    progress,
+    duration,
+    resume,
+    pause,
+    seek,
+    volume,
+    setVolume,
+    playTrack,
+    queue,
+  } = useAudio();
 
   if (!activeTrack) return null;
 
@@ -20,14 +31,35 @@ export default function AudioPlayer({ onEdit }: AudioPlayerProps) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const currentQueueIndex = queue.findIndex((track) => track.id === activeTrack.id);
+
+  const skipBack = () => {
+    if (queue.length > 1 && currentQueueIndex >= 0) {
+      const previousIndex = (currentQueueIndex - 1 + queue.length) % queue.length;
+      playTrack(queue[previousIndex], queue);
+      return;
+    }
+    seek(Math.max(0, progress - 10));
+  };
+
+  const skipForward = () => {
+    if (queue.length > 1 && currentQueueIndex >= 0) {
+      const nextIndex = (currentQueueIndex + 1) % queue.length;
+      playTrack(queue[nextIndex], queue);
+      return;
+    }
+    seek(Math.min(duration || activeTrack.duration || progress + 10, progress + 10));
+  };
+
   return (
     <div className="fixed bottom-0 left-0 right-0 h-24 bg-black/80 backdrop-blur-2xl border-t border-zinc-900 px-8 flex items-center justify-between z-50">
       {/* Track Info */}
       <div className="flex items-center gap-4 w-1/3">
         <div className="w-12 h-12 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 flex items-center justify-center">
-          <img 
-            src={activeTrack.image_url || "/ogbeatz_logo.svg"} 
-            className="w-full h-full object-cover" 
+          <img
+            src={activeTrack.image_url || "/ogbeatz_logo.svg"}
+            alt={`${activeTrack.name} artwork`}
+            className="w-full h-full object-cover"
             referrerPolicy="no-referrer"
           />
         </div>
@@ -40,29 +72,46 @@ export default function AudioPlayer({ onEdit }: AudioPlayerProps) {
       {/* Controls */}
       <div className="flex flex-col items-center gap-2 w-1/3">
         <div className="flex items-center gap-6">
-          <button className="text-zinc-500 hover:text-white transition-colors"><SkipBack /></button>
-          <button 
+          <button
+            type="button"
+            onClick={skipBack}
+            className="text-zinc-500 hover:text-white transition-colors"
+            aria-label={queue.length > 1 ? 'Previous track' : 'Rewind 10 seconds'}
+          >
+            <SkipBack />
+          </button>
+          <button
+            type="button"
             onClick={isPlaying ? pause : resume}
             className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-110 transition-transform"
+            aria-label={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying ? <Pause fill="currentColor" /> : <Play fill="currentColor" className="ml-1" />}
           </button>
-          <button className="text-zinc-500 hover:text-white transition-colors"><SkipForward /></button>
+          <button
+            type="button"
+            onClick={skipForward}
+            className="text-zinc-500 hover:text-white transition-colors"
+            aria-label={queue.length > 1 ? 'Next track' : 'Forward 10 seconds'}
+          >
+            <SkipForward />
+          </button>
         </div>
         <div className="flex items-center gap-3 w-full max-w-md">
           <span className="text-[9px] font-mono text-zinc-500">{formatTime(progress)}</span>
           <div className="flex-1 h-1 bg-zinc-900 rounded-full relative group cursor-pointer overflow-hidden">
-            <div 
+            <div
               className="absolute left-0 top-0 h-full bg-orange-500 rounded-full"
-              style={{ width: `${(progress / duration) * 100}%` }}
+              style={{ width: `${duration > 0 ? (progress / duration) * 100 : 0}%` }}
             />
-            <input 
+            <input
               type="range"
               min={0}
               max={duration || 100}
               value={progress}
               onChange={(e) => seek(parseFloat(e.target.value))}
               className="absolute inset-0 opacity-0 cursor-pointer"
+              aria-label="Track position"
             />
           </div>
           <span className="text-[9px] font-mono text-zinc-500">{formatTime(duration)}</span>
@@ -73,14 +122,26 @@ export default function AudioPlayer({ onEdit }: AudioPlayerProps) {
       <div className="flex items-center justify-end gap-6 w-1/3">
         <div className="flex items-center gap-3 w-32">
           <Volume2 className="w-4 h-4 text-zinc-500" />
-          <div className="flex-1 h-1 bg-zinc-900 rounded-full relative">
-            <div 
-              className="absolute left-0 top-0 h-full bg-white rounded-full"
-              style={{ width: `${volume * 100}%` }}
-            />
-          </div>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={volume}
+            onChange={(event) => setVolume(Number(event.target.value))}
+            className="flex-1 accent-orange-500"
+            aria-label="Volume"
+          />
         </div>
-        <button className="text-zinc-500 hover:text-white transition-colors"><Maximize2 className="w-4 h-4"/></button>
+        <button
+          type="button"
+          onClick={() => onEdit?.(activeTrack)}
+          disabled={!onEdit}
+          className="text-zinc-500 hover:text-white transition-colors disabled:opacity-30 disabled:pointer-events-none"
+          aria-label="Open track details"
+        >
+          <Maximize2 className="w-4 h-4" />
+        </button>
       </div>
     </div>
   );
