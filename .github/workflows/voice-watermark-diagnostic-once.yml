@@ -1,4 +1,4 @@
-name: UI Cleanup Diagnostic Once
+name: UI Status Diagnostic Once
 
 on:
   push:
@@ -12,22 +12,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: refactor/remove-ghost-ui-v2
-      - name: Show remaining legacy DB diagnostics references
+      - name: Show every synthetic status reference
         run: |
           python - <<'PY'
           from pathlib import Path
           source = Path('src/App.tsx').read_text().splitlines()
-          matches = [(i, line) for i, line in enumerate(source, 1) if 'dbStatus' in line or 'checkDatabase' in line]
-          print(f'db_diagnostic_matches={len(matches)}')
-          printed = set()
+          needles = ('System Status', 'Storage Usage', 'Database Latency', 'API Uptime', 'Cloud Sync Active')
+          matches = [(i, line) for i, line in enumerate(source, 1) if any(n in line for n in needles)]
+          print(f'status_matches={len(matches)}')
           for i, _ in matches:
-              start = max(1, i - 6)
-              end = min(len(source), i + 8)
-              key = (start, end)
-              if key in printed:
-                  continue
-              printed.add(key)
               print(f'--- around line {i} ---')
-              for n in range(start, end + 1):
+              for n in range(max(1, i - 5), min(len(source), i + 6) + 1):
                   print(f'{n}: {source[n-1]}')
           PY
