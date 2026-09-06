@@ -1,0 +1,35 @@
+name: PR Artifact Cleanup Once
+
+on:
+  push:
+    branches:
+      - refactor/remove-ghost-ui-v2
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout cleanup branch
+        uses: actions/checkout@v4
+        with:
+          ref: refactor/remove-ghost-ui-v2
+          fetch-depth: 0
+
+      - name: Remove generated artifacts and protect repository
+        run: |
+          rm -rf node_modules dist
+          printf 'node_modules/\ndist/\n' > .gitignore
+          rm .github/workflows/pr-artifact-cleanup-once.yml
+
+      - name: Commit artifact cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: remove generated build artifacts"
+          git push origin HEAD:refactor/remove-ghost-ui-v2
