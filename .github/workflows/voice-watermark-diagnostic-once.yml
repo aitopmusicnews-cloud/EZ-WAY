@@ -1,4 +1,4 @@
-name: Voice Watermark Diagnostic Once
+name: UI Cleanup Diagnostic Once
 
 on:
   push:
@@ -12,16 +12,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: refactor/remove-ghost-ui-v2
-      - name: Show every VoiceAssistant watermark reference
+      - name: Show remaining legacy DB diagnostics references
         run: |
           python - <<'PY'
           from pathlib import Path
-          source = Path('src/components/VoiceAssistant.tsx').read_text().splitlines()
-          matches = [(i, line) for i, line in enumerate(source, 1) if 'watermark' in line.lower()]
-          print(f'watermark_matches={len(matches)}')
-          for i, line in matches:
-              start = max(1, i - 3)
-              end = min(len(source), i + 3)
+          source = Path('src/App.tsx').read_text().splitlines()
+          matches = [(i, line) for i, line in enumerate(source, 1) if 'dbStatus' in line or 'checkDatabase' in line]
+          print(f'db_diagnostic_matches={len(matches)}')
+          printed = set()
+          for i, _ in matches:
+              start = max(1, i - 6)
+              end = min(len(source), i + 8)
+              key = (start, end)
+              if key in printed:
+                  continue
+              printed.add(key)
               print(f'--- around line {i} ---')
               for n in range(start, end + 1):
                   print(f'{n}: {source[n-1]}')
