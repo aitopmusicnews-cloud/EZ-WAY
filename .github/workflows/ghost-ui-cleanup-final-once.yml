@@ -1,0 +1,313 @@
+name: Ghost UI Cleanup Final Once
+
+on:
+  push:
+    branches:
+      - refactor/remove-ghost-ui-v2
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout cleanup branch
+        uses: actions/checkout@v4
+        with:
+          ref: refactor/remove-ghost-ui-v2
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply final audited cleanup
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def require_replace(text: str, old: str, new: str, label: str) -> str:
+              if old not in text:
+                  raise SystemExit(f'missing expected source: {label}')
+              return text.replace(old, new, 1)
+
+          # Shared view type keeps retained routes type-safe.
+          types_path = Path('src/types.ts')
+          types = types_path.read_text()
+          if 'export type AppView' not in types:
+              types = """export type AppView =
+            | 'dashboard'
+            | 'tracks'
+            | 'playlists'
+            | 'clients'
+            | 'messages'
+            | 'sharing'
+            | 'activity'
+            | 'settings'
+            | 'profile'
+            | 'client-detail'
+            | 'videos'
+            | 'youtube'
+            | 'analyzer'
+            | 'copyrights'
+            | 'albumcover';
+
+          """ + types
+          types_path.write_text(types)
+
+          # Shell navigation: remove any/string escape hatches.
+          shell_path = Path('src/components/Shell.tsx')
+          shell = shell_path.read_text()
+          shell = require_replace(
+              shell,
+              "import { trackNeedsCoverPrompt } from '../services/albumCoverCore';",
+              "import { trackNeedsCoverPrompt } from '../services/albumCoverCore';\nimport type { AppView } from '../types';\nimport type { LucideIcon } from 'lucide-react';",
+              'Shell type imports',
+          )
+          shell = require_replace(
+              shell,
+              """interface ShellProps {
+            children: React.ReactNode;
+            activeView: string;
+            onViewChange: (view: any) => void;
+          }
+          """,
+              """interface ShellProps {
+            children: React.ReactNode;
+            activeView: AppView;
+            onViewChange: (view: AppView) => void;
+          }
+
+          interface ShellNavItem {
+            id: AppView;
+            label: string;
+            icon: LucideIcon;
+          }
+          """,
+              'Shell props',
+          )
+          shell = require_replace(shell, '  const primaryItems = [', '  const primaryItems: ShellNavItem[] = [', 'primary nav type')
+          shell = require_replace(shell, '  const secondaryItems = [', '  const secondaryItems: ShellNavItem[] = [', 'secondary nav type')
+          shell = require_replace(shell, "  const profileItem = { id: 'profile', label: 'Profile', icon: User };", "  const profileItem: ShellNavItem = { id: 'profile', label: 'Profile', icon: User };", 'profile nav type')
+          shell = require_replace(shell, '  const handleMobileNav = (viewId: string) => {', '  const handleMobileNav = (viewId: AppView) => {', 'mobile nav type')
+          shell = require_replace(
+              shell,
+              "  const NavItem = ({ item, mobile = false, nested = false }: { item: (typeof primaryItems)[number]; mobile?: boolean; nested?: boolean; key?: React.Key }) => (",
+              "  const NavItem = ({ item, mobile = false, nested = false }: { item: ShellNavItem; mobile?: boolean; nested?: boolean; key?: React.Key }) => (",
+              'NavItem type',
+          )
+          shell_path.write_text(shell)
+
+          # VoiceAssistant remains, but every retired Watermark command/UI hook goes away.
+          voice_path = Path('src/components/VoiceAssistant.tsx')
+          voice = voice_path.read_text()
+          voice = require_replace(voice, "import { cn } from '../lib/utils';", "import { cn } from '../lib/utils';\nimport type { AppView } from '../types';", 'Voice type import')
+          voice = require_replace(
+              voice,
+              """interface VoiceAssistantProps {
+            activeView: string;
+            onViewChange: (view: any) => void;
+          }
+          """,
+              """interface VoiceAssistantProps {
+            activeView: AppView;
+            onViewChange: (view: AppView) => void;
+          }
+          """,
+              'Voice props',
+          )
+          for old, new, label in [
+              ("""      if (clean.includes('watermark') || clean.includes('protection')) {
+                  onViewChange('watermark');
+                  setLastAction('Navigated to Watermark Protection');
+                  speakResponse('Engaging copyright protection modules. Audio security console open.');
+                  return;
+                }
+          """, '', 'watermark navigation'),
+              ("""      {
+                  description: "engage copyright watermark protection",
+                  keywords: ["watermark", "protection", "security", "copyright"],
+                  execute: () => onViewChange('watermark'),
+                  confirmationPhrase: "Engaging copyright protection modules. Audio security console open."
+                },
+          """, '', 'watermark registry'),
+              ('                      <div>• <span className="text-zinc-300 font-bold">"Go to Playlists"</span> / <span className="text-zinc-300 font-bold">"Watermark"</span></div>\n', '                      <div>• <span className="text-zinc-300 font-bold">"Go to Playlists"</span></div>\n', 'watermark help'),
+              ('                      { label: "Copyright Guard", cmd: "go to watermark" }\n', '', 'watermark quick command'),
+          ]:
+              voice = require_replace(voice, old, new, label)
+          voice_path.write_text(voice)
+
+          # App route/type imports.
+          app_path = Path('src/App.tsx')
+          app = app_path.read_text()
+          app = require_replace(app, 'import ReleasesHub from "./components/ReleasesHub";\n', '', 'Releases import')
+          app = require_replace(app, 'import { Track, ShareLink, Client, Playlist } from "./types";', 'import { Track, ShareLink, Client, Playlist, AppView } from "./types";', 'AppView import')
+          app = require_replace(app, 'import { getSupabaseClient, supabaseUrl } from "./lib/supabase";\n', '', 'legacy diagnostics import')
+          old_view = """  const [activeView, setActiveView] = useState<
+              | "dashboard"
+              | "tracks"
+              | "playlists"
+              | "clients"
+              | "messages"
+              | "sharing"
+              | "activity"
+              | "settings"
+              | "profile"
+              | "client-detail"
+              | "videos"
+              | "youtube"
+              | "analyzer"
+            >("dashboard");"""
+          app = require_replace(app, old_view, '  const [activeView, setActiveView] = useState<AppView>("dashboard");', 'active view union')
+          app = require_replace(app, '        {activeView === "releases" && <ReleasesHub />}\n', '', 'Releases render')
+
+          # Remove obsolete database diagnostics state/functions/effects as one unit.
+          db_start = app.find('  const [dbStatus, setDbStatus] = useState<{')
+          db_end = app.find('  // Handle Pollinations BYOP')
+          if db_start < 0 or db_end < 0 or db_end <= db_start:
+              raise SystemExit('database diagnostics state boundaries not found')
+          app = app[:db_start] + app[db_end:]
+          settings_effect = """  useEffect(() => {
+              if (activeView === "settings") {
+                runDatabaseInspection();
+              }
+            }, [activeView]);
+
+          """
+          app = require_replace(app, settings_effect, '', 'settings diagnostics effect')
+
+          # Dashboard DB button: marker-based removal, independent of formatting changes.
+          dashboard_start = app.find('  const renderDashboard = () => (')
+          if dashboard_start < 0:
+              raise SystemExit('dashboard renderer not found')
+          check_pos = app.find('onClick={checkDatabase}', dashboard_start)
+          if check_pos < 0:
+              raise SystemExit('dashboard DB test handler not found')
+          button_start = app.rfind('          <button', dashboard_start, check_pos)
+          button_close = app.find('          </button>', check_pos)
+          if button_start < 0 or button_close < 0:
+              raise SystemExit('dashboard DB test button boundaries not found')
+          button_end = button_close + len('          </button>')
+          if app[button_end:button_end + 1] == '\n':
+              button_end += 1
+          app = app[:button_start] + app[button_end:]
+
+          # Dashboard DB status/error panel ends immediately before Analytics Grid.
+          db_panel_start = app.find('      {dbStatus?.message && (', dashboard_start)
+          analytics_start = app.find('      {/* Analytics Grid */}', dashboard_start)
+          if db_panel_start < 0 or analytics_start < 0 or analytics_start <= db_panel_start:
+              raise SystemExit('dashboard DB status panel boundaries not found')
+          app = app[:db_panel_start] + app[analytics_start:]
+
+          # Remove synthetic hard-coded System Status card wherever it sits in Dashboard.
+          status_anchor = app.find('System Status', dashboard_start)
+          if status_anchor < 0:
+              raise SystemExit('synthetic System Status heading not found')
+          card_start = app.rfind('        <div className="bg-zinc-950 border border-zinc-900 rounded-[2.5rem] p-8 overflow-hidden">', dashboard_start, status_anchor)
+          if card_start < 0:
+              raise SystemExit('synthetic System Status card start not found')
+          next_section = app.find('        </div>', status_anchor)
+          # Walk forward to the card-closing div by using the next known dashboard section marker.
+          following_marker_candidates = [
+              app.find('      {/*', status_anchor + 1),
+              app.find('      <div className=', status_anchor + 1),
+          ]
+          following_marker_candidates = [p for p in following_marker_candidates if p > card_start]
+          if not following_marker_candidates:
+              raise SystemExit('synthetic System Status card end marker not found')
+          card_end = min(following_marker_candidates)
+          app = app[:card_start] + app[card_end:]
+
+          # Replace the obsolete Settings diagnostic suite with only real retained preferences.
+          settings_start = app.find('        {/* Settings View */}\n')
+          player_marker = '      <AudioPlayer onEdit={(track) => setEditingTrack(track)} />'
+          settings_end = app.find(player_marker)
+          if settings_start < 0 or settings_end < 0 or settings_end <= settings_start:
+              raise SystemExit('Settings replacement boundaries not found')
+          settings_view = """        {/* Settings View */}
+                  {activeView === "settings" && (
+                    <div className="p-8 space-y-8 max-w-3xl">
+                      <div>
+                        <h1 className="text-3xl font-black tracking-tighter uppercase text-white">System Configuration</h1>
+                        <p className="text-zinc-500 text-sm mt-1">Configure active workspace preferences.</p>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-zinc-950 border border-zinc-900 p-6 rounded-3xl space-y-4">
+                          <div>
+                            <h3 className="text-sm font-black uppercase tracking-widest text-zinc-300">Demo Mock Data</h3>
+                            <p className="text-[11px] text-zinc-550 leading-relaxed font-bold uppercase tracking-wider mt-0.5">Toggle pre-populated sample tracks, clients, playlists, and messages. Turn off to show only your uploaded content.</p>
+                          </div>
+                          <div className="flex items-center justify-between p-4 bg-zinc-900 rounded-2xl border border-zinc-800">
+                            <div className="space-y-1">
+                              <p className="text-xs font-bold uppercase tracking-wider">Show Sample Data</p>
+                              <p className="text-[10px] text-zinc-550 font-medium">{enableMockData ? "Demo records are visible" : "Only your own content is shown"}</p>
+                            </div>
+                            <button type="button" onClick={() => setEnableMockData(!enableMockData)} className={cn("w-12 h-6 rounded-full transition-colors relative focus:outline-none cursor-pointer", enableMockData ? "bg-orange-500" : "bg-zinc-800")} aria-pressed={enableMockData} aria-label="Toggle sample data">
+                              <div className={cn("absolute top-1 w-4 h-4 bg-black rounded-full transition-transform", enableMockData ? "right-1" : "left-1")} />
+                            </button>
+                          </div>
+                          {!enableMockData && (
+                            <div className="p-3 bg-emerald-950/20 border border-emerald-900/30 rounded-xl">
+                              <p className="text-[10px] text-emerald-400 font-black uppercase tracking-widest leading-normal">✓ Pristine Workspace Enabled</p>
+                              <p className="text-[9px] text-zinc-550 leading-normal mt-1">All mock tracks, playlists, clients, messages, and activity records are hidden.</p>
+                            </div>
+                          )}
+                        </div>
+                        <div className="bg-zinc-950 border border-zinc-900 p-6 rounded-3xl space-y-4">
+                          <h3 className="text-sm font-black uppercase tracking-widest text-zinc-400">System UI Theme</h3>
+                          <p className="text-[11px] text-zinc-500 leading-relaxed uppercase font-bold tracking-wider">Configure your studio layout appearance.</p>
+                          <div className="grid grid-cols-2 gap-3 pt-2">
+                            <button type="button" onClick={() => setTheme("dark")} className={cn("flex flex-col items-center gap-3 p-4 rounded-2xl border text-center transition-all cursor-pointer", theme === "dark" ? "bg-zinc-900 border-orange-500 text-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.1)]" : "bg-black border-zinc-900 text-zinc-500 hover:border-zinc-805 hover:bg-zinc-900/40 hover:text-zinc-300")} aria-pressed={theme === "dark"}>
+                              <Moon className="w-5 h-5" />
+                              <div><span className="block text-xs font-black uppercase tracking-widest">CYBERPUNK</span><span className="block text-[8px] font-mono uppercase tracking-widest opacity-60">Dark Ambient</span></div>
+                            </button>
+                            <button type="button" onClick={() => setTheme("light")} className={cn("flex flex-col items-center gap-3 p-4 rounded-2xl border text-center transition-all cursor-pointer", theme === "light" ? "bg-zinc-100 border-orange-500 text-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.1)]" : "bg-black border-zinc-900 text-zinc-500 hover:border-zinc-805 hover:bg-zinc-900/40 hover:text-zinc-300")} aria-pressed={theme === "light"}>
+                              <Sun className="w-5 h-5" />
+                              <div><span className="block text-xs font-black uppercase tracking-widest">MINIMALIST</span><span className="block text-[8px] font-mono uppercase tracking-widest opacity-60">High Light</span></div>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+          """
+          app = app[:settings_start] + settings_view + app[settings_end:]
+          app_path.write_text(app)
+
+          for retired in [Path('src/components/ReleasesHub.tsx'), Path('src/components/WatermarkRemover.tsx')]:
+              if retired.exists():
+                  retired.unlink()
+          PY
+
+      - name: Verify cleanup contract
+        run: node --experimental-strip-types --test src/services/ghostUiCleanup.test.ts
+
+      - name: Verify button wiring
+        run: node --experimental-strip-types --test src/services/buttonAudit.test.ts src/services/trackActionButtons.test.ts
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit only verified cleanup
+        run: |
+          rm -f .github/workflows/ghost-ui-cleanup-once.yml
+          rm -f .github/workflows/ghost-ui-cleanup-final-once.yml
+          rm -f .github/workflows/voice-watermark-diagnostic-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "refactor: remove ghost UI and stale settings"
+          git push origin HEAD:refactor/remove-ghost-ui-v2
