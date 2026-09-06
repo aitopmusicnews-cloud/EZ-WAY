@@ -84,6 +84,7 @@ jobs:
           shell = replace_once(shell, '  const primaryItems = [', '  const primaryItems: ShellNavItem[] = [', 'primary nav type')
           shell = replace_once(shell, '  const secondaryItems = [', '  const secondaryItems: ShellNavItem[] = [', 'secondary nav type')
           shell = replace_once(shell, "  const profileItem = { id: 'profile', label: 'Profile', icon: User };", "  const profileItem: ShellNavItem = { id: 'profile', label: 'Profile', icon: User };", 'profile nav type')
+          shell = replace_once(shell, '  const handleMobileNav = (viewId: string) => {', '  const handleMobileNav = (viewId: AppView) => {', 'mobile nav type')
           shell = replace_once(shell, "  const NavItem = ({ item, mobile = false, nested = false }: { item: (typeof primaryItems)[number]; mobile?: boolean; nested?: boolean; key?: React.Key }) => (", "  const NavItem = ({ item, mobile = false, nested = false }: { item: ShellNavItem; mobile?: boolean; nested?: boolean; key?: React.Key }) => (", 'NavItem prop type')
           shell_path.write_text(shell)
 
@@ -162,6 +163,93 @@ jobs:
 
           """, '', 'settings database inspection effect')
           app = replace_once(app, '        {activeView === "releases" && <ReleasesHub />}\n', '', 'Releases route render')
+
+          dashboard_db_button = """          <button
+                    onClick={checkDatabase}
+                    disabled={dbStatus?.status === "checking"}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all border",
+                      dbStatus?.status === "success"
+                        ? "bg-emerald-500/10 border-emerald-500 text-emerald-500"
+                        : dbStatus?.status === "error"
+                          ? "bg-red-500/10 border-red-500 text-red-500"
+                          : "bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-white",
+                    )}
+                  >
+                    {dbStatus?.status === "checking" ? (
+                      <Zap className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4" />
+                    )}
+                    {dbStatus?.status === "checking"
+                      ? "Testing DB..."
+                      : dbStatus?.status === "success"
+                        ? "Connected"
+                        : dbStatus?.status === "error"
+                          ? "Connection Error"
+                          : "Test DB"}
+                  </button>
+          """
+          app = replace_once(app, dashboard_db_button, '', 'dashboard database test button')
+
+          dashboard_db_message = """      {dbStatus?.message && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={cn(
+                    "p-6 rounded-3xl border flex flex-col gap-4",
+                    dbStatus.status === "success"
+                      ? "bg-emerald-500/10 border-emerald-500/20"
+                      : "bg-red-500/5 border-red-500/20",
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={cn(
+                        "w-2 h-2 rounded-full animate-pulse",
+                        dbStatus.status === "success" ? "bg-emerald-500" : "bg-red-500",
+                      )}
+                    />
+                    <p
+                      className={cn(
+                        "text-xs font-black uppercase tracking-widest",
+                        dbStatus.status === "success"
+                          ? "text-emerald-500"
+                          : "text-red-500",
+                      )}
+                    >
+                      {dbStatus.message}
+                    </p>
+                  </div>
+
+                  {dbStatus.status === "error" && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-black/40 p-4 rounded-2xl border border-white/5">
+                      {[
+                        "tracks",
+                        "playlists",
+                        "clients",
+                        "share_links",
+                        "activities",
+                        "messages",
+                        "promo_videos",
+                        "profiles",
+                        "promo_packs",
+                        "todos",
+                      ].map((table) => (
+                        <div key={table} className="flex items-center gap-2">
+                          <div className="w-1.5 h-1.5 rounded-full bg-zinc-800" />
+                          <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter">
+                            {table}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+          """
+          app = replace_once(app, dashboard_db_message, '', 'dashboard database status panel')
 
           system_status = """        <div className="bg-zinc-950 border border-zinc-900 rounded-[2.5rem] p-8 overflow-hidden">
                     <div className="flex items-center justify-between mb-8">
@@ -260,7 +348,7 @@ jobs:
           app = app[:settings_start] + settings_view + app[settings_end:]
           app_path.write_text(app)
 
-          for retired in [Path('src/components/ReleasesHub.tsx'), Path('src/components/WatermarkRemover.tsx'), Path('src/lib/supabase.ts')]:
+          for retired in [Path('src/components/ReleasesHub.tsx'), Path('src/components/WatermarkRemover.tsx')]:
               if retired.exists():
                   retired.unlink()
           PY
