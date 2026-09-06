@@ -117,6 +117,19 @@ const stripBrowserFields = <T extends Record<string, any>>(value: T): Record<str
   return output;
 };
 
+const TRACK_PATCH_FIELDS = new Set([
+  'name', 'artist', 'duration', 'bpm', 'key_signature', 'size', 'type', 'plays', 'likes',
+  'tags', 'lyrics', 'status', 'file_url', 'file_key', 'image_url', 'image_key',
+]);
+
+const stripTrackPatchFields = (value: Record<string, any>): Record<string, unknown> => {
+  const allowed: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value || {})) {
+    if (TRACK_PATCH_FIELDS.has(key) && item !== undefined) allowed[key] = item;
+  }
+  return stripBrowserFields(allowed);
+};
+
 export function createDataStoreClient(options: ClientOptions) {
   const apiBase = cleanBase(options.apiBase);
   const tokenProvider = options.getToken || getIdToken;
@@ -198,7 +211,7 @@ export function createDataStoreClient(options: ClientOptions) {
     bootstrap: bootstrapWithRecoveredTrackAnalysis,
 
     createTrack: (track: Track) => request<Track>('/tracks', jsonInit('POST', stripBrowserFields(track))),
-    updateTrack: (id: string, updates: Partial<Track>) => request<Track>(`/tracks/${encoded(id)}`, jsonInit('PATCH', stripBrowserFields(updates as any))),
+    updateTrack: (id: string, updates: Partial<Track>) => request<Track>(`/tracks/${encoded(id)}`, jsonInit('PATCH', stripTrackPatchFields(updates as any))),
     deleteTrack: (id: string) => request<void>(`/tracks/${encoded(id)}`, { method: 'DELETE' }),
 
     createPlaylist: (playlist: Playlist) => request<Playlist>('/playlists', jsonInit('POST', stripBrowserFields(playlist))),
