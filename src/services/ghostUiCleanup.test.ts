@@ -24,11 +24,14 @@ test('stale settings and synthetic system-status placeholders are removed', () =
     'Database Latency',
     'API Uptime',
     'Cloud Sync Active',
+    'Testing DB...',
+    'Connection Error',
+    'Test DB',
   ]) {
     assert.equal(appSource.includes(label), false, `${label} placeholder must be removed`);
   }
   assert.equal(appSource.includes('./lib/supabase'), false, 'App must not depend on the Supabase compatibility facade');
-  assert.equal(fs.existsSync(new URL('../lib/supabase.ts', import.meta.url)), false, 'obsolete Supabase compatibility facade must be deleted');
+  assert.equal(fs.existsSync(new URL('../lib/supabase.ts', import.meta.url)), true, 'compatibility facade must remain while PromoPackModal still depends on it');
 });
 
 test('navigation uses a shared typed view contract for retained features', () => {
@@ -38,6 +41,7 @@ test('navigation uses a shared typed view contract for retained features', () =>
   assert.equal(typesSource.includes("'releases'"), false, 'AppView must not include removed releases route');
   assert.equal(typesSource.includes("'watermark'"), false, 'AppView must not include removed watermark route');
   assert.equal(shellSource.includes('onViewChange: (view: any)'), false, 'Shell navigation must not use any');
+  assert.equal(shellSource.includes('handleMobileNav = (viewId: string)'), false, 'mobile navigation must use AppView');
   assert.equal(voiceSource.includes('onViewChange: (view: any)'), false, 'VoiceAssistant navigation must not use any');
 });
 
