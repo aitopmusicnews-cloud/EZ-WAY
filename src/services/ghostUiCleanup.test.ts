@@ -10,13 +10,21 @@ const typesSource = fs.readFileSync(new URL('../types.ts', import.meta.url), 'ut
 test('retired ghost features are absent from the active UI and source tree', () => {
   assert.equal(appSource.includes('ReleasesHub'), false, 'ReleasesHub must not be imported or rendered');
   assert.equal(appSource.includes('activeView === "releases"'), false, 'releases route must not remain');
-  assert.equal(voiceSource.includes("onViewChange('watermark')"), false, 'voice assistant must not navigate to removed watermark view');
+  assert.equal(/watermark/i.test(voiceSource), false, 'VoiceAssistant must not retain watermark UI or commands');
   assert.equal(fs.existsSync(new URL('../components/ReleasesHub.tsx', import.meta.url)), false, 'ReleasesHub.tsx must be deleted');
   assert.equal(fs.existsSync(new URL('../components/WatermarkRemover.tsx', import.meta.url)), false, 'WatermarkRemover.tsx must be deleted');
 });
 
-test('stale settings placeholders and compatibility facade are removed', () => {
-  for (const label of ['Supabase Cloud Connection', 'Live Database Catalog Explorer', 'Two-Factor Auth', 'Storage Usage']) {
+test('stale settings and synthetic system-status placeholders are removed', () => {
+  for (const label of [
+    'Supabase Cloud Connection',
+    'Live Database Catalog Explorer',
+    'Two-Factor Auth',
+    'Storage Usage',
+    'Database Latency',
+    'API Uptime',
+    'Cloud Sync Active',
+  ]) {
     assert.equal(appSource.includes(label), false, `${label} placeholder must be removed`);
   }
   assert.equal(appSource.includes('./lib/supabase'), false, 'App must not depend on the Supabase compatibility facade');
