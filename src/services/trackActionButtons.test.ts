@@ -30,3 +30,28 @@ test('button actions have visible toast feedback instead of silenced console-onl
   assert.doesNotMatch(store, /Toast Silenced/);
   assert.match(store, /setToasts\(/);
 });
+
+test('track library Filters button applies a real status filter', () => {
+  const app = read('../App.tsx');
+  assert.match(app, /trackStatusFilter/);
+  assert.match(app, /setTrackStatusFilter/);
+  assert.match(app, /matchesStatus = trackStatusFilter === "all" \|\| t\.status === trackStatusFilter/);
+});
+
+test('message Settings button opens the selected client editor', () => {
+  const app = read('../App.tsx');
+  assert.match(app, /onClick=\{\(\) => setEditingClient\(activeChatClient\)\}/);
+});
+
+test('share link delete button removes its exact link', () => {
+  const app = read('../App.tsx');
+  assert.match(app, /onClick=\{\(\) => void deleteShareLink\(link\.id\)\}/);
+});
+
+test('audio player back, forward, volume, and detail controls are wired', () => {
+  const player = read('../components/AudioPlayer.tsx');
+  assert.match(player, /onClick=\{skipBack\}/);
+  assert.match(player, /onClick=\{skipForward\}/);
+  assert.match(player, /onChange=\{\(event\) => setVolume\(Number\(event\.target\.value\)\)\}/);
+  assert.match(player, /onClick=\{\(\) => onEdit\?\.\(activeTrack\)\}/);
+});
