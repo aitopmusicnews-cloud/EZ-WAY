@@ -113,6 +113,18 @@ jobs:
                   confirmationPhrase: "Engaging copyright protection modules. Audio security console open."
                 },
           """, '', 'watermark command registry entry')
+          voice = replace_once(
+              voice,
+              '                      <div>• <span className="text-zinc-300 font-bold">"Go to Playlists"</span> / <span className="text-zinc-300 font-bold">"Watermark"</span></div>\n',
+              '                      <div>• <span className="text-zinc-300 font-bold">"Go to Playlists"</span></div>\n',
+              'watermark help example',
+          )
+          voice = replace_once(
+              voice,
+              '                      { label: "Copyright Guard", cmd: "go to watermark" }\n',
+              '',
+              'watermark quick command',
+          )
           voice_path.write_text(voice)
 
           app_path = Path('src/App.tsx')
@@ -265,9 +277,10 @@ jobs:
       - name: Production build
         run: npm run build
 
-      - name: Remove one-shot workflow and commit cleanup
+      - name: Remove one-shot workflows and commit cleanup
         run: |
           rm .github/workflows/ghost-ui-cleanup-once.yml
+          rm -f .github/workflows/voice-watermark-diagnostic-once.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
