@@ -105,6 +105,56 @@ test('public share requests never attach owner Authorization', async () => {
   assert.equal(headers.Authorization, undefined);
 });
 
+test('track metadata updates send only fields accepted by the AWS PATCH contract', async () => {
+  let requestBody: Record<string, unknown> | null = null;
+  const client = createDataStoreClient({
+    apiBase: 'https://api.example.com',
+    getToken: () => 'id-token',
+    fetchImpl: async (_url, init) => {
+      requestBody = JSON.parse(String(init?.body || '{}'));
+      return jsonResponse({ id: '11111111-1111-4111-8111-111111111111', ...requestBody });
+    },
+  });
+
+  await client.updateTrack('11111111-1111-4111-8111-111111111111', {
+    id: '11111111-1111-4111-8111-111111111111',
+    name: 'Edited Title',
+    artist: 'Edited Artist',
+    bpm: 92,
+    key_signature: 'A Minor',
+    duration: 180,
+    tags: ['edited'],
+    status: 'ready',
+    size: 123456,
+    type: 'audio/mpeg',
+    file_url: 'https://example.com/audio.mp3',
+    file_key: 'tracks/audio/example.mp3',
+    image_url: 'https://example.com/cover.jpg',
+    image_key: 'tracks/artwork/example.jpg',
+    plays: 4,
+    likes: 2,
+    created_at: '2026-09-01T00:00:00.000Z',
+    lyrics: 'Updated lyrics',
+  } as any);
+
+  assert.deepEqual(requestBody, {
+    name: 'Edited Title',
+    artist: 'Edited Artist',
+    bpm: 92,
+    key_signature: 'A Minor',
+    duration: 180,
+    tags: ['edited'],
+    status: 'ready',
+    size: 123456,
+    type: 'audio/mpeg',
+    file_key: 'tracks/audio/example.mp3',
+    image_key: 'tracks/artwork/example.jpg',
+    plays: 4,
+    likes: 2,
+    lyrics: 'Updated lyrics',
+  });
+});
+
 test('non-2xx JSON becomes a typed DataStoreError', async () => {
   const client = createDataStoreClient({
     apiBase: 'https://api.example.com',
