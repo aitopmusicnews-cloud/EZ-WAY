@@ -2,6 +2,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const STATUS = new Set(['ready', 'processing', 'error']);
 const CLIENT_STATUS = new Set(['online', 'offline', 'away']);
 const DIRECTION = new Set(['inbound', 'outbound']);
+const MAX_MESSAGE_ATTACHMENT_SIZE = 100 * 1024 * 1024;
 
 const PATCH_FIELDS = {
   tracks: new Set(['name', 'artist', 'duration', 'bpm', 'key_signature', 'size', 'type', 'plays', 'likes', 'tags', 'lyrics', 'status', 'file_url', 'file_key', 'image_url', 'image_key']),
@@ -72,6 +73,46 @@ const safeObjectKey = (value, field) => {
     throw new Error(`${field} is not allowed.`);
   }
   return key;
+};
+
+const normalizeMessageCreate = (body = {}) => {
+  const direction = body.direction || 'outbound';
+  if (!DIRECTION.has(direction)) throw new Error('Message direction is invalid.');
+
+  const content = String(body.content ?? '').trim();
+  if (content.length > 20000) throw new Error('content is too long.');
+  const imageUrl = optionalUrl(body.image_url, 'image_url');
+  const imageKey = safeObjectKey(body.image_key, 'image_key');
+  const attachmentUrl = optionalUrl(body.attachment_url, 'attachment_url');
+  const attachmentKey = safeObjectKey(body.attachment_key, 'attachment_key');
+  const attachmentName = optionalText(body.attachment_name, 255);
+  const attachmentType = optionalText(body.attachment_type, 255);
+  const attachmentSize = body.attachment_size == null || body.attachment_size === ''
+    ? null
+    : integerValue(body.attachment_size);
+
+  if (attachmentSize != null && (attachmentSize <= 0 || attachmentSize > MAX_MESSAGE_ATTACHMENT_SIZE)) {
+    throw new Error('attachment_size is invalid.');
+  }
+  if (!content && !imageUrl && !imageKey && !attachmentUrl && !attachmentKey) {
+    throw new Error('Message content or attachment is required.');
+  }
+
+  return {
+    id: requireUuid(body.id),
+    client_id: optionalUuid(body.client_id, 'client_id'),
+    recipient_id: optionalText(body.recipient_id, 500),
+    content,
+    image_url: imageUrl,
+    image_key: imageKey,
+    attachment_url: attachmentUrl,
+    attachment_key: attachmentKey,
+    attachment_name: attachmentName,
+    attachment_type: attachmentType,
+    attachment_size: attachmentSize,
+    direction,
+    is_read: Boolean(body.is_read),
+  };
 };
 
 export function normalizeTrackCreate(body = {}) {
@@ -177,20 +218,7 @@ export function normalizeEntityCreate(entity, body = {}) {
       target: optionalText(body.target, 1000),
       details: optionalText(body.details, 10000),
     };
-    case 'messages': {
-      const direction = body.direction || 'outbound';
-      if (!DIRECTION.has(direction)) throw new Error('Message direction is invalid.');
-      return {
-        id: requireUuid(body.id),
-        client_id: optionalUuid(body.client_id, 'client_id'),
-        recipient_id: optionalText(body.recipient_id, 500),
-        content: requireText(body.content, 'content', 20000),
-        image_url: optionalUrl(body.image_url, 'image_url'),
-        image_key: safeObjectKey(body.image_key, 'image_key'),
-        direction,
-        is_read: Boolean(body.is_read),
-      };
-    }
+    case 'messages': return normalizeMessageCreate(body);
     case 'promo_videos': {
       const status = body.status || 'processing';
       if (!STATUS.has(status)) throw new Error('Promo video status is invalid.');
