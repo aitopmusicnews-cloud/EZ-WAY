@@ -16,6 +16,16 @@ test('external share actions use browser-safe web flows', () => {
   assert.match(modal, /navigator\.share/);
 });
 
+// Gmail must not depend on opening a new browsing context; embedded/PWA shells can suppress it.
+test('Gmail share uses an explicit same-window navigation handler', () => {
+  const modal = read('../components/ShareModal.tsx');
+
+  assert.match(modal, /const handleGmailShare = \(\) =>/);
+  assert.match(modal, /window\.location\.assign\(gmailShareUrl\)/);
+  assert.doesNotMatch(modal, /href=\{gmailShareUrl\}[\s\S]{0,240}target="_blank"/);
+  assert.match(modal, /Gmail could not be opened/);
+});
+
 test('public share payload includes owner outbound messages for two-way portal messaging', () => {
   const handler = read('../../aws/app-data/api/handler.mjs');
   assert.doesNotMatch(handler, /AND direction = 'inbound'/);
