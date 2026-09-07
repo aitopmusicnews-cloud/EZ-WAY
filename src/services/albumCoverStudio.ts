@@ -1,5 +1,36 @@
 import type { AlbumCoverDraft } from './albumCoverCore';
-import { DEFAULT_COVER_VARIATION_COUNT } from './albumCoverCore';
+
+export type AlbumCoverMoodPath = 'auto' | 'blend' | 'audio' | 'lyrics';
+export type AlbumCoverVariationCount = 3 | 4 | 5;
+
+export interface AlbumCoverSourceInput {
+  audio?: Blob | File | null;
+  lyricsFile?: File | null;
+  lyricsText?: string;
+  title?: string;
+  artist?: string;
+  parentalAdvisory?: boolean;
+  variationCount?: AlbumCoverVariationCount;
+  collectionId: string;
+}
+
+export interface AlbumCoverConcept {
+  id: string;
+  ordinal: number;
+  name: string;
+  subject: string;
+  setting: string;
+  action_or_symbol: string;
+  camera: string;
+  medium: string;
+  palette: string;
+  typography_zone: string;
+  image_prompt: string;
+  scores?: Record<string, unknown> | null;
+  total_score?: number | null;
+  rank?: number | null;
+  selected_for_render?: boolean;
+}
 
 export interface AlbumCoverVariation {
   id: string;
@@ -10,27 +41,108 @@ export interface AlbumCoverVariation {
   width: number;
   height: number;
   selected: boolean;
+  concept_id?: string | null;
   concept_name?: string | null;
+  render_index?: number | null;
+  rank?: number | null;
+  selection_tier?: string | null;
   cover_score?: number | null;
+  thumbnail_score?: number | null;
+  commercial_score?: number | null;
+  critic_feedback?: Record<string, unknown> | null;
+  platform_scores?: Record<string, unknown> | null;
+  market_positioning?: Record<string, unknown> | null;
+  created_at?: string;
 }
 
 export interface AlbumCoverVariationSet {
   id: string;
   set_number: number;
+  mood_path: string;
+  prompt: string;
+  requested_count: number;
+  concept_count?: number;
+  selected_concept_count?: number;
+  renders_per_concept?: number;
+  concepts?: AlbumCoverConcept[];
+  winner_variation_id?: string | null;
+  runner_up_variation_id?: string | null;
+  critic_status?: string;
   status: string;
+  error?: Record<string, unknown> | null;
+  created_at?: string;
   variations: AlbumCoverVariation[];
+}
+
+export interface AlbumCoverAuditEvent {
+  id: number;
+  step: string;
+  attempt: number;
+  outcome: string;
+  message?: string | null;
+  details?: Record<string, unknown> | null;
+  created_at?: string;
 }
 
 export interface AlbumCoverGeneration {
   id: string;
   collection_id: string;
+  version: number;
+  input_hash?: string;
   status: string;
+  cache_hit?: boolean;
+  has_audio: boolean;
+  has_lyrics: boolean;
   title?: string | null;
   artist?: string | null;
   parental_advisory: boolean;
+  analysis?: Record<string, any> | null;
+  conflict?: Record<string, any> | null;
   selected_variation_id?: string | null;
-  last_error?: Record<string, unknown> | null;
+  last_error?: Record<string, any> | null;
+  created_at?: string;
+  updated_at?: string;
   variation_sets: AlbumCoverVariationSet[];
+  audit_events?: AlbumCoverAuditEvent[];
+}
+
+export interface AlbumCoverHistoryResponse {
+  collection_id: string;
+  versions: AlbumCoverGeneration[];
+}
+
+export interface AlbumCoverMetricsTrendPoint {
+  version: number;
+  set_number: number;
+  average_score?: number | null;
+  winner_score?: number | null;
+  created_at: string;
+}
+
+export interface AlbumCoverMetrics {
+  collection_id: string;
+  versions: number;
+  variation_sets: number;
+  covers_generated: number;
+  scored_covers: number;
+  selected_covers: number;
+  successful_versions: number;
+  failed_versions: number;
+  success_rate: number;
+  critic_completion_rate: number;
+  average_cover_score?: number | null;
+  average_thumbnail_score?: number | null;
+  average_commercial_score?: number | null;
+  best_cover_score?: number | null;
+  release_ready_covers: number;
+  retries: number;
+  failed_steps: number;
+  cache_hits: number;
+  status_counts: Record<string, number>;
+  set_status_counts: Record<string, number>;
+  platform_averages: Record<string, number>;
+  quality_trend: AlbumCoverMetricsTrendPoint[];
+  latest_update?: string | null;
 }
 
 const configuredBase = (): string => {
@@ -47,7 +159,7 @@ export const isAlbumCoverStudioConfigured = (): boolean => Boolean(configuredBas
 
 const apiUrl = (path: string): string => {
   const base = configuredBase();
-  if (!base) throw new Error('EZ AI Albumcover Studio backend is not configured.');
+  if (!base) throw new Error('EZ AI Album Cover Studio backend is not configured.');
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   return base.endsWith('/api') ? `${base}${normalizedPath}` : `${base}/api${normalizedPath}`;
 };
@@ -58,6 +170,17 @@ export const absoluteAlbumCoverUrl = (value: string): string => {
   if (!base) return value;
   const origin = base.endsWith('/api') ? base.slice(0, -4) : base;
   return `${origin}${value.startsWith('/') ? value : `/${value}`}`;
+};
+
+const parseJson = async <T>(response: Response): Promise<T> => {
+  const text = await response.text();
+  let payload: any = null;
+  try { payload = text ? JSON.parse(text) : null; } catch { payload = null; }
+  if (!response.ok) {
+    const detail = payload?.detail || payload?.error || payload?.message || text || `Request failed (${response.status}).`;
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+  }
+  return payload as T;
 };
 
 export const buildAlbumCoverCreativeContext = (draft: AlbumCoverDraft): string => {
@@ -72,36 +195,48 @@ export const buildAlbumCoverCreativeContext = (draft: AlbumCoverDraft): string =
   ].filter(Boolean).join('\n');
 
   const sections = [
-    `EZ-WAY MUSIC INTELLIGENCE\n${intelligence || 'Use the title and artist as the creative direction.'}`,
+    intelligence ? `EZ-WAY MUSIC INTELLIGENCE\n${intelligence}` : '',
     draft.lyrics ? `SONG LYRICS\n${draft.lyrics}` : '',
   ].filter(Boolean);
   return sections.join('\n\n');
 };
 
-const parseJson = async <T>(response: Response): Promise<T> => {
-  const text = await response.text();
-  let payload: any = null;
-  try { payload = text ? JSON.parse(text) : null; } catch { payload = null; }
-  if (!response.ok) {
-    const detail = payload?.detail || payload?.error || text || `Request failed (${response.status}).`;
-    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
-  }
-  return payload as T;
+const normalizeSourceInput = (
+  input: AlbumCoverSourceInput | AlbumCoverDraft,
+  parentalAdvisory = false,
+): AlbumCoverSourceInput => {
+  if ('collectionId' in input) return input;
+  return {
+    collectionId: `ezway-${input.trackId}`.slice(0, 64),
+    lyricsText: buildAlbumCoverCreativeContext(input),
+    title: input.title,
+    artist: input.artist,
+    parentalAdvisory,
+    variationCount: 3,
+  };
 };
 
 export const createAlbumCoverGeneration = async (
-  draft: AlbumCoverDraft,
-  parentalAdvisory: boolean,
+  input: AlbumCoverSourceInput | AlbumCoverDraft,
+  parentalAdvisory = false,
 ): Promise<AlbumCoverGeneration> => {
+  const source = normalizeSourceInput(input, parentalAdvisory);
   const form = new FormData();
-  form.set('lyrics_text', buildAlbumCoverCreativeContext(draft));
-  form.set('title', draft.title);
-  form.set('artist', draft.artist);
-  form.set('parental_advisory', String(parentalAdvisory));
-  form.set('collection_id', `ezway-${draft.trackId}`.slice(0, 64));
-  form.set('variation_count', String(DEFAULT_COVER_VARIATION_COUNT));
-  form.set('mood_path', 'lyrics');
+  form.set('collection_id', source.collectionId);
+  form.set('lyrics_text', String(source.lyricsText || ''));
+  form.set('title', String(source.title || ''));
+  form.set('artist', String(source.artist || ''));
+  form.set('parental_advisory', String(Boolean(source.parentalAdvisory)));
+  form.set('variation_count', String(source.variationCount || 4));
+  form.set('mood_path', 'auto');
   form.set('run_async', 'true');
+  if (source.audio) {
+    const file = source.audio instanceof File
+      ? source.audio
+      : new File([source.audio], 'ezway-track.mp3', { type: source.audio.type || 'audio/mpeg' });
+    form.set('audio', file);
+  }
+  if (source.lyricsFile) form.set('lyrics_file', source.lyricsFile);
 
   return parseJson<AlbumCoverGeneration>(await fetch(apiUrl('/generations'), {
     method: 'POST',
@@ -128,7 +263,7 @@ export const waitForAlbumCoverGeneration = async (
   options: { timeoutMs?: number; pollMs?: number; onPoll?: (generation: AlbumCoverGeneration) => void } = {},
 ): Promise<AlbumCoverGeneration> => {
   const timeoutMs = options.timeoutMs ?? 5 * 60 * 1000;
-  const pollMs = options.pollMs ?? 1800;
+  const pollMs = options.pollMs ?? 1500;
   const started = Date.now();
 
   while (Date.now() - started < timeoutMs) {
@@ -140,15 +275,73 @@ export const waitForAlbumCoverGeneration = async (
   throw new Error('Album cover generation timed out. You can retry without losing the selected track.');
 };
 
-export const regenerateAlbumCovers = async (generationId: string): Promise<AlbumCoverGeneration> => (
-  parseJson<AlbumCoverGeneration>(await fetch(apiUrl(`/generations/${encodeURIComponent(generationId)}/regenerate`), {
+export const waitForAlbumCoverVariationSet = async (
+  generationId: string,
+  previousSetCount: number,
+  options: { timeoutMs?: number; pollMs?: number; onPoll?: (generation: AlbumCoverGeneration) => void } = {},
+): Promise<AlbumCoverGeneration> => {
+  const timeoutMs = options.timeoutMs ?? 5 * 60 * 1000;
+  const pollMs = options.pollMs ?? 1500;
+  const started = Date.now();
+  let newSetSeen = false;
+
+  while (Date.now() - started < timeoutMs) {
+    const generation = await getAlbumCoverGeneration(generationId);
+    options.onPoll?.(generation);
+    newSetSeen = newSetSeen || generation.variation_sets.length > previousSetCount;
+    if (newSetSeen && terminalStatuses.has(generation.status)) return generation;
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+  throw new Error('Fresh album cover variations timed out. You can retry without losing this version.');
+};
+
+export const runAlbumCoverPath = async (
+  generationId: string,
+  moodPath: Exclude<AlbumCoverMoodPath, 'auto'>,
+  variationCount: AlbumCoverVariationCount,
+  action: 'generate' | 'regenerate' = 'regenerate',
+): Promise<AlbumCoverGeneration> => (
+  parseJson<AlbumCoverGeneration>(await fetch(apiUrl(`/generations/${encodeURIComponent(generationId)}/${action}`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({
-      mood_path: 'lyrics',
-      variation_count: DEFAULT_COVER_VARIATION_COUNT,
-      run_async: true,
-    }),
+    body: JSON.stringify({ mood_path: moodPath, variation_count: variationCount, run_async: true }),
+  }))
+);
+
+export const regenerateAlbumCovers = async (
+  generationId: string,
+  moodPath: Exclude<AlbumCoverMoodPath, 'auto'> = 'blend',
+  variationCount: AlbumCoverVariationCount = 4,
+): Promise<AlbumCoverGeneration> => runAlbumCoverPath(generationId, moodPath, variationCount, 'regenerate');
+
+export const generateBetterAlbumCovers = async (
+  generationId: string,
+  moodPath: Exclude<AlbumCoverMoodPath, 'auto'>,
+  variationCount: AlbumCoverVariationCount,
+): Promise<AlbumCoverGeneration> => (
+  parseJson<AlbumCoverGeneration>(await fetch(apiUrl(`/generations/${encodeURIComponent(generationId)}/improve`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ mood_path: moodPath, variation_count: variationCount, run_async: true }),
+  }))
+);
+
+export const retryAlbumCoverGeneration = async (generationId: string): Promise<AlbumCoverGeneration> => (
+  parseJson<AlbumCoverGeneration>(await fetch(apiUrl(`/generations/${encodeURIComponent(generationId)}/retry?run_async=true`), {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+  }))
+);
+
+export const getAlbumCoverHistory = async (collectionId: string): Promise<AlbumCoverHistoryResponse> => (
+  parseJson<AlbumCoverHistoryResponse>(await fetch(apiUrl(`/collections/${encodeURIComponent(collectionId)}/versions`), {
+    headers: { Accept: 'application/json' },
+  }))
+);
+
+export const getAlbumCoverMetrics = async (collectionId: string): Promise<AlbumCoverMetrics> => (
+  parseJson<AlbumCoverMetrics>(await fetch(apiUrl(`/collections/${encodeURIComponent(collectionId)}/metrics`), {
+    headers: { Accept: 'application/json' },
   }))
 );
 
@@ -166,8 +359,12 @@ export const downloadAlbumCover = async (variation: AlbumCoverVariation): Promis
   return response.blob();
 };
 
+export const latestAlbumCoverVariationSet = (generation: AlbumCoverGeneration | null): AlbumCoverVariationSet | null => {
+  if (!generation?.variation_sets?.length) return null;
+  return [...generation.variation_sets].sort((a, b) => b.set_number - a.set_number)[0] || null;
+};
+
 export const latestAlbumCoverVariations = (generation: AlbumCoverGeneration | null): AlbumCoverVariation[] => {
-  if (!generation?.variation_sets?.length) return [];
-  const latest = [...generation.variation_sets].sort((a, b) => b.set_number - a.set_number)[0];
-  return [...(latest?.variations || [])].sort((a, b) => a.position - b.position).slice(0, DEFAULT_COVER_VARIATION_COUNT);
+  const latest = latestAlbumCoverVariationSet(generation);
+  return [...(latest?.variations || [])].sort((a, b) => a.position - b.position);
 };
