@@ -16,6 +16,16 @@ def _ddb_safe(value: Any) -> Any:
     return json.loads(json.dumps(value), parse_float=Decimal)
 
 
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() else float(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 class AwsStateStore:
     def __init__(
         self,
@@ -69,7 +79,8 @@ class AwsStateStore:
             Key={"call_id": str(call_id)},
             ConsistentRead=True,
         )
-        return result.get("Item") or None
+        item = result.get("Item")
+        return _json_safe(item) if item else None
 
     def update_job(self, call_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         item = self.get_job(call_id)
@@ -89,4 +100,5 @@ class AwsStateStore:
             Key={"track_id": str(track_id)},
             ConsistentRead=True,
         )
-        return result.get("Item") or None
+        item = result.get("Item")
+        return _json_safe(item) if item else None
