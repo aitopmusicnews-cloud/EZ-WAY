@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useMediaStore } from '../context/MediaStoreContext';
 import { canUsePremiumFeature } from '../services/premiumFeatures';
+import { loadTrackAudioFile } from '../services/albumCoverCore';
 import {
   absoluteAlbumCoverUrl,
   createAlbumCoverGeneration,
@@ -104,7 +105,9 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
   const [artistInput, setArtistInput] = useState('');
   const [lyricsText, setLyricsText] = useState('');
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [autoLoadedAudio, setAutoLoadedAudio] = useState(false);
   const [lyricsFile, setLyricsFile] = useState<File | null>(null);
+  const [autoLoadedLyrics, setAutoLoadedLyrics] = useState(false);
   const [parentalAdvisory, setParentalAdvisory] = useState(false);
   const [variationCount, setVariationCount] = useState<AlbumCoverVariationCount>(4);
   const [generation, setGeneration] = useState<AlbumCoverGeneration | null>(null);
@@ -160,18 +163,46 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
   }, [initialTrackId, onClearInitialTrackId]);
 
   useEffect(() => {
+    let cancelled = false;
     setGeneration(null);
     setSelectedVariationId('');
     setError('');
     setStatusText('');
     setAudioFile(null);
+    setAutoLoadedAudio(false);
     setLyricsFile(null);
+    setAutoLoadedLyrics(false);
     setParentalAdvisory(false);
 
     if (selectedTrack) {
       setTitleInput(selectedTrack.name || '');
       setArtistInput(selectedTrack.artist || '');
       setLyricsText(selectedTrack.lyrics || '');
+      const hasSavedLyrics = Boolean(selectedTrack.lyrics?.trim());
+      setAutoLoadedLyrics(hasSavedLyrics);
+
+      void (async () => {
+        try {
+          const hydratedAudio = await loadTrackAudioFile(selectedTrack);
+          if (cancelled) return;
+          setAudioFile(hydratedAudio);
+          setAutoLoadedAudio(Boolean(hydratedAudio));
+          const loadedSources = [
+            hydratedAudio ? 'Auto-loaded EZ-WAY MP3' : '',
+            hasSavedLyrics ? 'Auto-loaded saved lyrics' : '',
+          ].filter(Boolean);
+          if (loadedSources.length > 0) {
+            setStatusText(`${loadedSources.join(' + ')}.`);
+          }
+        } catch (caught: any) {
+          if (cancelled) return;
+          setAudioFile(null);
+          setAutoLoadedAudio(false);
+          const message = caught?.message || 'Could not auto-load the selected EZ-WAY MP3.';
+          setError(message);
+          addToast(message, 'error');
+        }
+      })();
     } else {
       setTitleInput('');
       setArtistInput('');
@@ -181,6 +212,9 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
     refreshCollection(selectedTrack ? `ezway-${selectedTrack.id}`.slice(0, 64) : manualCollectionId.slice(0, 64)).catch(() => undefined);
     // collection refresh intentionally follows the selected track identity only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true;
+    };
   }, [selectedTrackId]);
 
   useEffect(() => {
@@ -528,10 +562,12 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
                 <FileAudio className="w-5 h-5 text-orange-500" />
                 <div>
                   <p className="text-sm font-bold">MP3 audio</p>
-                  <p className="text-[10px] text-zinc-600">{audioFile?.name || (selectedTrack?.file_url || selectedTrack?.file_data ? 'Using selected EZ-WAY track audio unless replaced.' : 'Choose an MP3 file.')}</p>
+                  <p className="text-[10px] text-zinc-600">{autoLoadedAudio && audioFile
+                    ? `Auto-loaded EZ-WAY MP3: ${audioFile.name}`
+                    : audioFile?.name || (selectedTrack?.file_url || selectedTrack?.file_data ? 'Loading selected EZ-WAY track MP3…' : 'Choose an MP3 file.')}</p>
                 </div>
               </div>
-              <input type="file" accept="audio/mpeg,.mp3" className="mt-3 block w-full text-xs text-zinc-500 file:mr-3 file:rounded-xl file:border-0 file:bg-zinc-900 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white" onChange={(event) => setAudioFile(event.target.files?.[0] || null)} />
+              <input type="file" accept="audio/mpeg,.mp3" className="mt-3 block w-full text-xs text-zinc-500 file:mr-3 file:rounded-xl file:border-0 file:bg-zinc-900 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white" onChange={(event) => { setAudioFile(event.target.files?.[0] || null); setAutoLoadedAudio(false); }} />
             </label>
 
             <label className="block rounded-2xl border border-dashed border-zinc-800 bg-black p-4 cursor-pointer hover:border-zinc-700">
@@ -544,7 +580,8 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
 
             <label className="space-y-2 block text-xs font-bold text-zinc-400">
               <span>Or paste lyrics</span>
-              <textarea value={lyricsText} onChange={(event) => setLyricsText(event.target.value)} rows={10} placeholder="Paste lyrics here…" className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500 resize-y" />
+              <textarea value={lyricsText} onChange={(event) => { setLyricsText(event.target.value); setAutoLoadedLyrics(false); }} rows={10} placeholder="Paste lyrics here…" className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500 resize-y" />
+              {autoLoadedLyrics && <p className="text-[10px] font-bold text-emerald-400">Auto-loaded saved lyrics from the selected EZ-WAY track.</p>}
             </label>
 
             <label className="space-y-2 block text-xs font-bold text-zinc-400">

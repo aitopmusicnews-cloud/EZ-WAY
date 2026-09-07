@@ -113,6 +113,7 @@ export default function App() {
   }, [theme]);
 
   const [activeView, setActiveView] = useState<AppView>("dashboard");
+  const shouldShowGlobalPlayer = ['dashboard', 'tracks', 'playlists'].includes(activeView);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [selectedMessageClientId, setSelectedMessageClientId] = useState<
     string | null
@@ -5191,7 +5192,7 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
         )}
       </div>
 
-      <AudioPlayer onEdit={(track) => setEditingTrack(track)} />
+      {shouldShowGlobalPlayer && <AudioPlayer onEdit={(track) => setEditingTrack(track)} />}
 
       <input
         type="file"

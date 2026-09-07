@@ -73,6 +73,34 @@ export const buildAlbumCoverDraft = (
   };
 };
 
+const safeTrackAudioName = (name: string): string => (
+  `${name || 'track'}-source.mp3`.replace(/[^a-z0-9._-]+/gi, '-').replace(/-+/g, '-')
+);
+
+export const loadTrackAudioFile = async (
+  track: Pick<Track, 'name' | 'type' | 'file_url' | 'file_data'>,
+  fetchImpl: typeof fetch = fetch,
+): Promise<File | null> => {
+  let source: Blob | null = null;
+
+  if (track.file_data instanceof Blob && track.file_data.size > 0) {
+    source = track.file_data;
+  } else if (track.file_url) {
+    const response = await fetchImpl(track.file_url);
+    if (!response.ok) {
+      throw new Error(`Could not auto-load the selected track MP3 (${response.status}).`);
+    }
+    source = await response.blob();
+  }
+
+  if (!source) return null;
+  if (typeof File !== 'undefined' && source instanceof File) return source;
+
+  return new File([source], safeTrackAudioName(track.name), {
+    type: source.type || track.type || 'audio/mpeg',
+  });
+};
+
 export const trackNeedsCoverPrompt = (track: Pick<Track, 'image_url' | 'image_data'>): boolean => {
   const hasRemoteArtwork = Boolean(clean(track.image_url));
   const hasLocalArtwork = track.image_data instanceof Blob && track.image_data.size > 0;
