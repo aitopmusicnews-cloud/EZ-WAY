@@ -107,6 +107,11 @@ export const rowToMessage = (row = {}) => ({
   content: asString(row.content),
   image_url: row.image_url ?? null,
   image_key: row.image_key ?? null,
+  attachment_url: row.attachment_url ?? null,
+  attachment_key: row.attachment_key ?? null,
+  attachment_name: row.attachment_name ?? null,
+  attachment_type: row.attachment_type ?? null,
+  attachment_size: asNumber(row.attachment_size),
   direction: row.direction || 'outbound',
   timestamp: asString(row.timestamp),
   is_read: Boolean(row.is_read),
@@ -153,7 +158,7 @@ export async function resolveMediaUrls(entity, item, presignRead) {
   } else if (entity === 'clients') {
     await resolve('avatar_key', 'avatar_url', undefined);
   } else if (entity === 'messages') {
-    await resolve('image_key', 'image_url');
+    await Promise.all([resolve('image_key', 'image_url'), resolve('attachment_key', 'attachment_url')]);
   } else if (entity === 'promo_videos') {
     await Promise.all([resolve('video_key', 'video_url', ''), resolve('thumbnail_key', 'thumbnail_url', '')]);
   } else if (entity === 'profiles') {

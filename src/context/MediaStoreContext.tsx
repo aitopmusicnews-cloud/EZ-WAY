@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import type { Track, Playlist, Client, Activity, ShareLink, UserProfile, Message, PromoVideo } from '@/src/types';
+import type { Track, Playlist, Client, Activity, ShareLink, UserProfile, Message, MessageAttachment, PromoVideo } from '@/src/types';
 import { dataStore, uploadMediaForWorkspace } from '@/src/services/dataStore';
 
 interface MediaStoreContextType {
@@ -30,7 +30,7 @@ interface MediaStoreContextType {
   getShareContent: (token: string) => Promise<{ track?: Track; playlist?: Playlist; link: ShareLink } | null>;
   addActivity: (activity: Partial<Activity>) => Promise<void>;
   messages: Message[];
-  sendMessage: (clientId: string, content: string, image_url?: string | null, direction?: 'inbound' | 'outbound') => Promise<void>;
+  sendMessage: (clientId: string, content: string, image_url?: string | null, direction?: 'inbound' | 'outbound', attachment?: MessageAttachment | null) => Promise<void>;
   promoVideos: PromoVideo[];
   addPromoVideo: (video: Partial<PromoVideo>) => Promise<void>;
   deletePromoVideo: (id: string) => Promise<void>;
@@ -96,7 +96,8 @@ const uploadCategory = (bucket: string) => {
   const normalized = String(bucket || '').trim().toLowerCase();
   if (normalized === 'tracks' || normalized === 'audio') return 'tracks';
   if (normalized === 'promo_videos' || normalized === 'promo-video' || normalized === 'videos') return 'promo-video';
-  if (normalized === 'messages' || normalized === 'message-image' || normalized === 'message_images') return 'message-image';
+  if (normalized === 'message-image' || normalized === 'message_images') return 'message-image';
+  if (normalized === 'messages' || normalized === 'message-attachment' || normalized === 'message_attachments') return 'message-attachment';
   if (normalized === 'profile-image' || normalized === 'profile_images' || normalized === 'avatars') return 'profile-image';
   return 'artwork';
 };
@@ -137,6 +138,7 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
       ['avatar_url', 'avatar_key'],
       ['video_url', 'video_key'],
       ['thumbnail_url', 'thumbnail_key'],
+      ['attachment_url', 'attachment_key'],
     ] as const;
     for (const [urlField, keyField] of pairs) {
       const url = output[urlField];
@@ -484,7 +486,13 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
-  const sendMessage = async (clientId: string, content: string, image_url?: string | null, direction: 'inbound' | 'outbound' = 'outbound') => {
+  const sendMessage = async (
+    clientId: string,
+    content: string,
+    image_url?: string | null,
+    direction: 'inbound' | 'outbound' = 'outbound',
+    attachment?: MessageAttachment | null,
+  ) => {
     const client = clients.find((item) => item.id === clientId);
     const candidate = withPendingKeys({
       id: uuidv4(),
@@ -492,6 +500,11 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
       recipient_id: direction === 'outbound' ? (client?.email || 'unknown@client.com') : 'producer@ogbeatz.com',
       content,
       image_url: image_url || null,
+      attachment_url: attachment?.attachment_url || null,
+      attachment_key: attachment?.attachment_key || null,
+      attachment_name: attachment?.attachment_name || null,
+      attachment_type: attachment?.attachment_type || null,
+      attachment_size: Number(attachment?.attachment_size || 0),
       direction,
       timestamp: new Date().toISOString(),
       is_read: false,
@@ -503,7 +516,7 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
         type: 'social',
         user: direction === 'inbound' ? (client?.name || 'Client') : 'OGBeatz',
         action: direction === 'inbound' ? 'submitted feedback' : `Sent message to ${client?.name || 'Client'}`,
-        details: content,
+        details: content || attachment?.attachment_name || 'Attachment',
         client_id: clientId,
       });
     } catch (error: any) {

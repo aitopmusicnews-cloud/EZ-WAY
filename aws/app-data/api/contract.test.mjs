@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  normalizeEntityCreate,
   normalizePatch,
   normalizePublicEvent,
   normalizeShareCreate,
@@ -43,4 +44,46 @@ test('public feedback accepts only token-scoped review events', () => {
   assert.equal(normalizePublicEvent({ type: 'comment', track_id: trackId, content: 'Bring the vocal up.' }).content, 'Bring the vocal up.');
   assert.throws(() => normalizePublicEvent({ type: 'delete_track', track_id: trackId }), /event/i);
   assert.throws(() => normalizePublicEvent({ type: 'comment', track_id: trackId, content: '   ' }), /comment/i);
+});
+
+test('messages preserve general attachment metadata', () => {
+  const message = normalizeEntityCreate('messages', {
+    id: '00000000-0000-4000-8000-000000000010',
+    client_id: '00000000-0000-4000-8000-000000000011',
+    recipient_id: 'client@example.com',
+    content: '',
+    attachment_key: 'messages/attachments/m1/file.pdf',
+    attachment_name: 'contract.pdf',
+    attachment_type: 'application/pdf',
+    attachment_size: 2048,
+    direction: 'outbound',
+  });
+  assert.equal(message.attachment_name, 'contract.pdf');
+  assert.equal(message.attachment_type, 'application/pdf');
+  assert.equal(message.attachment_size, 2048);
+});
+
+test('messages require text or an attachment', () => {
+  assert.throws(() => normalizeEntityCreate('messages', {
+    id: '00000000-0000-4000-8000-000000000010',
+    client_id: '00000000-0000-4000-8000-000000000011',
+    recipient_id: 'client@example.com',
+    content: '   ',
+    direction: 'outbound',
+  }), /content|attachment/i);
+});
+
+test('public comments can carry token-scoped attachment metadata', () => {
+  const trackId = '00000000-0000-4000-8000-000000000002';
+  const event = normalizePublicEvent({
+    type: 'comment',
+    track_id: trackId,
+    content: '',
+    attachment_key: 'messages/attachments/m1/reference.zip',
+    attachment_name: 'reference.zip',
+    attachment_type: 'application/zip',
+    attachment_size: 4096,
+  });
+  assert.equal(event.attachment_name, 'reference.zip');
+  assert.equal(event.attachment_size, 4096);
 });
