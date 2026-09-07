@@ -26,11 +26,19 @@ import CopyrightsStudio from './CopyrightsStudio';
 import AlbumCoverStudio from './AlbumCoverStudio';
 import { useMediaStore } from '../context/MediaStoreContext';
 import { trackNeedsCoverPrompt } from '../services/albumCoverCore';
+import type { AppView } from '../types';
+import type { LucideIcon } from 'lucide-react';
 
 interface ShellProps {
   children: React.ReactNode;
-  activeView: string;
-  onViewChange: (view: any) => void;
+  activeView: AppView;
+  onViewChange: (view: AppView) => void;
+}
+
+interface ShellNavItem {
+  id: AppView;
+  label: string;
+  icon: LucideIcon;
 }
 
 export default function Shell({ children, activeView, onViewChange }: ShellProps) {
@@ -41,14 +49,14 @@ export default function Shell({ children, activeView, onViewChange }: ShellProps
   const knownTrackIdsRef = useRef<Set<string> | null>(null);
   const { tracks, loading } = useMediaStore();
 
-  const primaryItems = [
+  const primaryItems: ShellNavItem[] = [
     { id: 'playlists', label: 'Playlists', icon: ListMusic },
     { id: 'tracks', label: 'Tracks', icon: Music },
     { id: 'clients', label: 'Clients', icon: Users },
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   ];
 
-  const secondaryItems = [
+  const secondaryItems: ShellNavItem[] = [
     { id: 'analyzer', label: 'AI Diagnostics', icon: Cpu },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'videos', label: 'Videos', icon: Video },
@@ -60,7 +68,7 @@ export default function Shell({ children, activeView, onViewChange }: ShellProps
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
-  const profileItem = { id: 'profile', label: 'Profile', icon: User };
+  const profileItem: ShellNavItem = { id: 'profile', label: 'Profile', icon: User };
   const secondaryActive = secondaryItems.some((item) => item.id === activeView) || activeView === 'profile';
   const pendingCoverTrack = tracks.find((track) => track.id === pendingCoverTrackId) || null;
 
@@ -84,7 +92,7 @@ export default function Shell({ children, activeView, onViewChange }: ShellProps
     }
   }, [tracks, loading]);
 
-  const handleMobileNav = (viewId: string) => {
+  const handleMobileNav = (viewId: AppView) => {
     onViewChange(viewId);
     setIsMobileMenuOpen(false);
   };
@@ -97,7 +105,7 @@ export default function Shell({ children, activeView, onViewChange }: ShellProps
     setIsMobileMenuOpen(false);
   };
 
-  const NavItem = ({ item, mobile = false, nested = false }: { item: (typeof primaryItems)[number]; mobile?: boolean; nested?: boolean; key?: React.Key }) => (
+  const NavItem = ({ item, mobile = false, nested = false }: { item: ShellNavItem; mobile?: boolean; nested?: boolean; key?: React.Key }) => (
     <button
       key={item.id}
       onClick={() => mobile ? handleMobileNav(item.id) : onViewChange(item.id)}

@@ -13,7 +13,7 @@ interface ShareModalProps {
 }
 
 export default function ShareModal({ track, playlist, onClose }: ShareModalProps) {
-  const { clients, addShareLink, connected } = useMediaStore();
+  const { clients, addShareLink, connected, addToast } = useMediaStore();
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [downloadEnabled, setDownloadEnabled] = useState(false);
   const [expiresIn, setExpiresIn] = useState<string>('7d');
@@ -64,11 +64,40 @@ export default function ShareModal({ track, playlist, onClose }: ShareModalProps
     }
   };
 
-  const handleEmailShare = () => {
+  const shareSubject = `Master Reference: ${assetName}`;
+  const shareBody = `Hey,\n\nI've uploaded a new master for you to review: ${assetName}.\n\nYou can listen and provide feedback here: ${shareLink || ''}\n\nBest,\nOGBeatz`;
+  const gmailShareUrl = shareLink
+    ? `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(selectedClient?.email || '')}&su=${encodeURIComponent(shareSubject)}&body=${encodeURIComponent(shareBody)}`
+    : '#';
+  const whatsappShareUrl = shareLink
+    ? `https://wa.me/?text=${encodeURIComponent(`Hey, check out this master reference: ${shareLink}`)}`
+    : '#';
+  const facebookShareUrl = shareLink
+    ? `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareLink)}`
+    : '#';
+
+  const handleMessengerShare = async () => {
     if (!shareLink) return;
-    const subject = encodeURIComponent(`Master Reference: ${assetName}`);
-    const body = encodeURIComponent(`Hey,\n\nI've uploaded a new master for you to review: ${assetName}.\n\nYou can listen and provide feedback here: ${shareLink}\n\nBest,\nOGBeatz`);
-    window.location.href = `mailto:${selectedClient?.email || ''}?subject=${subject}&body=${body}`;
+    const payload = {
+      title: shareSubject,
+      text: `Check out this master reference: ${assetName}`,
+      url: shareLink,
+    };
+    if (navigator.share) {
+      try {
+        await navigator.share(payload);
+        return;
+      } catch (error: any) {
+        if (error?.name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      addToast('Share link copied. Paste it into Messenger.', 'info');
+    } catch {
+      addToast('Opening Messenger. Copy the share link above if needed.', 'info');
+    }
+    window.location.assign('https://www.messenger.com/');
   };
 
   return (
@@ -250,30 +279,36 @@ export default function ShareModal({ track, playlist, onClose }: ShareModalProps
                    </div>
 
                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      <button 
-                        onClick={handleEmailShare}
+                      <a
+                        href={gmailShareUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="flex flex-col items-center justify-center gap-2 bg-zinc-900 border border-zinc-800 text-white h-20 rounded-2xl text-[8px] font-black uppercase tracking-[0.2em] hover:bg-zinc-800 transition-all"
                       >
                         <Mail className="w-5 h-5 text-orange-500" /> Gmail
-                      </button>
-                      <button 
-                        onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent('Hey, check out this master reference: ' + shareLink)}`)}
+                      </a>
+                      <a
+                        href={whatsappShareUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="flex flex-col items-center justify-center gap-2 bg-zinc-900 border border-zinc-800 text-white h-20 rounded-2xl text-[8px] font-black uppercase tracking-[0.2em] hover:bg-zinc-800 transition-all"
                       >
                         <MessageCircle className="w-5 h-5 text-emerald-500" /> WhatsApp
-                      </button>
-                      <button 
-                        onClick={() => window.open(`fb-messenger://share/?link=${encodeURIComponent(shareLink!)}`)}
+                      </a>
+                      <button
+                        onClick={handleMessengerShare}
                         className="flex flex-col items-center justify-center gap-2 bg-zinc-900 border border-zinc-800 text-white h-20 rounded-2xl text-[8px] font-black uppercase tracking-[0.2em] hover:bg-zinc-800 transition-all"
                       >
                         <Share2 className="w-5 h-5 text-blue-500" /> Messenger
                       </button>
-                      <button 
-                        onClick={() => window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareLink!)}`)}
+                      <a
+                        href={facebookShareUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="flex flex-col items-center justify-center gap-2 bg-zinc-900 border border-zinc-800 text-white h-20 rounded-2xl text-[8px] font-black uppercase tracking-[0.2em] hover:bg-zinc-800 transition-all"
                       >
                         <Facebook className="w-5 h-5 text-blue-600" /> Facebook
-                      </button>
+                      </a>
                    </div>
 
                    <button 
