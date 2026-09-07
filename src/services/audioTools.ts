@@ -105,6 +105,7 @@ export async function startAudioToolsJob(
       action,
       mode,
       file_url: track.file_url,
+      file_key: track.file_key || undefined,
       track_name: track.name,
       track_id: track.id,
       source_fingerprint: buildAnalysisSourceFingerprint(track),
