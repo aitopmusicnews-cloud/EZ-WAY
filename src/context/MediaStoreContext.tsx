@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { Track, Playlist, Client, Activity, ShareLink, UserProfile, Message, PromoVideo } from '@/src/types';
-import { analyzeAudioDsp } from '@/src/services/audioDsp';
 import { dataStore, uploadMediaForWorkspace } from '@/src/services/dataStore';
 
 interface MediaStoreContextType {
@@ -30,9 +29,6 @@ interface MediaStoreContextType {
   deleteShareLink: (id: string) => Promise<void>;
   getShareContent: (token: string) => Promise<{ track?: Track; playlist?: Playlist; link: ShareLink } | null>;
   addActivity: (activity: Partial<Activity>) => Promise<void>;
-  analyzeTrack: (name: string, duration?: number, file?: File | null, fileUrl?: string | null) => Promise<{ bpm: number; key: string; duration?: number; tags?: string[] }>;
-  analysisEngine: 'ai' | 'dsp';
-  setAnalysisEngine: (engine: 'ai' | 'dsp') => void;
   messages: Message[];
   sendMessage: (clientId: string, content: string, image_url?: string | null, direction?: 'inbound' | 'outbound') => Promise<void>;
   promoVideos: PromoVideo[];
@@ -122,7 +118,6 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
   const [connected, setConnected] = useState(false);
   const [toasts, setToasts] = useState<{ id: string; message: string; type: 'success' | 'error' | 'info' }[]>([]);
   const [enableMockData, setEnableMockData] = useState(() => readJson('ogbeatz_enable_mock_data', false));
-  const [analysisEngine, setAnalysisEngine] = useState<'ai' | 'dsp'>(() => readJson('ogbeatz_analysis_engine', 'dsp'));
   const pendingMediaKeys = useRef(new Map<string, string>());
 
   const addToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -592,35 +587,6 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
     setShareLinks((prev) => prev.map((link) => link.id === id ? { ...link, access_count: (link.access_count || 0) + 1 } : link));
   };
 
-  const analyzeTrack = async (name: string, clientDuration?: number, file?: File | null, fileUrl?: string | null) => {
-    let sourceFile = file || null;
-    if (!sourceFile && fileUrl) {
-      try {
-        const response = await fetch(fileUrl);
-        const blob = await response.blob();
-        sourceFile = new File([blob], name, { type: blob.type || 'audio/mpeg' });
-      } catch (error) {
-        console.warn('[MediaStore] Could not fetch audio for DSP analysis', error);
-      }
-    }
-    if (analysisEngine === 'dsp' && sourceFile) {
-      const result = await analyzeAudioDsp(sourceFile);
-      const key = result.camelotKey ? `${result.key} (${result.camelotKey})` : result.key;
-      return { bpm: Math.round(result.bpm), key, duration: clientDuration, tags: result.tags || [] };
-    }
-
-    const duration = clientDuration || 0;
-    const response = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: name, duration }),
-    });
-    if (!response.ok) throw new Error(`AI Analysis server returned status ${response.status}`);
-    const data = await response.json();
-    const key = data.camelot_key ? `${data.key} (${data.camelot_key})` : data.key;
-    return { bpm: Math.round(Number(data.bpm || 0)), key, duration, tags: Array.isArray(data.tags) ? data.tags : [] };
-  };
-
   const uploadFile = async (bucket: string, file: File): Promise<string | null> => {
     try {
       const relatedId = uuidv4();
@@ -642,11 +608,6 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
-  const handleSetAnalysisEngine = (engine: 'ai' | 'dsp') => {
-    setAnalysisEngine(engine);
-    try { localStorage.setItem('ogbeatz_analysis_engine', JSON.stringify(engine)); } catch { /* ignore */ }
-  };
-
   const handleSetEnableMockData = (value: boolean) => {
     setEnableMockData(value);
     try { localStorage.setItem('ogbeatz_enable_mock_data', JSON.stringify(value)); } catch { /* ignore */ }
@@ -657,8 +618,8 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
       tracks, playlists, clients, activities, profile, loading, loadingProgress, loadingStatusText,
       addTrack, updateTrack, deleteTrack, addPlaylist, updatePlaylist, deletePlaylist,
       addTrackToPlaylist, removeTrackFromPlaylist, addClient, updateClient, deleteClient, updateProfile,
-      shareLinks, addShareLink, deleteShareLink, getShareContent, addActivity, analyzeTrack,
-      analysisEngine, setAnalysisEngine: handleSetAnalysisEngine, messages, sendMessage,
+      shareLinks, addShareLink, deleteShareLink, getShareContent, addActivity,
+      messages, sendMessage,
       promoVideos, addPromoVideo, deletePromoVideo, incrementShareLinkAccess, uploadFile,
       toasts, addToast, removeToast, connected, enableMockData, setEnableMockData: handleSetEnableMockData,
     }}>

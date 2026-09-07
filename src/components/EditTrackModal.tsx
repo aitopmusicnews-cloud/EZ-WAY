@@ -4,6 +4,8 @@ import { Track } from '../types';
 import { useMediaStore } from '../context/MediaStoreContext';
 import { useAudio } from '../context/AudioContext';
 import { formatLrcTime, parseLrc, convertJsonToLrc } from '../utils/lrcParser';
+import { runManualTrackAnalysis } from '../services/musicIntelligence';
+import { profileToLegacyTrackUpdates } from '../services/musicIntelligenceCore';
 
 export default function EditTrackModal({ track, onClose, onSave, onDelete }: { 
   track: Track; 
@@ -12,7 +14,7 @@ export default function EditTrackModal({ track, onClose, onSave, onDelete }: {
   onDelete?: (id: string) => Promise<void>;
   key?: string | number;
 }) {
-  const { uploadFile, analyzeTrack, addToast } = useMediaStore();
+  const { uploadFile, updateTrack, addToast } = useMediaStore();
   const [formData, setFormData] = useState({ ...track });
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
@@ -722,21 +724,16 @@ export default function EditTrackModal({ track, onClose, onSave, onDelete }: {
                 disabled={analyzing}
                 onClick={async () => {
                   setAnalyzing(true);
-                  addToast(`Initiating high-precision AI diagnostics for "${formData.name}"...`, "info");
+                  addToast(`Starting AWS Music Intelligence for "${formData.name}"...`, "info");
                   try {
-                    const result = await analyzeTrack(formData.name, formData.duration);
-                    if (result) {
-                      setFormData(prev => ({
-                        ...prev,
-                        bpm: result.bpm,
-                        key_signature: result.key,
-                        tags: result.tags || prev.tags
-                      }));
-                      addToast("AI Analysis succeeded! Fields updated.", "success");
-                    }
+                    const analysisTrack = { ...track, ...formData } as Track;
+                    const profile = await runManualTrackAnalysis(analysisTrack, updateTrack);
+                    const legacyUpdates = profileToLegacyTrackUpdates(profile, formData.tags || []);
+                    setFormData(prev => ({ ...prev, ...legacyUpdates, status: 'ready' }));
+                    addToast("AWS Music Intelligence succeeded. Metadata fields updated.", "success");
                   } catch (err: any) {
-                    console.error("AI Analysis failed:", err);
-                    addToast(`Diagnostics failed: ${err.message || err}`, "error");
+                    console.error("AWS Music Intelligence failed:", err);
+                    addToast(`Analysis failed: ${err.message || err}`, "error");
                   } finally {
                     setAnalyzing(false);
                   }
@@ -755,7 +752,7 @@ export default function EditTrackModal({ track, onClose, onSave, onDelete }: {
                 ) : (
                   <>
                     <Sparkles className="w-3.5 h-3.5 text-orange-500" />
-                    Reanalyze Track with Gemini AI
+                    Re-Analyze with AWS Music Intelligence
                   </>
                 )}
               </button>
