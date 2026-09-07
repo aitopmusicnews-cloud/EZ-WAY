@@ -1,33 +1,39 @@
+import ast
 import unittest
+from pathlib import Path
 
-from analyzer import STYLE_LABELS
-from music_intelligence_core import (
-    aggregate_rankings,
-    build_profile,
-    normalize_probability,
-    select_confident_ranking,
-    segments_to_chapters,
-)
+import music_intelligence_core as core
 
 
 class MusicIntelligenceCoreTests(unittest.TestCase):
     def test_normalize_probability_clips_range(self):
-        self.assertEqual(normalize_probability(-0.2), 0.0)
-        self.assertEqual(normalize_probability(1.2), 1.0)
-        self.assertEqual(normalize_probability(0.4567), 0.4567)
+        self.assertEqual(core.normalize_probability(-0.2), 0.0)
+        self.assertEqual(core.normalize_probability(1.2), 1.0)
+        self.assertEqual(core.normalize_probability(0.4567), 0.4567)
 
     def test_aggregate_rankings_averages_windows_and_orders(self):
         windows = [
             {"Trap": 0.8, "R&B": 0.2},
             {"Trap": 0.6, "R&B": 0.4},
         ]
-        ranked = aggregate_rankings(windows, limit=2)
+        ranked = core.aggregate_rankings(windows, limit=2)
         self.assertEqual([item["label"] for item in ranked], ["Trap", "R&B"])
         self.assertAlmostEqual(ranked[0]["score"], 0.7, places=6)
         self.assertAlmostEqual(ranked[1]["score"], 0.3, places=6)
 
     def test_style_taxonomy_does_not_treat_instrumental_as_a_vibe(self):
-        self.assertNotIn("Instrumental", STYLE_LABELS)
+        analyzer_source = Path(__file__).with_name("analyzer.py").read_text(encoding="utf-8")
+        module = ast.parse(analyzer_source)
+        style_labels = None
+        for node in module.body:
+            if isinstance(node, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id == "STYLE_LABELS"
+                for target in node.targets
+            ):
+                style_labels = ast.literal_eval(node.value)
+                break
+        self.assertIsNotNone(style_labels)
+        self.assertNotIn("Instrumental", style_labels)
 
     def test_select_confident_ranking_rejects_near_tied_style_guesses(self):
         ranked = [
@@ -36,7 +42,7 @@ class MusicIntelligenceCoreTests(unittest.TestCase):
             {"label": "Atmospheric", "score": 0.61},
         ]
         self.assertEqual(
-            select_confident_ranking(ranked, threshold=0.55, margin=0.03, limit=3),
+            core.select_confident_ranking(ranked, threshold=0.55, margin=0.03, limit=3),
             [],
         )
 
@@ -47,7 +53,7 @@ class MusicIntelligenceCoreTests(unittest.TestCase):
             {"label": "Trap Soul", "score": 0.60},
         ]
         self.assertEqual(
-            select_confident_ranking(ranked, threshold=0.55, margin=0.03, limit=3),
+            core.select_confident_ranking(ranked, threshold=0.55, margin=0.03, limit=3),
             ranked,
         )
 
@@ -59,13 +65,13 @@ class MusicIntelligenceCoreTests(unittest.TestCase):
             {"start": 40.0, "end": 65.0, "label": "chorus"},
             {"start": 65.0, "end": 65.5, "label": "end"},
         ]
-        chapters = segments_to_chapters(segments)
+        chapters = core.segments_to_chapters(segments)
         self.assertEqual([chapter["label"] for chapter in chapters], ["Intro", "Verse", "Chorus"])
         self.assertEqual(chapters[0]["timestamp"], "0:00")
         self.assertEqual(chapters[1]["timestamp"], "0:14")
 
     def test_build_profile_marks_low_confidence_primary_genre_uncertain(self):
-        profile = build_profile(
+        profile = core.build_profile(
             bpm=92,
             sections=[{"start": 0.0, "end": 20.0, "label": "intro"}],
             genres=[{"label": "Alternative R&B", "score": 0.41}, {"label": "Trap Soul", "score": 0.39}],
@@ -86,7 +92,7 @@ class MusicIntelligenceCoreTests(unittest.TestCase):
         self.assertEqual(profile["chapters"][0]["label"], "Intro")
 
     def test_build_profile_requires_genre_margin_for_confidence(self):
-        profile = build_profile(
+        profile = core.build_profile(
             bpm=140,
             sections=[],
             genres=[{"label": "Trap", "score": 0.70}, {"label": "Drill", "score": 0.69}],
