@@ -103,10 +103,14 @@ async function createEntity(entity, body) {
       break;
     case 'messages':
       rows = await execute(`
-        INSERT INTO messages (id, client_id, recipient_id, content, image_url, image_key, direction, is_read)
-        VALUES (
+        INSERT INTO messages (
+          id, client_id, recipient_id, content, image_url, image_key,
+          attachment_url, attachment_key, attachment_name, attachment_type, attachment_size,
+          direction, is_read
+        ) VALUES (
           CAST(:id AS uuid), CAST(:client_id AS uuid), :recipient_id, :content,
-          :image_url, :image_key, :direction, :is_read
+          :image_url, :image_key, :attachment_url, :attachment_key, :attachment_name,
+          :attachment_type, :attachment_size, :direction, :is_read
         ) RETURNING *
       `, params(item));
       break;
@@ -207,6 +211,21 @@ async function loadShare(token) {
   return row;
 }
 
+async function resolveShareMessages(shareRow) {
+  if (!shareRow?.client_id) return [];
+  const rows = await execute(
+    'SELECT * FROM messages WHERE client_id = CAST(:client_id AS uuid) ORDER BY timestamp ASC',
+    [{ name: 'client_id', value: shareRow.client_id }],
+  );
+  return mapManyAndResolve('messages', rows);
+}
+
+async function resolvePublicMessages(token) {
+  const shareRow = await loadShare(token);
+  if (!shareRow) return null;
+  return resolveShareMessages(shareRow);
+}
+
 async function resolvePublicShare(token) {
   const shareRow = await loadShare(token);
   if (!shareRow) return null;
@@ -239,14 +258,7 @@ async function resolvePublicShare(token) {
       tracks = playlist.track_ids.map((id) => byId.get(id)).filter(Boolean);
     }
   }
-  let messages = [];
-  if (shareRow.client_id) {
-    const rows = await execute(
-      "SELECT * FROM messages WHERE client_id = CAST(:client_id AS uuid) ORDER BY timestamp ASC",
-      [{ name: 'client_id', value: shareRow.client_id }],
-    );
-    messages = await mapManyAndResolve('messages', rows);
-  }
+  const messages = await resolveShareMessages(shareRow);
   return { link, track, playlist, tracks, messages };
 }
 
@@ -317,13 +329,29 @@ async function postPublicEvent(token, body) {
     statements.push({
       sql: `INSERT INTO activities (id, type, track_id, playlist_id, client_id, "user", action, target, details)
             VALUES (CAST(:id AS uuid), 'message', CAST(:track_id AS uuid), CAST(:playlist_id AS uuid), CAST(:client_id AS uuid), :user, 'commented on', :target, :details)`,
-      params: params({ ...baseActivity, details: event.content }),
+      params: params({ ...baseActivity, details: event.content || event.attachment_name || 'Attachment' }),
     });
     if (share.client_id) {
       statements.push({
-        sql: `INSERT INTO messages (id, client_id, recipient_id, content, direction, is_read)
-              VALUES (CAST(:id AS uuid), CAST(:client_id AS uuid), 'owner', :content, 'inbound', false)`,
-        params: params({ id: randomUUID(), client_id: share.client_id, content: `[Feedback on ${track.name || 'Asset'}]: ${event.content}` }),
+        sql: `INSERT INTO messages (
+                id, client_id, recipient_id, content,
+                attachment_url, attachment_key, attachment_name, attachment_type, attachment_size,
+                direction, is_read
+              ) VALUES (
+                CAST(:id AS uuid), CAST(:client_id AS uuid), 'owner', :content,
+                :attachment_url, :attachment_key, :attachment_name, :attachment_type, :attachment_size,
+                'inbound', false
+              )`,
+        params: params({
+          id: randomUUID(),
+          client_id: share.client_id,
+          content: event.content ? `[Feedback on ${track.name || 'Asset'}]: ${event.content}` : '',
+          attachment_url: event.attachment_url,
+          attachment_key: event.attachment_key,
+          attachment_name: event.attachment_name,
+          attachment_type: event.attachment_type,
+          attachment_size: event.attachment_size,
+        }),
       });
     }
   }
@@ -340,6 +368,23 @@ export const handler = async (event) => {
   try {
     if (method === 'GET' && rawPath === '/bootstrap') return response(event, 200, await bootstrap());
     if (method === 'GET' && rawPath === '/diagnostics') return response(event, 200, await diagnostics());
+    if (method === 'GET' && rawPath.match(/^\/public\/share\/[^/]+\/messages$/)) {
+      const token = String(pathParameters.token || rawPath.split('/')[3] || '').trim();
+      const messages = await resolvePublicMessages(token);
+      if (!messages) return response(event, 404, { error: 'Share link not found or expired.' });
+      return response(event, 200, { messages });
+    }
+    if (method === 'POST' && rawPath.match(/^\/public\/share\/[^/]+\/uploads\/presign$/)) {
+      const token = String(pathParameters.token || rawPath.split('/')[3] || '').trim();
+      const share = await loadShare(token);
+      if (!share) return response(event, 404, { error: 'Share link not found or expired.' });
+      const body = parseBody(event);
+      return response(event, 200, await presignUpload({
+        ...body,
+        category: 'message-attachment',
+        relatedId: share.client_id || share.id,
+      }));
+    }
     if (method === 'GET' && rawPath.startsWith('/public/share/')) {
       const token = String(pathParameters.token || rawPath.slice('/public/share/'.length)).split('/')[0].trim();
       const payload = await resolvePublicShare(token);
