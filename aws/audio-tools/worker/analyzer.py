@@ -32,8 +32,8 @@ GEMINI_ANALYSIS_SCHEMA = {
     "properties": {
         "bpm": {"type": "integer", "minimum": 0, "maximum": 300},
         "bpm_confidence": {"type": "number", "minimum": 0, "maximum": 1},
-        "key": {"type": "string", "maxLength": 40},
-        "camelot_key": {"type": "string", "maxLength": 8},
+        "key": {"type": "string"},
+        "camelot_key": {"type": "string"},
         "key_confidence": {"type": "number", "minimum": 0, "maximum": 1},
         "genres": {"$ref": "#/$defs/rankedList"},
         "moods": {"$ref": "#/$defs/rankedList"},
@@ -46,7 +46,7 @@ GEMINI_ANALYSIS_SCHEMA = {
                 "type": "object",
                 "required": ["label", "start", "end", "confidence"],
                 "properties": {
-                    "label": {"type": "string", "maxLength": 60},
+                    "label": {"type": "string"},
                     "start": {"type": "number", "minimum": 0},
                     "end": {"type": "number", "minimum": 0},
                     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
@@ -57,7 +57,7 @@ GEMINI_ANALYSIS_SCHEMA = {
         "keywords": {
             "type": "array",
             "maxItems": 12,
-            "items": {"type": "string", "maxLength": 80},
+            "items": {"type": "string"},
         },
     },
     "$defs": {
@@ -65,7 +65,7 @@ GEMINI_ANALYSIS_SCHEMA = {
             "type": "object",
             "required": ["label", "score"],
             "properties": {
-                "label": {"type": "string", "maxLength": 80},
+                "label": {"type": "string"},
                 "score": {"type": "number", "minimum": 0, "maximum": 1},
             },
             "additionalProperties": False,
