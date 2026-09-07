@@ -136,6 +136,14 @@ export function normalizePatch(entity, body = {}) {
   return { entity, fields: Object.keys(values), values };
 }
 
+const normalizeAttachment = (body = {}) => ({
+  attachment_url: optionalUrl(body.attachment_url, 'attachment_url'),
+  attachment_key: safeObjectKey(body.attachment_key, 'attachment_key'),
+  attachment_name: optionalText(body.attachment_name, 255),
+  attachment_type: optionalText(body.attachment_type, 255),
+  attachment_size: Math.max(0, integerValue(body.attachment_size)),
+});
+
 export function normalizeEntityCreate(entity, body = {}) {
   switch (entity) {
     case 'tracks': return normalizeTrackCreate(body);
@@ -180,13 +188,19 @@ export function normalizeEntityCreate(entity, body = {}) {
     case 'messages': {
       const direction = body.direction || 'outbound';
       if (!DIRECTION.has(direction)) throw new Error('Message direction is invalid.');
+      const attachment = normalizeAttachment(body);
+      const content = optionalText(body.content, 20000)?.trim() || '';
+      if (!content && !attachment.attachment_key && !attachment.attachment_url && !body.image_key && !body.image_url) {
+        throw new Error('Message content or attachment is required.');
+      }
       return {
         id: requireUuid(body.id),
         client_id: optionalUuid(body.client_id, 'client_id'),
         recipient_id: optionalText(body.recipient_id, 500),
-        content: requireText(body.content, 'content', 20000),
+        content,
         image_url: optionalUrl(body.image_url, 'image_url'),
         image_key: safeObjectKey(body.image_key, 'image_key'),
+        ...attachment,
         direction,
         is_read: Boolean(body.is_read),
       };
@@ -228,7 +242,11 @@ export function normalizeEntityCreate(entity, body = {}) {
 export function normalizePublicEvent(body = {}) {
   const type = String(body.type || '').trim();
   if (!new Set(['play', 'thumbs_up', 'thumbs_down', 'comment']).has(type)) throw new Error('Public share event is invalid.');
-  const content = body.content == null ? null : String(body.content).trim();
-  if (type === 'comment' && (!content || content.length > 4000)) throw new Error('Comment content is required and must be 4000 characters or fewer.');
-  return { type, track_id: optionalUuid(body.track_id, 'track_id'), content };
+  const content = body.content == null ? '' : String(body.content).trim();
+  const attachment = normalizeAttachment(body);
+  if (type === 'comment' && !content && !attachment.attachment_key && !attachment.attachment_url) {
+    throw new Error('Comment content or attachment is required.');
+  }
+  if (content.length > 4000) throw new Error('Comment content must be 4000 characters or fewer.');
+  return { type, track_id: optionalUuid(body.track_id, 'track_id'), content, ...attachment };
 }
