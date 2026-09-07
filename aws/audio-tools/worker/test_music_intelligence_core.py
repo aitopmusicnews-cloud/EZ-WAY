@@ -46,6 +46,17 @@ class MusicIntelligenceCoreTests(unittest.TestCase):
             [],
         )
 
+    def test_select_confident_ranking_rejects_near_tied_mood_guesses(self):
+        ranked = [
+            {"label": "Confident", "score": 0.64},
+            {"label": "Energetic", "score": 0.63},
+            {"label": "Uplifting", "score": 0.62},
+        ]
+        self.assertEqual(
+            core.select_confident_ranking(ranked, threshold=0.55, margin=0.03, limit=3),
+            [],
+        )
+
     def test_select_confident_ranking_keeps_a_distinct_style_prediction(self):
         ranked = [
             {"label": "Atmospheric", "score": 0.72},
@@ -56,6 +67,15 @@ class MusicIntelligenceCoreTests(unittest.TestCase):
             core.select_confident_ranking(ranked, threshold=0.55, margin=0.03, limit=3),
             ranked,
         )
+
+    def test_classifier_behavior_uses_v2_cache_version(self):
+        analyzer_source = Path(__file__).with_name("analyzer.py").read_text(encoding="utf-8")
+        self.assertIn('ANALYZER_VERSION = "music-intelligence-v2"', analyzer_source)
+
+        repo_root = Path(__file__).resolve().parents[3]
+        frontend_source = (repo_root / "src/services/musicIntelligence.ts").read_text(encoding="utf-8")
+        self.assertIn("export const MUSIC_INTELLIGENCE_VERSION = 'music-intelligence-v2';", frontend_source)
+        self.assertIn("const LOCAL_CACHE_KEY = 'ezway_music_intelligence_v2';", frontend_source)
 
     def test_segments_to_chapters_drops_start_end_and_formats_labels(self):
         segments = [
