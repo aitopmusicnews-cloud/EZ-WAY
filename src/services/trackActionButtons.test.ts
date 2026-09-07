@@ -12,6 +12,11 @@ test('track tools Analyze action stays wired to the manual analysis handler', ()
   assert.match(app, /onAnalyze=\{\(\) => handleAnalyzeTrackManual\(track\)\}/);
 });
 
+test('Audio Tools job requests include the persistent cloud object key when available', () => {
+  const service = read('./audioTools.ts');
+  assert.match(service, /file_key:\s*track\.file_key\s*\|\|\s*undefined/);
+});
+
 test('analyzer screen Analyze button stays wired to shared Music Intelligence', () => {
   const studio = read('../components/AudioAnalyzerStudio.tsx');
   assert.match(studio, /onClick=\{\(\) => runSharedAnalysis\(true\)\}/);
