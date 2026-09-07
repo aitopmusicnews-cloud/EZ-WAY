@@ -7,6 +7,8 @@ REQUIREMENTS = ROOT / "aws" / "audio-tools" / "requirements.txt"
 DOCKERFILE = ROOT / "aws" / "audio-tools" / "Dockerfile"
 WORKER = ROOT / "aws" / "audio-tools" / "worker" / "worker.py"
 ANALYZER = ROOT / "aws" / "audio-tools" / "worker" / "analyzer.py"
+TEMPLATE = ROOT / "aws" / "audio-tools" / "template.yaml"
+DEPLOY = ROOT / "aws" / "audio-tools" / "deploy.sh"
 
 
 class AwsAudioToolsRuntimeDependencyContractTests(unittest.TestCase):
@@ -29,11 +31,43 @@ class AwsAudioToolsRuntimeDependencyContractTests(unittest.TestCase):
         self.assertIn("torch==2.6.0", dockerfile)
         self.assertIn("torchaudio==2.6.0", dockerfile)
 
-    def test_analyzer_uses_published_all_in_one_api(self):
+    def test_analysis_runtime_uses_gemini_and_removes_old_analyzer_stack(self):
+        requirements = REQUIREMENTS.read_text(encoding="utf-8")
         analyzer = ANALYZER.read_text(encoding="utf-8")
 
-        self.assertIn("from allin1_infer import analyze", analyzer)
-        self.assertNotIn("AllInOneSession", analyzer)
+        self.assertIn("google-genai", requirements)
+        self.assertNotIn("all-in-one-infer", requirements)
+        self.assertNotIn("transformers", requirements)
+        self.assertNotIn("librosa", requirements)
+        self.assertNotIn("huggingface-hub", requirements)
+        self.assertIn("from google import genai", analyzer)
+        self.assertIn('GEMINI_MODEL', analyzer)
+        self.assertNotIn("allin1_infer", analyzer)
+        self.assertNotIn("ClapModel", analyzer)
+        self.assertNotIn("librosa", analyzer)
+
+    def test_lyrics_runtime_keeps_faster_whisper(self):
+        requirements = REQUIREMENTS.read_text(encoding="utf-8")
+        worker = WORKER.read_text(encoding="utf-8")
+
+        self.assertIn("faster-whisper==1.2.1", requirements)
+        self.assertIn("from faster_whisper import WhisperModel", worker)
+        self.assertIn('"large-v3"', worker)
+
+    def test_gemini_key_is_injected_from_secrets_manager(self):
+        template = TEMPLATE.read_text(encoding="utf-8")
+        deploy = DEPLOY.read_text(encoding="utf-8")
+
+        self.assertIn("GeminiApiKeySecretArn", template)
+        self.assertIn("secretsmanager:GetSecretValue", template)
+        self.assertIn("Secrets:", template)
+        self.assertIn("Name: GEMINI_API_KEY", template)
+        self.assertIn("ValueFrom: !Ref GeminiApiKeySecretArn", template)
+        self.assertIn("Name: GEMINI_MODEL", template)
+        self.assertIn("gemini-3.8-flash", template)
+        self.assertIn('GEMINI_API_KEY="${GEMINI_API_KEY:-}"', deploy)
+        self.assertIn("aws secretsmanager", deploy)
+        self.assertIn('"GeminiApiKeySecretArn=${GEMINI_SECRET_ARN}"', deploy)
 
 
 if __name__ == "__main__":
