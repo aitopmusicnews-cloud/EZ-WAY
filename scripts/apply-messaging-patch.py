@@ -1,0 +1,440 @@
+from pathlib import Path
+import re
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    p = Path(path)
+    text = p.read_text(encoding='utf-8')
+    if old not in text:
+        raise SystemExit(f'missing exact patch target in {path}: {old[:120]!r}')
+    p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+
+def sub_once(path: str, pattern: str, replacement: str, flags: int = 0) -> None:
+    p = Path(path)
+    text = p.read_text(encoding='utf-8')
+    updated, count = re.subn(pattern, replacement, text, count=1, flags=flags)
+    if count != 1:
+        raise SystemExit(f'expected one regex target in {path}, got {count}: {pattern[:120]}')
+    p.write_text(updated, encoding='utf-8')
+
+
+# Backend: persist generic attachment metadata.
+replace_once(
+    'aws/app-data/api/handler.mjs',
+    """    case 'messages':
+      rows = await execute(`
+        INSERT INTO messages (id, client_id, recipient_id, content, image_url, image_key, direction, is_read)
+        VALUES (
+          CAST(:id AS uuid), CAST(:client_id AS uuid), :recipient_id, :content,
+          :image_url, :image_key, :direction, :is_read
+        ) RETURNING *
+      `, params(item));
+      break;""",
+    """    case 'messages':
+      rows = await execute(`
+        INSERT INTO messages (
+          id, client_id, recipient_id, content, image_url, image_key,
+          attachment_url, attachment_key, attachment_name, attachment_type, attachment_size,
+          direction, is_read
+        ) VALUES (
+          CAST(:id AS uuid), CAST(:client_id AS uuid), :recipient_id, :content,
+          :image_url, :image_key, :attachment_url, :attachment_key, :attachment_name,
+          :attachment_type, :attachment_size, :direction, :is_read
+        ) RETURNING *
+      `, params(item));
+      break;""",
+)
+
+# Backend: polling must not increment share access counts; public writes are token-scoped.
+replace_once(
+    'aws/app-data/api/handler.mjs',
+    'async function postPublicEvent(token, body) {',
+    """export async function resolvePublicMessages(token) {
+  const share = await loadShare(token);
+  if (!share) return null;
+  if (!share.client_id) return [];
+  const rows = await execute(
+    'SELECT * FROM messages WHERE client_id = CAST(:client_id AS uuid) ORDER BY timestamp ASC',
+    [{ name: 'client_id', value: share.client_id }],
+  );
+  return mapManyAndResolve('messages', rows);
+}
+
+async function postPublicMessage(token, body) {
+  const share = await loadShare(token);
+  if (!share) return null;
+  if (!share.client_id) throw new Error('Share link is not connected to a client.');
+  const attachmentKey = String(body?.attachment_key || '').trim();
+  if (attachmentKey && !attachmentKey.startsWith(`messages/files/${share.id}/`)) {
+    throw new Error('Attachment is not allowed for this share.');
+  }
+  return createEntity('messages', {
+    id: randomUUID(),
+    client_id: share.client_id,
+    recipient_id: 'owner',
+    content: String(body?.content || ''),
+    attachment_url: null,
+    attachment_key: attachmentKey || null,
+    attachment_name: body?.attachment_name || null,
+    attachment_type: body?.attachment_type || null,
+    attachment_size: body?.attachment_size ?? null,
+    direction: 'inbound',
+    is_read: false,
+  });
+}
+
+async function presignPublicMessageAttachment(token, body) {
+  const share = await loadShare(token);
+  if (!share) return null;
+  if (!share.client_id) throw new Error('Share link is not connected to a client.');
+  return presignUpload({
+    category: 'message-file',
+    relatedId: share.id,
+    filename: body?.filename,
+    contentType: body?.contentType ?? body?.content_type ?? 'application/octet-stream',
+    size: body?.size,
+  });
+}
+
+async function postPublicEvent(token, body) {""",
+)
+replace_once(
+    'aws/app-data/api/handler.mjs',
+    "    if (method === 'GET' && rawPath.startsWith('/public/share/')) {",
+    """    const publicMessagesMatch = rawPath.match(/^\/public\/share\/([^/]+)\/messages$/);
+    if (method === 'GET' && publicMessagesMatch) {
+      const messages = await resolvePublicMessages(publicMessagesMatch[1]);
+      if (messages === null) return response(event, 404, { error: 'Share link not found or expired.' });
+      return response(event, 200, messages);
+    }
+    if (method === 'POST' && publicMessagesMatch) {
+      const message = await postPublicMessage(publicMessagesMatch[1], parseBody(event));
+      if (!message) return response(event, 404, { error: 'Share link not found or expired.' });
+      return response(event, 201, message);
+    }
+    const publicAttachmentMatch = rawPath.match(/^\/public\/share\/([^/]+)\/attachments\/presign$/);
+    if (method === 'POST' && publicAttachmentMatch) {
+      const upload = await presignPublicMessageAttachment(publicAttachmentMatch[1], parseBody(event));
+      if (!upload) return response(event, 404, { error: 'Share link not found or expired.' });
+      return response(event, 200, upload);
+    }
+    if (method === 'GET' && rawPath.startsWith('/public/share/')) {""",
+)
+
+# Media store: preserve legacy image messages but add generic file metadata and owner upload.
+replace_once(
+    'src/context/MediaStoreContext.tsx',
+    "import type { Track, Playlist, Client, Activity, ShareLink, UserProfile, Message, PromoVideo } from '@/src/types';",
+    "import type { Track, Playlist, Client, Activity, ShareLink, UserProfile, Message, MessageAttachment, PromoVideo } from '@/src/types';",
+)
+replace_once(
+    'src/context/MediaStoreContext.tsx',
+    "  sendMessage: (clientId: string, content: string, image_url?: string | null, direction?: 'inbound' | 'outbound') => Promise<void>;",
+    "  sendMessage: (clientId: string, content: string, image_url?: string | null, direction?: 'inbound' | 'outbound', attachment?: MessageAttachment) => Promise<void>;\n  uploadMessageAttachment: (file: File) => Promise<MessageAttachment | null>;",
+)
+replace_once(
+    'src/context/MediaStoreContext.tsx',
+    "  if (normalized === 'messages' || normalized === 'message-image' || normalized === 'message_images') return 'message-image';",
+    "  if (normalized === 'messages' || normalized === 'message-file' || normalized === 'message_files') return 'message-file';\n  if (normalized === 'message-image' || normalized === 'message_images') return 'message-image';",
+)
+replace_once(
+    'src/context/MediaStoreContext.tsx',
+    "      ['thumbnail_url', 'thumbnail_key'],\n    ] as const;",
+    "      ['thumbnail_url', 'thumbnail_key'],\n      ['attachment_url', 'attachment_key'],\n    ] as const;",
+)
+replace_once(
+    'src/context/MediaStoreContext.tsx',
+    "  const sendMessage = async (clientId: string, content: string, image_url?: string | null, direction: 'inbound' | 'outbound' = 'outbound') => {",
+    "  const sendMessage = async (clientId: string, content: string, image_url?: string | null, direction: 'inbound' | 'outbound' = 'outbound', attachment?: MessageAttachment) => {",
+)
+replace_once(
+    'src/context/MediaStoreContext.tsx',
+    "      image_url: image_url || null,\n      direction,",
+    "      image_url: image_url || null,\n      ...attachment,\n      direction,",
+)
+replace_once(
+    'src/context/MediaStoreContext.tsx',
+    '  const uploadFile = async (bucket: string, file: File): Promise<string | null> => {',
+    """  const uploadMessageAttachment = async (file: File): Promise<MessageAttachment | null> => {
+    if (file.size > 100 * 1024 * 1024) {
+      addToast('Attachment exceeds the 100 MB limit.', 'error');
+      return null;
+    }
+    try {
+      const relatedId = uuidv4();
+      const uploaded = await uploadMediaForWorkspace({
+        bootstrapConnected: connected,
+        cloudApiConfigured: dataStore.configured,
+        category: 'message-file',
+        relatedId,
+        file,
+        createLocalUrl: URL.createObjectURL,
+        cloudUpload: dataStore.uploadFile,
+      });
+      return {
+        attachment_url: uploaded.url,
+        attachment_key: uploaded.objectKey,
+        attachment_name: file.name,
+        attachment_type: file.type || 'application/octet-stream',
+        attachment_size: file.size,
+      };
+    } catch (error: any) {
+      addToast(`Attachment upload failed: ${error?.message || error}`, 'error');
+      return null;
+    }
+  };
+
+  const uploadFile = async (bucket: string, file: File): Promise<string | null> => {""",
+)
+replace_once(
+    'src/context/MediaStoreContext.tsx',
+    '      messages, sendMessage,\n      promoVideos, addPromoVideo, deletePromoVideo, incrementShareLinkAccess, uploadFile,',
+    '      messages, sendMessage, uploadMessageAttachment,\n      promoVideos, addPromoVideo, deletePromoVideo, incrementShareLinkAccess, uploadFile,',
+)
+
+# Admin message composer: accept any File, upload on send, and display download links.
+replace_once('src/App.tsx', 'const [chatAttachment, setChatAttachment] = useState<string | null>(null);', 'const [chatAttachment, setChatAttachment] = useState<File | null>(null);')
+replace_once('src/App.tsx', '    sendMessage,\n    incrementShareLinkAccess,', '    sendMessage,\n    uploadMessageAttachment,\n    incrementShareLinkAccess,')
+replace_once(
+    'src/App.tsx',
+    """  const handleChatImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setChatAttachment(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };""",
+    """  const handleChatImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    if (file && file.size > 100 * 1024 * 1024) {
+      addToast('Attachment exceeds the 100 MB limit.', 'error');
+      e.target.value = '';
+      return;
+    }
+    setChatAttachment(file);
+    e.target.value = '';
+  };""",
+)
+replace_once(
+    'src/App.tsx',
+    """      await sendMessage(
+        selectedMessageClientId,
+        clientMessageDraft.trim(),
+        chatAttachment,
+      );
+      setClientMessageDraft("");
+      setChatAttachment(null);""",
+    """      const attachment = chatAttachment
+        ? await uploadMessageAttachment(chatAttachment)
+        : null;
+      if (chatAttachment && !attachment) return;
+      await sendMessage(
+        selectedMessageClientId,
+        clientMessageDraft.trim(),
+        null,
+        'outbound',
+        attachment || undefined,
+      );
+      setClientMessageDraft("");
+      setChatAttachment(null);""",
+)
+replace_once('src/App.tsx', '                      accept="image/*"\n', '')
+replace_once(
+    'src/App.tsx',
+    """                      <div className="w-16 h-16 rounded-2xl overflow-hidden bg-black border border-zinc-900">
+                        <img
+                          src={chatAttachment}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>""",
+    """                      <div className="w-16 h-16 rounded-2xl bg-black border border-zinc-900 flex items-center justify-center">
+                        <Paperclip className="w-6 h-6 text-orange-500" />
+                      </div>
+                      <div className="min-w-0 max-w-xs">
+                        <div className="text-xs font-black truncate">{chatAttachment.name}</div>
+                        <div className="text-[9px] text-zinc-500">{(chatAttachment.size / (1024 * 1024)).toFixed(1)} MB</div>
+                      </div>""",
+)
+replace_once(
+    'src/App.tsx',
+    '                    {msg.image_url && (',
+    """                    {msg.attachment_url && (
+                      <a
+                        href={msg.attachment_url}
+                        download={msg.attachment_name || true}
+                        className="mb-4 flex items-center gap-3 rounded-2xl border border-current/20 bg-black/10 p-3 text-xs hover:opacity-80"
+                      >
+                        <Paperclip className="w-4 h-4 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate">{msg.attachment_name || 'Attachment'}</span>
+                        <Download className="w-4 h-4 shrink-0" />
+                      </a>
+                    )}
+                    {msg.image_url && (""",
+)
+
+# Public client portal: poll messages without counting views and allow files both ways.
+replace_once(
+    'src/components/SharePortal.tsx',
+    '  Clock, Download, Globe, Lock, MessageSquare, Music, Pause, Play,\n  Send, Sparkles, ThumbsDown, ThumbsUp, Volume2,',
+    '  Clock, Download, Globe, Lock, MessageSquare, Music, Pause, Play,\n  Paperclip, Send, Sparkles, ThumbsDown, ThumbsUp, Volume2,',
+)
+replace_once(
+    'src/components/SharePortal.tsx',
+    "import type { Playlist, ShareLink, Track } from '../types';",
+    "import type { Message, Playlist, ShareLink, Track } from '../types';",
+)
+replace_once(
+    'src/components/SharePortal.tsx',
+    "interface SharePortalProps {\n  track?: Track;\n  playlist?: Playlist;\n  shareLink: ShareLink;\n}\n",
+    """interface SharePortalProps {
+  track?: Track;
+  playlist?: Playlist;
+  shareLink: ShareLink;
+}
+
+interface ConversationItem {
+  id: string;
+  user: string;
+  text: string;
+  time: string;
+  attachment_url?: string | null;
+  attachment_name?: string | null;
+  attachment_type?: string | null;
+  attachment_size?: number | null;
+  image_url?: string | null;
+}
+""",
+)
+replace_once(
+    'src/components/SharePortal.tsx',
+    "  const [comment, setComment] = useState('');\n  const [localComments, setLocalComments] = useState<Array<{ id: string; user: string; text: string; time: string }>>([]);",
+    "  const [comment, setComment] = useState('');\n  const [commentAttachment, setCommentAttachment] = useState<File | null>(null);\n  const [sendingComment, setSendingComment] = useState(false);\n  const [liveMessages, setLiveMessages] = useState<Message[]>([]);\n  const [localComments, setLocalComments] = useState<ConversationItem[]>([]);",
+)
+replace_once(
+    'src/components/SharePortal.tsx',
+    """  useEffect(() => {
+    const url = activeTrack?.file_url;""",
+    """  useEffect(() => {
+    const relevant = messages.filter((message) => !shareLink.client_id || message.client_id === shareLink.client_id);
+    setLiveMessages(relevant);
+  }, [messages, shareLink.client_id]);
+
+  useEffect(() => {
+    if (!isPublicPortal()) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const next = await dataStore.getPublicShareMessages(shareLink.token);
+        if (!cancelled) setLiveMessages(next || []);
+      } catch (error) {
+        console.warn('[SharePortal] Message refresh failed', error);
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [shareLink.token]);
+
+  useEffect(() => {
+    const url = activeTrack?.file_url;""",
+)
+sub_once(
+    'src/components/SharePortal.tsx',
+    r"  const handleComment = async \(event: React\.FormEvent\) => \{.*?\n  \};\n\n  const conversationMessages = useMemo\(\(\) => messages",
+    """  const handleComment = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const content = comment.trim();
+    if ((!content && !commentAttachment) || !activeTrack || sendingComment) return;
+    setSendingComment(true);
+    try {
+      if (isPublicPortal()) {
+        if (commentAttachment) {
+          const attachment = await dataStore.uploadPublicShareAttachment(shareLink.token, commentAttachment);
+          const saved = await dataStore.createPublicShareMessage(shareLink.token, {
+            content: content ? `[Feedback on ${activeTrack.name}]: ${content}` : '',
+            ...attachment,
+          });
+          setLiveMessages((prev) => [...prev.filter((message) => message.id !== saved.id), saved]);
+        } else {
+          await postPublic({ type: 'comment', track_id: activeTrack.id, content });
+          const refreshed = await dataStore.getPublicShareMessages(shareLink.token);
+          setLiveMessages(refreshed || []);
+        }
+      } else {
+        if (content) {
+          const optimistic = { id: `local-${Date.now()}`, user: 'Industry Client', text: content, time: 'Just now' };
+          setLocalComments((prev) => [optimistic, ...prev]);
+        }
+        await addActivity({
+          type: 'message',
+          user: `Industry Client${shareLink.recipient_email ? ` (${shareLink.recipient_email})` : ''}`,
+          action: 'commented on',
+          target: activeTrack.name,
+          details: content || commentAttachment?.name || 'Attachment',
+          client_id: shareLink.client_id,
+          track_id: activeTrack.id,
+          playlist_id: playlist?.id,
+        });
+        if (shareLink.client_id && content) {
+          await sendMessage(shareLink.client_id, `[Feedback on ${activeTrack.name}]: ${content}`, null, 'inbound');
+        }
+      }
+      setComment('');
+      setCommentAttachment(null);
+    } catch (error: any) {
+      addToast(`Message could not be sent: ${error?.message || error}`, 'error');
+    } finally {
+      setSendingComment(false);
+    }
+  };
+
+  const conversationMessages = useMemo(() => liveMessages""",
+    flags=re.S,
+)
+replace_once(
+    'src/components/SharePortal.tsx',
+    "      time: new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),\n    })), [messages, shareLink.client_id]);",
+    "      time: new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),\n      attachment_url: message.attachment_url,\n      attachment_name: message.attachment_name,\n      attachment_type: message.attachment_type,\n      attachment_size: message.attachment_size,\n      image_url: message.image_url,\n    })), [liveMessages, shareLink.client_id]);",
+)
+replace_once(
+    'src/components/SharePortal.tsx',
+    """                <textarea value={comment} onChange={(event) => setComment(event.target.value)} maxLength={4000} rows={4} placeholder="Leave time-stamped creative or revision notes..." className="w-full bg-black border border-zinc-800 rounded-2xl p-4 text-sm outline-none focus:border-orange-500 resize-none" />
+                <button type="submit" disabled={!comment.trim() || !activeTrack} className="w-full bg-orange-500 text-black rounded-xl px-4 py-3 font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 disabled:opacity-40"><Send className="w-4 h-4" /> Send Feedback</button>""",
+    """                <textarea value={comment} onChange={(event) => setComment(event.target.value)} maxLength={4000} rows={4} placeholder="Leave time-stamped creative or revision notes..." className="w-full bg-black border border-zinc-800 rounded-2xl p-4 text-sm outline-none focus:border-orange-500 resize-none" />
+                {commentAttachment && (
+                  <div className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-black p-3 text-xs">
+                    <Paperclip className="w-4 h-4 text-orange-500" />
+                    <span className="min-w-0 flex-1 truncate">{commentAttachment.name}</span>
+                    <button type="button" onClick={() => setCommentAttachment(null)} className="text-zinc-500 hover:text-white">Remove</button>
+                  </div>
+                )}
+                <div className="grid grid-cols-[auto_1fr] gap-3">
+                  <label className="cursor-pointer rounded-xl border border-zinc-800 px-4 py-3 text-xs font-black uppercase tracking-widest hover:border-orange-500 flex items-center gap-2">
+                    <Paperclip className="w-4 h-4" /> Attach
+                    <input type="file" className="hidden" onChange={(event) => setCommentAttachment(event.target.files?.[0] || null)} />
+                  </label>
+                  <button type="submit" disabled={(!comment.trim() && !commentAttachment) || !activeTrack || sendingComment} className="w-full bg-orange-500 text-black rounded-xl px-4 py-3 font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 disabled:opacity-40"><Send className="w-4 h-4" /> {sendingComment ? 'Sending…' : 'Send Message'}</button>
+                </div>""",
+)
+replace_once(
+    'src/components/SharePortal.tsx',
+    '<p className="text-sm text-zinc-300 leading-relaxed">{item.text}</p>',
+    """{item.text && <p className="text-sm text-zinc-300 leading-relaxed">{item.text}</p>}
+                    {item.image_url && <img src={item.image_url} alt="Attachment" className="mt-3 max-h-48 rounded-xl border border-zinc-800" />}
+                    {item.attachment_url && (
+                      <a href={item.attachment_url} download={item.attachment_name || true} className="mt-3 flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs hover:border-orange-500">
+                        <Paperclip className="w-4 h-4 text-orange-500" />
+                        <span className="min-w-0 flex-1 truncate">{item.attachment_name || 'Attachment'}</span>
+                        <Download className="w-4 h-4" />
+                      </a>
+                    )}""",
+)
+
+print('Messaging implementation patch applied.')
