@@ -1,4 +1,5 @@
 import unittest
+from decimal import Decimal
 
 from render_audio_tools.state import AwsStateStore
 
@@ -59,6 +60,24 @@ class RenderAwsStateTests(unittest.TestCase):
         self.assertEqual(updated["status"], "completed")
         self.assertEqual(updated["profile"], {"bpm": 120})
         self.assertEqual(updated["file_key"], "tracks/audio/track-1/song.mp3")
+
+    def test_dynamodb_decimals_are_converted_to_json_safe_numbers_on_read(self):
+        self.jobs.items["call-123"] = {
+            "call_id": "call-123",
+            "job_id": "call-123",
+            "status": "completed",
+            "profile": {
+                "bpm": Decimal("120"),
+                "bpm_confidence": Decimal("0.91"),
+            },
+        }
+
+        item = self.store.get_job("call-123")
+
+        self.assertIsInstance(item["profile"]["bpm"], int)
+        self.assertIsInstance(item["profile"]["bpm_confidence"], float)
+        self.assertEqual(item["profile"]["bpm"], 120)
+        self.assertAlmostEqual(item["profile"]["bpm_confidence"], 0.91)
 
     def test_track_analysis_round_trips_through_existing_table(self):
         record = {
