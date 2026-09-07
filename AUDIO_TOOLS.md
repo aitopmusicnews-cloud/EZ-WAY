@@ -6,14 +6,11 @@ EZ-WAY Audio Tools runs on AWS. There is no production Modal dependency.
 
 Every newly uploaded track is analyzed once and the saved Song Profile is reused across EZ-WAY.
 
-The analyzer uses:
+The analyzer uses **Gemini** for structured music/audio analysis. The worker uploads the downloaded master audio to the Gemini Files API, requests schema-constrained metadata, then converts that response into EZ-WAY's existing canonical Song Profile.
 
-- **All-In-One-Infer (`harmonix-all`)** for BPM and functional structure.
-- **LAION `larger_clap_music`** for genre, style, mood, instrument, and production classification.
-- **librosa chroma/key analysis** for musical key and Camelot key.
-- Deterministic keywords derived from detected traits.
+The profile includes BPM, BPM confidence, musical key, Camelot key, key confidence, ranked genre/style/mood/instrument traits, functional song sections, chapters, and deterministic profile warnings. The default model is `gemini-3.8-flash` and can be overridden with `GEMINI_MODEL` in the worker environment.
 
-No GPT/OpenAI call is required for core acoustic facts.
+Gemini is not used for lyric transcription. The analysis prompt explicitly excludes lyric reconstruction so lyrics remain the responsibility of Whisper.
 
 ## Synced Lyrics
 
@@ -36,12 +33,15 @@ EZ-WAY
   -> API Gateway / Lambda POST /jobs
   -> SQS
   -> ECS Fargate Audio Tools worker
+       -> Gemini (analysis)
+       -> Demucs (stems / vocal isolation)
+       -> faster-whisper (lyrics)
   -> DynamoDB jobs + track-analysis
   -> S3 generated outputs
   <- API Gateway / Lambda GET /jobs/{call_id}
 ```
 
-The worker is CPU-backed in the first AWS release. Its ECS task definition can later be replaced with a GPU-backed worker without changing the browser API.
+The worker is CPU-backed for Demucs and Whisper. Gemini analysis runs through the remote Gemini API without changing the browser API.
 
 Implementation and deployment files live under:
 
@@ -50,6 +50,19 @@ aws/audio-tools/
 ```
 
 See `aws/audio-tools/README.md` for the guided CloudShell deployment and smoke test.
+
+## Gemini API key
+
+Before deploying Audio Tools, export a Gemini API key in the shell that runs the deployment script:
+
+```bash
+export GEMINI_API_KEY='your-key-here'
+./aws/audio-tools/deploy.sh
+```
+
+The deployment script creates or updates the `ezway/audio-tools/gemini-api-key` AWS Secrets Manager secret and passes only its ARN to CloudFormation. ECS injects the secret into the worker as `GEMINI_API_KEY`; the key is never committed to the repository or exposed to browser code.
+
+To use a different secret name, set `GEMINI_SECRET_NAME` before deployment. To change the analysis model, set `GEMINI_MODEL` on the ECS worker task definition; the repository default is `gemini-3.8-flash`.
 
 ## Web application environment
 
@@ -93,8 +106,9 @@ Audio Tools requires an HTTPS cloud-accessible `track.file_url`. Browser-only `b
 
 ## Security
 
-- No AWS secret keys belong in browser code or Vite variables.
-- Worker IAM permissions are scoped to its SQS queue, DynamoDB tables, and S3 output bucket.
+- No AWS or Gemini secret keys belong in browser code or Vite variables.
+- Gemini credentials are stored in AWS Secrets Manager and injected into ECS through the task definition `Secrets` field.
+- Worker IAM permissions are scoped to its SQS queue, DynamoDB tables, S3 output bucket, and the specific Gemini API-key secret.
 - S3 public access is blocked.
 - CORS is restricted to the EZ-WAY production and Amplify origins.
 - Before broad multi-user exposure, protect the public job API with user authorization plus API Gateway throttling/WAF.
