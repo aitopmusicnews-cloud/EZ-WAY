@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const read = (relative: string) => readFileSync(new URL(relative, import.meta.url), 'utf8');
 
+// Keep the standalone studio workflow intact while EZ-WAY supplies only its track integration actions.
 test('Album Cover Studio preserves the standalone workflow and EZ-WAY actions', () => {
   const component = read('../components/AlbumCoverStudio.tsx');
   const service = read('./albumCoverStudio.ts');
