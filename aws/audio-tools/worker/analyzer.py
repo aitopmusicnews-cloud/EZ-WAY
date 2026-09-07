@@ -1,66 +1,101 @@
 from __future__ import annotations
 
-import math
+import json
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import httpx
 
-from music_intelligence_core import aggregate_rankings, build_profile
+from music_intelligence_core import build_profile
 
-ANALYZER_VERSION = "music-intelligence-v1"
-CLAP_MODEL_ID = "laion/larger_clap_music"
+ANALYZER_VERSION = "music-intelligence-gemini-v2"
+DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
 MODEL_ROOT = Path(os.getenv("MODEL_ROOT", "/models"))
 
-GENRE_LABELS = [
-    "Hip-Hop", "Trap", "Drill", "Boom Bap", "Lo-fi Hip-Hop", "R&B",
-    "Alternative R&B", "Neo Soul", "Soul", "Gospel", "Pop", "Indie Pop",
-    "Rock", "Alternative Rock", "Metal", "Punk", "Jazz", "Blues", "Funk",
-    "Reggae", "Dancehall", "Afrobeats", "Amapiano", "Reggaeton", "Latin Pop",
-    "House", "Techno", "Trance", "Drum and Bass", "Dubstep", "Ambient",
-    "Cinematic", "Synthwave", "Phonk", "Country", "Folk", "Classical",
-]
-
-STYLE_LABELS = [
-    "Melodic Trap", "Trap Soul", "Dark Trap", "Hard Trap", "West Coast Hip-Hop",
-    "East Coast Hip-Hop", "Jersey Club", "UK Drill", "Chicago Drill",
-    "Southern Hip-Hop", "Experimental", "Minimal", "Atmospheric", "Dreamy",
-    "Psychedelic", "Retro", "Futuristic", "Acoustic", "Orchestral", "Electronic",
-    "Club", "Lo-fi", "Sample-based", "Guitar-driven", "Piano-driven",
-    "Vocal-heavy", "Instrumental",
-]
-
-MOOD_LABELS = [
-    "Dark", "Melancholic", "Reflective", "Romantic", "Aggressive", "Energetic",
-    "Euphoric", "Uplifting", "Chill", "Dreamy", "Moody", "Intimate", "Confident",
-    "Tense", "Suspenseful", "Hopeful", "Nostalgic", "Smooth", "Sensual", "Playful",
-    "Triumphant",
-]
-
-INSTRUMENT_LABELS = [
-    "808 Bass", "Sub Bass", "Acoustic Bass", "Kick Drum", "Trap Hi-Hats",
-    "Live Drums", "Drum Machine", "Piano", "Electric Piano / Rhodes", "Synth Pad",
-    "Lead Synth", "Arpeggiated Synth", "Acoustic Guitar", "Electric Guitar", "Strings",
-    "Brass", "Woodwinds", "Organ", "Choir", "Vocal Chops", "Lead Vocals",
-    "Background Vocals", "Percussion", "Samples / Vinyl Texture",
-]
-
-CAMELOT_MINOR = {
-    "Ab": "1A", "Eb": "2A", "Bb": "3A", "F": "4A", "C": "5A", "G": "6A",
-    "D": "7A", "A": "8A", "E": "9A", "B": "10A", "F#": "11A", "C#": "12A",
+GEMINI_ANALYSIS_SCHEMA = {
+    "type": "object",
+    "required": [
+        "bpm",
+        "bpm_confidence",
+        "key",
+        "camelot_key",
+        "key_confidence",
+        "genres",
+        "moods",
+        "styles",
+        "instruments",
+        "sections",
+        "keywords",
+    ],
+    "properties": {
+        "bpm": {"type": "integer", "minimum": 0, "maximum": 300},
+        "bpm_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "key": {"type": "string", "maxLength": 40},
+        "camelot_key": {"type": "string", "maxLength": 8},
+        "key_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "genres": {"$ref": "#/$defs/rankedList"},
+        "moods": {"$ref": "#/$defs/rankedList"},
+        "styles": {"$ref": "#/$defs/rankedList"},
+        "instruments": {"$ref": "#/$defs/instrumentList"},
+        "sections": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+                "type": "object",
+                "required": ["label", "start", "end", "confidence"],
+                "properties": {
+                    "label": {"type": "string", "maxLength": 60},
+                    "start": {"type": "number", "minimum": 0},
+                    "end": {"type": "number", "minimum": 0},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+                "additionalProperties": False,
+            },
+        },
+        "keywords": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {"type": "string", "maxLength": 80},
+        },
+    },
+    "$defs": {
+        "rankedItem": {
+            "type": "object",
+            "required": ["label", "score"],
+            "properties": {
+                "label": {"type": "string", "maxLength": 80},
+                "score": {"type": "number", "minimum": 0, "maximum": 1},
+            },
+            "additionalProperties": False,
+        },
+        "rankedList": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {"$ref": "#/$defs/rankedItem"},
+        },
+        "instrumentList": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {"$ref": "#/$defs/rankedItem"},
+        },
+    },
+    "additionalProperties": False,
 }
-CAMELOT_MAJOR = {
-    "B": "1B", "F#": "2B", "C#": "3B", "Ab": "4B", "Eb": "5B", "Bb": "6B",
-    "F": "7B", "C": "8B", "G": "9B", "D": "10B", "A": "11B", "E": "12B",
-}
 
-
-def configure_model_cache() -> None:
-    MODEL_ROOT.mkdir(parents=True, exist_ok=True)
-    os.environ.setdefault("HF_HOME", str(MODEL_ROOT / "hf"))
-    os.environ.setdefault("TORCH_HOME", str(MODEL_ROOT / "torch"))
-    os.environ.setdefault("XDG_CACHE_HOME", str(MODEL_ROOT / "cache"))
+ANALYSIS_PROMPT = """Analyze this complete music track as an audio recording.
+Return only the requested structured music metadata. Estimate tempo, musical key,
+Camelot key, genre, mood, style, audible instruments/production elements, and song
+section boundaries from the audio. Use confidence scores from 0 to 1 and rank the
+strongest labels first. For uncertain BPM or key, use your best evidence-based
+estimate with a low confidence score. If no reliable key can be determined, use an
+empty string for key and camelot_key. Section labels should be concise functional
+names such as intro, verse, pre_chorus, chorus, bridge, instrumental, breakdown,
+outro, or a similarly accurate label. Do not transcribe, quote, reconstruct, or
+invent lyrics; lyric transcription is handled separately by Whisper. Keywords
+should describe the sound, production, mood, genre, or instrumentation rather than
+lyric content."""
 
 
 def download_audio(url: str, target_dir: Path) -> Path:
@@ -73,8 +108,12 @@ def download_audio(url: str, target_dir: Path) -> Path:
         content_type = (response.headers.get("content-type") or "").split(";", 1)[0].lower()
         if destination.suffix == ".mp3":
             mapping = {
-                "audio/wav": ".wav", "audio/x-wav": ".wav", "audio/flac": ".flac",
-                "audio/mp4": ".m4a", "audio/aac": ".aac", "audio/ogg": ".ogg",
+                "audio/wav": ".wav",
+                "audio/x-wav": ".wav",
+                "audio/flac": ".flac",
+                "audio/mp4": ".m4a",
+                "audio/aac": ".aac",
+                "audio/ogg": ".ogg",
             }
             if content_type in mapping:
                 destination = target_dir / f"source{mapping[content_type]}"
@@ -84,187 +123,96 @@ def download_audio(url: str, target_dir: Path) -> Path:
     return destination
 
 
-def _camelot_key(root: str, mode: str) -> str | None:
-    return CAMELOT_MINOR.get(root) if mode == "Minor" else CAMELOT_MAJOR.get(root)
+def _list_or_empty(payload: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    value = payload.get(key)
+    return value if isinstance(value, list) else []
 
 
-def _estimate_key(y, sr: int) -> tuple[str | None, str | None, float | None]:
-    import librosa
-    import numpy as np
+def _keywords_or_empty(payload: dict[str, Any]) -> list[str]:
+    value = payload.get("keywords")
+    return value if isinstance(value, list) else []
 
-    if y is None or len(y) < sr:
-        return None, None, None
-    harmonic = librosa.effects.harmonic(y)
+
+def profile_from_gemini_payload(payload: Any, model_name: str) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("Gemini analysis response must be a JSON object.")
+
+    return build_profile(
+        bpm=payload.get("bpm"),
+        bpm_confidence=payload.get("bpm_confidence"),
+        key=payload.get("key"),
+        camelot_key=payload.get("camelot_key"),
+        key_confidence=payload.get("key_confidence"),
+        genres=_list_or_empty(payload, "genres"),
+        moods=_list_or_empty(payload, "moods"),
+        styles=_list_or_empty(payload, "styles"),
+        instruments=_list_or_empty(payload, "instruments"),
+        sections=_list_or_empty(payload, "sections"),
+        keywords=_keywords_or_empty(payload),
+        analyzer_version=ANALYZER_VERSION,
+        evidence={
+            "provider": "gemini",
+            "semantic_model": str(model_name).strip() or DEFAULT_GEMINI_MODEL,
+            "analysis_device": "remote-api",
+            "source": "audio-file",
+        },
+    )
+
+
+def _parsed_response(response: Any) -> dict[str, Any]:
+    parsed = getattr(response, "parsed", None)
+    if hasattr(parsed, "model_dump"):
+        parsed = parsed.model_dump()
+    if isinstance(parsed, dict):
+        return parsed
+
+    text = str(getattr(response, "text", "") or "").strip()
+    if not text:
+        raise ValueError("Gemini returned no structured analysis payload.")
     try:
-        chroma = librosa.feature.chroma_cqt(y=harmonic, sr=sr)
-    except Exception:
-        chroma = librosa.feature.chroma_stft(y=harmonic, sr=sr)
-    profile = np.mean(chroma, axis=1)
-    norm = np.linalg.norm(profile)
-    if not np.isfinite(norm) or norm <= 1e-9:
-        return None, None, None
-    profile = profile / norm
-
-    major_template = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
-    minor_template = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
-    note_names = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
-    candidates: list[tuple[float, str, str]] = []
-    for index, root in enumerate(note_names):
-        major_score = float(np.corrcoef(profile, np.roll(major_template, index))[0, 1])
-        minor_score = float(np.corrcoef(profile, np.roll(minor_template, index))[0, 1])
-        if math.isfinite(major_score):
-            candidates.append((major_score, root, "Major"))
-        if math.isfinite(minor_score):
-            candidates.append((minor_score, root, "Minor"))
-    if not candidates:
-        return None, None, None
-    candidates.sort(reverse=True, key=lambda item: item[0])
-    best_score, root, mode = candidates[0]
-    second_score = candidates[1][0] if len(candidates) > 1 else -1.0
-    margin = max(0.0, best_score - second_score)
-    confidence = max(0.0, min(1.0, margin / max(abs(best_score), 0.05)))
-    return f"{root} {mode}", _camelot_key(root, mode), confidence
-
-
-def _window_starts(duration: float, window_seconds: float) -> list[float]:
-    if duration <= window_seconds:
-        return [0.0]
-    anchors = [0.08, 0.28, 0.50, 0.72, 0.92]
-    last_start = max(0.0, duration - window_seconds)
-    return [min(last_start, max(0.0, duration * anchor - window_seconds / 2.0)) for anchor in anchors]
-
-
-def _keyword_list(genres, styles, moods, instruments) -> list[str]:
-    values: list[str] = []
-    for group, limit in ((genres, 3), (styles, 2), (moods, 2), (instruments, 2)):
-        values.extend(str(item.get("label") or "").strip() for item in group[:limit])
-    if genres:
-        genre = str(genres[0].get("label") or "").strip()
-        if genre:
-            values.append(f"{genre} music")
-            if moods:
-                mood = str(moods[0].get("label") or "").strip()
-                if mood:
-                    values.append(f"{mood} {genre}")
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        clean = value.strip()
-        key = clean.casefold()
-        if clean and key not in seen:
-            seen.add(key)
-            deduped.append(clean)
-    return deduped[:12]
+        decoded = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError("Gemini returned invalid JSON analysis output.") from error
+    if not isinstance(decoded, dict):
+        raise ValueError("Gemini analysis response must be a JSON object.")
+    return decoded
 
 
 class MusicIntelligenceEngine:
     def __init__(self) -> None:
-        configure_model_cache()
-        import torch
-        from allin1_infer import analyze
-        from transformers import ClapModel, ClapProcessor
+        from google import genai
 
-        requested_threads = int(os.getenv("TORCH_NUM_THREADS", "4"))
-        torch.set_num_threads(max(1, requested_threads))
-        self.device = torch.device("cpu")
-        self.structure_analyze = analyze
-        self.clap_processor = ClapProcessor.from_pretrained(CLAP_MODEL_ID)
-        self.clap_model = ClapModel.from_pretrained(CLAP_MODEL_ID).to(self.device)
-        self.clap_model.eval()
-        self.text_embeddings = self._prepare_text_embeddings()
+        api_key = str(os.getenv("GEMINI_API_KEY") or "").strip()
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY is required for music analysis.")
 
-    def _prepare_text_embeddings(self):
-        import torch
-        import torch.nn.functional as functional
+        self.model_name = str(os.getenv("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
+        self.client = genai.Client(api_key=api_key)
 
-        groups = {
-            "genres": (GENRE_LABELS, "a music track in the genre of {}"),
-            "styles": (STYLE_LABELS, "a music track with a {} style"),
-            "moods": (MOOD_LABELS, "a {} sounding music track"),
-            "instruments": (INSTRUMENT_LABELS, "a music track featuring {}"),
-        }
-        embeddings = {}
-        with torch.inference_mode():
-            for name, (labels, template) in groups.items():
-                prompts = [template.format(label) for label in labels]
-                inputs = self.clap_processor(text=prompts, padding=True, return_tensors="pt")
-                text = self.clap_model.get_text_features(**inputs)
-                embeddings[name] = (labels, functional.normalize(text, dim=-1))
-        return embeddings
-
-    def _rank_window(self, audio_window, sr: int) -> dict[str, dict[str, float]]:
-        import torch
-        import torch.nn.functional as functional
-
-        inputs = self.clap_processor(audios=audio_window, sampling_rate=sr, return_tensors="pt")
-        with torch.inference_mode():
-            audio = functional.normalize(self.clap_model.get_audio_features(**inputs), dim=-1)
-        output: dict[str, dict[str, float]] = {}
-        for group, (labels, text) in self.text_embeddings.items():
-            similarities = (audio @ text.T).squeeze(0).detach().cpu().tolist()
-            output[group] = {
-                label: max(0.0, min(1.0, (float(score) + 1.0) / 2.0))
-                for label, score in zip(labels, similarities)
-            }
-        return output
-
-    def analyze_url(self, file_url: str) -> dict:
-        import librosa
-
-        with tempfile.TemporaryDirectory(prefix="ezway-aws-analysis-") as temp_name:
+    def analyze_url(self, file_url: str) -> dict[str, Any]:
+        with tempfile.TemporaryDirectory(prefix="ezway-gemini-analysis-") as temp_name:
             temp_dir = Path(temp_name)
             source = download_audio(file_url, temp_dir)
-            structure_result = self.structure_analyze(
-                str(source),
-                model="harmonix-all",
-                device="cpu",
-                demix_dir=temp_dir / "allin1-demix",
-                spec_dir=temp_dir / "allin1-spec",
-                keep_byproducts=False,
-                multiprocess=False,
-            )
-            sections = [
-                {"start": float(segment.start), "end": float(segment.end), "label": str(segment.label)}
-                for segment in structure_result.segments
-            ]
-            target_sr = int(getattr(self.clap_processor.feature_extractor, "sampling_rate", 48000))
-            y, sr = librosa.load(str(source), sr=target_sr, mono=True)
-            duration = float(librosa.get_duration(y=y, sr=sr))
-            window_seconds = min(10.0, max(4.0, duration))
-            window_samples = max(1, int(window_seconds * sr))
-            score_windows = {"genres": [], "styles": [], "moods": [], "instruments": []}
-            for start_seconds in _window_starts(duration, window_seconds):
-                start = int(start_seconds * sr)
-                window = y[start:start + window_samples]
-                if len(window) < sr:
-                    continue
-                window_scores = self._rank_window(window, sr)
-                for group in score_windows:
-                    score_windows[group].append(window_scores[group])
-
-            genres = aggregate_rankings(score_windows["genres"], limit=5)
-            styles = aggregate_rankings(score_windows["styles"], limit=5)
-            moods = aggregate_rankings(score_windows["moods"], limit=5)
-            instruments = aggregate_rankings(score_windows["instruments"], limit=6)
-            key, camelot, key_confidence = _estimate_key(y, sr)
-            keywords = _keyword_list(genres, styles, moods, instruments)
-            return build_profile(
-                bpm=getattr(structure_result, "bpm", 0),
-                sections=sections,
-                genres=genres,
-                moods=moods,
-                styles=styles,
-                instruments=instruments,
-                analyzer_version=ANALYZER_VERSION,
-                key=key,
-                camelot_key=camelot,
-                key_confidence=key_confidence,
-                keywords=keywords,
-                evidence={
-                    "provider": "aws-ecs",
-                    "structure_model": "harmonix-all",
-                    "semantic_model": CLAP_MODEL_ID,
-                    "key_method": "librosa-chroma-krumhansl",
-                    "analysis_device": "cpu",
-                },
-            )
+            uploaded = None
+            try:
+                uploaded = self.client.files.upload(file=str(source))
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=[ANALYSIS_PROMPT, uploaded],
+                    config={
+                        "temperature": 0.1,
+                        "response_mime_type": "application/json",
+                        "response_json_schema": GEMINI_ANALYSIS_SCHEMA,
+                    },
+                )
+                return profile_from_gemini_payload(_parsed_response(response), self.model_name)
+            finally:
+                uploaded_name = getattr(uploaded, "name", None)
+                if uploaded_name:
+                    try:
+                        self.client.files.delete(name=uploaded_name)
+                    except Exception as error:
+                        print(
+                            f"[GeminiMusicAnalyzer] Could not delete temporary Gemini file: {type(error).__name__}: {error}",
+                            flush=True,
+                        )
