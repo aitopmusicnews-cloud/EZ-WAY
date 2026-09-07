@@ -40,6 +40,27 @@ def aggregate_rankings(
     return ranked[: max(0, int(limit))]
 
 
+def select_confident_ranking(
+    ranked: Iterable[dict[str, Any]],
+    *,
+    threshold: float,
+    margin: float,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    items = list(ranked)
+    requested_limit = max(0, int(limit))
+    if not items or requested_limit == 0:
+        return []
+
+    top_score = normalize_probability(items[0].get("score"))
+    second_score = normalize_probability(items[1].get("score")) if len(items) > 1 else 0.0
+    if top_score < normalize_probability(threshold):
+        return []
+    if len(items) > 1 and (top_score - second_score) < max(0.0, float(margin)):
+        return []
+    return items[:requested_limit]
+
+
 def _format_timestamp(seconds: float) -> str:
     whole = max(0, int(float(seconds)))
     minutes, seconds = divmod(whole, 60)
