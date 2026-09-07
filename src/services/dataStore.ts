@@ -9,7 +9,7 @@ import type {
   Track,
   UserProfile,
 } from '../types';
-import { getIdToken } from './auth.ts';
+import { getIdToken, restoreSession } from './auth.ts';
 import { getTrackAnalysisRecord, type TrackAnalysisRecord } from './musicIntelligence.ts';
 import { resolveTrackAnalysisRecovery } from './trackAnalysisRecovery.ts';
 
@@ -57,6 +57,7 @@ export class DataStoreError extends Error {
 interface ClientOptions {
   apiBase: string;
   getToken?: () => string | null;
+  restoreAuth?: () => Promise<boolean>;
   fetchImpl?: typeof fetch;
   getAnalysisRecord?: (trackId: string) => Promise<TrackAnalysisRecord | null>;
 }
@@ -133,6 +134,7 @@ const stripTrackPatchFields = (value: Record<string, any>): Record<string, unkno
 export function createDataStoreClient(options: ClientOptions) {
   const apiBase = cleanBase(options.apiBase);
   const tokenProvider = options.getToken || getIdToken;
+  const authRestorer = options.restoreAuth || restoreSession;
   const fetchImpl = options.fetchImpl || globalThis.fetch.bind(globalThis);
   const analysisRecordProvider = options.getAnalysisRecord || getTrackAnalysisRecord;
 
@@ -155,15 +157,33 @@ export function createDataStoreClient(options: ClientOptions) {
   async function request<T>(path: string, init: RequestInit = {}, authenticated = true): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
-    try {
+    let refreshUsed = false;
+
+    const refreshAuthOnce = async () => {
+      if (refreshUsed) return false;
+      refreshUsed = true;
+      return authRestorer();
+    };
+
+    const send = async (): Promise<T> => {
       const headers: Record<string, string> = { ...(init.headers as Record<string, string> || {}) };
       if (init.body != null && !headers['content-type']) headers['content-type'] = 'application/json';
       if (authenticated) {
-        const token = tokenProvider();
+        let token = tokenProvider();
+        if (!token) {
+          const restored = await refreshAuthOnce();
+          token = restored ? tokenProvider() : null;
+        }
         if (!token) throw new DataStoreError('Owner sign-in is required.', 401);
         headers.Authorization = `Bearer ${token}`;
       }
+
       const res = await fetchImpl(`${apiBase}${path}`, { ...init, headers, signal: controller.signal });
+      if (authenticated && res.status === 401 && !refreshUsed) {
+        const restored = await refreshAuthOnce();
+        if (restored && tokenProvider()) return send();
+      }
+
       const text = res.status === 204 ? '' : await res.text();
       let body: any = null;
       if (text) {
@@ -174,6 +194,10 @@ export function createDataStoreClient(options: ClientOptions) {
         throw new DataStoreError(message, res.status, body);
       }
       return body as T;
+    };
+
+    try {
+      return await send();
     } catch (error: any) {
       if (error?.name === 'AbortError') throw new DataStoreError('EZ-WAY API request timed out.', 408);
       throw error;
