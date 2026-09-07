@@ -1,0 +1,58 @@
+name: Album Source Player One Shot
+
+on:
+  push:
+    branches:
+      - fix/album-source-autofill-player-scope
+    paths:
+      - .github/workflows/album-source-player-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: fix/album-source-autofill-player-scope
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify patcher syntax
+        run: node --check scripts/patch-album-source-player.mjs
+
+      - name: Apply production patch
+        run: node scripts/patch-album-source-player.mjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Album Cover integration regression
+        run: node --experimental-strip-types --test src/services/albumCoverIntegration.test.ts
+
+      - name: Album Cover core tests
+        run: node --experimental-strip-types --test src/services/albumCoverCore.test.ts
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit verified production patch and remove one-shot files
+        run: |
+          rm scripts/patch-album-source-player.mjs
+          rm .github/workflows/album-source-player-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.tsx src/components/AlbumCoverStudio.tsx src/services/albumCoverCore.ts scripts/patch-album-source-player.mjs .github/workflows/album-source-player-once.yml
+          git commit -m "fix: auto-load album sources and scope player"
+          git push origin HEAD:fix/album-source-autofill-player-scope
