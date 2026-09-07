@@ -60,10 +60,28 @@ class _FakeModels:
         return _FakeResponse()
 
 
+class _FakeGeminiError(Exception):
+    def __init__(self, code):
+        self.code = code
+        super().__init__(f"{code} transient Gemini error")
+
+
+class _RetryingModels:
+    def __init__(self, code):
+        self.code = code
+        self.calls = []
+
+    def generate_content(self, **kwargs):
+        self.calls.append(kwargs)
+        if len(self.calls) < 3:
+            raise _FakeGeminiError(self.code)
+        return _FakeResponse()
+
+
 class _FakeClient:
-    def __init__(self):
+    def __init__(self, models=None):
         self.files = _FakeFiles()
-        self.models = _FakeModels()
+        self.models = models or _FakeModels()
 
 
 class GeminiAnalyzerTests(unittest.TestCase):
@@ -97,6 +115,26 @@ class GeminiAnalyzerTests(unittest.TestCase):
         self.assertEqual(len(engine.client.models.calls), 1)
         self.assertEqual(profile["evidence"]["provider"], "gemini")
         self.assertEqual(profile["evidence"]["semantic_model"], "gemini-3.8-flash")
+
+    def test_retries_transient_gemini_429_and_503_errors_before_succeeding(self):
+        for status_code in (429, 503):
+            with self.subTest(status_code=status_code):
+                models = _RetryingModels(status_code)
+                engine = MusicIntelligenceEngine.__new__(MusicIntelligenceEngine)
+                engine.model_name = "gemini-3.8-flash"
+                engine.client = _FakeClient(models=models)
+                delays = []
+                engine.retry_sleep = delays.append
+
+                with tempfile.TemporaryDirectory() as temp_name:
+                    source = Path(temp_name) / "track.mp3"
+                    source.write_bytes(b"test-audio")
+                    profile = engine.analyze_file(source)
+
+                self.assertEqual(len(models.calls), 3)
+                self.assertEqual(delays, [2.0, 4.0])
+                self.assertEqual(profile["evidence"]["provider"], "gemini")
+                self.assertEqual(engine.client.files.deleted_name, "files/test-audio")
 
     def test_rejects_non_object_gemini_payload(self):
         with self.assertRaisesRegex(ValueError, "object"):
