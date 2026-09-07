@@ -497,7 +497,6 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
     const candidate = withPendingKeys({
       id: uuidv4(),
       client_id: clientId,
-      sender_id: direction === 'outbound' ? 'producer@ogbeatz.com' : (client?.email || 'unknown@client.com'),
       recipient_id: direction === 'outbound' ? (client?.email || 'unknown@client.com') : 'producer@ogbeatz.com',
       content,
       image_url: image_url || null,
