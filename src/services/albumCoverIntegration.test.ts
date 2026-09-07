@@ -23,11 +23,12 @@ test('Album Cover Studio preserves the standalone workflow and EZ-WAY actions', 
   assert.match(service, /generations\/\$\{encodeURIComponent\(generationId\)\}\/retry/);
 });
 
-test('Edit Metadata contains manual artwork only and no Pollinations or Flux generator', () => {
+test('Edit Metadata contains manual artwork only and no cover-specific Pollinations or Flux generator', () => {
   const modal = read('../components/EditTrackModal.tsx');
 
   assert.match(modal, />Edit Metadata</);
-  assert.doesNotMatch(modal, /Pollinations|POLLINATIONS|flux-realism|flux-anime|handleGenerateAiArt|aiPrompt|aiModel|aiAspect|aiSeed|artStyle/);
+  assert.doesNotMatch(modal, /enter\.pollinations\.ai|gen\.pollinations\.ai|VITE_POLLINATIONS_CLIENT_ID|pollinationsKeyConnected|flux-realism|flux-anime|handleGenerateAiArt|aiPrompt|aiModel|aiAspect|aiSeed|artStyle/);
   assert.match(modal, /handleDownloadArtwork/);
   assert.match(modal, /imageInputRef/);
+  assert.match(modal, /transcribe-lyrics-pollinations/);
 });
