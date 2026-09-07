@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Clock, Download, Globe, Lock, MessageSquare, Music, Pause, Play,
-  Send, Sparkles, ThumbsDown, ThumbsUp, Volume2,
+  Clock, Download, FileArchive, Globe, Lock, MessageSquare, Music, Paperclip, Pause, Play,
+  Send, Sparkles, ThumbsDown, ThumbsUp, Volume2, X,
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import type { Playlist, ShareLink, Track } from '../types';
+import type { Message, Playlist, ShareLink, Track } from '../types';
 import { cn } from '../lib/utils';
 import { useMediaStore } from '../context/MediaStoreContext';
 import { dataStore } from '../services/dataStore';
@@ -43,7 +43,9 @@ export default function SharePortal({ track: initialTrack, playlist, shareLink }
   const [duration, setDuration] = useState(initialTrack?.duration || 0);
   const [rating, setRating] = useState<'up' | 'down' | null>(null);
   const [comment, setComment] = useState('');
-  const [localComments, setLocalComments] = useState<Array<{ id: string; user: string; text: string; time: string }>>([]);
+  const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
+  const [liveMessages, setLiveMessages] = useState<Message[]>([]);
+  const [localComments, setLocalComments] = useState<Array<{ id: string; user: string; text: string; time: string; attachment_url?: string | null; attachment_name?: string | null }>>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const playlistTracks = useMemo(() => {
@@ -55,6 +57,24 @@ export default function SharePortal({ track: initialTrack, playlist, shareLink }
   useEffect(() => {
     if (!activeTrack && playlistTracks.length) setActiveTrack(playlistTracks[0]);
   }, [activeTrack, playlistTracks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshMessages = async () => {
+      try {
+        const next = await dataStore.getPublicShareMessages(shareLink.token);
+        if (!cancelled) setLiveMessages(next);
+      } catch (error) {
+        console.warn('[SharePortal] Message refresh failed', error);
+      }
+    };
+    void refreshMessages();
+    const timer = window.setInterval(refreshMessages, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [shareLink.token]);
 
   useEffect(() => {
     const url = activeTrack?.file_url;
@@ -167,34 +187,59 @@ export default function SharePortal({ track: initialTrack, playlist, shareLink }
   const handleComment = async (event: React.FormEvent) => {
     event.preventDefault();
     const content = comment.trim();
-    if (!content || !activeTrack) return;
-    const optimistic = { id: `local-${Date.now()}`, user: 'Industry Client', text: content, time: 'Just now' };
+    if ((!content && !selectedAttachment) || !activeTrack) return;
+    if (selectedAttachment && selectedAttachment.size > 100 * 1024 * 1024) {
+      addToast('Message attachments are limited to 100 MB.', 'error');
+      return;
+    }
+    const optimistic = {
+      id: `local-${Date.now()}`,
+      user: 'Industry Client',
+      text: content || selectedAttachment?.name || 'Attachment',
+      time: 'Just now',
+    };
     setLocalComments((prev) => [optimistic, ...prev]);
     setComment('');
     try {
+      let attachment = {};
+      if (selectedAttachment) {
+        const uploaded = await dataStore.uploadPublicShareAttachment(shareLink.token, selectedAttachment);
+        attachment = {
+          attachment_key: uploaded.objectKey,
+          attachment_name: selectedAttachment.name,
+          attachment_type: selectedAttachment.type || 'application/octet-stream',
+          attachment_size: selectedAttachment.size,
+        };
+      }
       if (isPublicPortal()) {
-        await postPublic({ type: 'comment', track_id: activeTrack.id, content });
+        await postPublic({ type: 'comment', track_id: activeTrack.id, content, ...attachment });
       } else {
         await addActivity({
           type: 'message',
           user: `Industry Client${shareLink.recipient_email ? ` (${shareLink.recipient_email})` : ''}`,
           action: 'commented on',
           target: activeTrack.name,
-          details: content,
+          details: content || selectedAttachment?.name || 'Attachment',
           client_id: shareLink.client_id,
           track_id: activeTrack.id,
           playlist_id: playlist?.id,
         });
         if (shareLink.client_id) {
-          await sendMessage(shareLink.client_id, `[Feedback on ${activeTrack.name}]: ${content}`, null, 'inbound');
+          await sendMessage(shareLink.client_id, `[Feedback on ${activeTrack.name}]: ${content}`, null, 'inbound', attachment as any);
         }
       }
+      setSelectedAttachment(null);
+      const next = await dataStore.getPublicShareMessages(shareLink.token).catch(() => []);
+      if (next.length) setLiveMessages(next);
     } catch (error: any) {
       addToast(`Comment could not be recorded: ${error?.message || error}`, 'error');
     }
   };
 
-  const conversationMessages = useMemo(() => messages
+  const conversationMessages = useMemo(() => {
+    const merged = new Map<string, Message>();
+    [...messages, ...liveMessages].forEach((message) => merged.set(message.id, message));
+    return Array.from(merged.values())
     .filter((message) => {
       const clientMatches = shareLink.client_id ? message.client_id === shareLink.client_id : true;
       return clientMatches && (message.direction === 'outbound' || message.direction === 'inbound');
@@ -208,7 +253,10 @@ export default function SharePortal({ track: initialTrack, playlist, shareLink }
         .replace(/^\[Mix Approval\]:\s*/i, '👍 ')
         .replace(/^\[Revision Request\]:\s*/i, '👎 '),
       time: new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    })), [messages, shareLink.client_id]);
+      attachment_url: message.attachment_url,
+      attachment_name: message.attachment_name,
+    }));
+  }, [messages, liveMessages, shareLink.client_id]);
 
   const comments = [
     ...localComments,
@@ -303,7 +351,26 @@ export default function SharePortal({ track: initialTrack, playlist, shareLink }
               <form onSubmit={handleComment} className="space-y-3">
                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 flex items-center gap-2"><MessageSquare className="w-4 h-4" /> Mix Notes</label>
                 <textarea value={comment} onChange={(event) => setComment(event.target.value)} maxLength={4000} rows={4} placeholder="Leave time-stamped creative or revision notes..." className="w-full bg-black border border-zinc-800 rounded-2xl p-4 text-sm outline-none focus:border-orange-500 resize-none" />
-                <button type="submit" disabled={!comment.trim() || !activeTrack} className="w-full bg-orange-500 text-black rounded-xl px-4 py-3 font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 disabled:opacity-40"><Send className="w-4 h-4" /> Send Feedback</button>
+                {selectedAttachment && (
+                  <div className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-black p-3">
+                    <FileArchive className="w-5 h-5 text-orange-500 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate text-xs">{selectedAttachment.name}</span>
+                    <button type="button" onClick={() => setSelectedAttachment(null)} className="p-1 text-zinc-500 hover:text-rose-500"><X className="w-4 h-4" /></button>
+                  </div>
+                )}
+                <div className="flex gap-3">
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-zinc-800 px-4 py-3 text-xs font-black uppercase tracking-widest hover:border-orange-500">
+                    <Paperclip className="w-4 h-4" /> Attach
+                    <input type="file" className="hidden" onChange={(event) => {
+                      const file = event.target.files?.[0] || null;
+                      event.target.value = '';
+                      if (!file) return;
+                      if (file.size > 100 * 1024 * 1024) { addToast('Message attachments are limited to 100 MB.', 'error'); return; }
+                      setSelectedAttachment(file);
+                    }} />
+                  </label>
+                  <button type="submit" disabled={(!comment.trim() && !selectedAttachment) || !activeTrack} className="flex-1 bg-orange-500 text-black rounded-xl px-4 py-3 font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 disabled:opacity-40"><Send className="w-4 h-4" /> Send Feedback</button>
+                </div>
               </form>
             </div>
 
@@ -311,7 +378,7 @@ export default function SharePortal({ track: initialTrack, playlist, shareLink }
               <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-4">Messages & Review History</div>
               <div className="space-y-3 max-h-[360px] overflow-y-auto">
                 {comments.length ? comments.map((item) => (
-                  <div key={item.id} className="bg-black/60 border border-zinc-900 rounded-2xl p-4"><div className="flex items-center justify-between mb-2"><span className="text-[10px] font-black uppercase text-orange-500">{item.user}</span><span className="text-[9px] text-zinc-700">{item.time}</span></div><p className="text-sm text-zinc-300 leading-relaxed">{item.text}</p></div>
+                  <div key={item.id} className="bg-black/60 border border-zinc-900 rounded-2xl p-4"><div className="flex items-center justify-between mb-2"><span className="text-[10px] font-black uppercase text-orange-500">{item.user}</span><span className="text-[9px] text-zinc-700">{item.time}</span></div><p className="text-sm text-zinc-300 leading-relaxed">{item.text}</p>{item.attachment_url && <a href={item.attachment_url} target="_blank" rel="noreferrer" download={item.attachment_name || undefined} className="mt-3 flex items-center gap-2 rounded-xl border border-zinc-800 px-3 py-2 text-xs font-black text-orange-400"><FileArchive className="w-4 h-4" />{item.attachment_name || 'Download attachment'}</a>}</div>
                 )) : <p className="text-xs text-zinc-600 italic">No feedback has been submitted yet.</p>}
               </div>
             </div>

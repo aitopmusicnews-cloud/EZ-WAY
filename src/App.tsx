@@ -162,7 +162,7 @@ export default function App() {
   const [clientMessageDraft, setClientMessageDraft] = useState("");
   const [zipNotesDraft, setZipNotesDraft] = useState("");
   const [activitySearchText, setActivitySearchText] = useState("");
-  const [chatAttachment, setChatAttachment] = useState<string | null>(null);
+  const [chatAttachment, setChatAttachment] = useState<File | null>(null);
   const [asyncSharedContent, setAsyncSharedContent] = useState<{
     track?: Track;
     playlist?: Playlist;
@@ -932,15 +932,15 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
     }
   };
 
-  const handleChatImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setChatAttachment(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+  const handleChatAttachmentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 100 * 1024 * 1024) {
+      addToast('Message attachments are limited to 100 MB.', 'error');
+      return;
     }
+    setChatAttachment(file);
   };
 
   const handleSendZip = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3435,18 +3435,31 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
     );
 
     const handleSendClientMessage = async () => {
-      if (
-        (!clientMessageDraft.trim() && !chatAttachment) ||
-        !selectedMessageClientId
-      )
-        return;
-      await sendMessage(
-        selectedMessageClientId,
-        clientMessageDraft.trim(),
-        chatAttachment,
-      );
-      setClientMessageDraft("");
-      setChatAttachment(null);
+      if ((!clientMessageDraft.trim() && !chatAttachment) || !selectedMessageClientId) return;
+      try {
+        let attachment = null;
+        if (chatAttachment) {
+          const attachmentUrl = await uploadFile('messages', chatAttachment);
+          if (!attachmentUrl) throw new Error('Attachment upload failed.');
+          attachment = {
+            attachment_url: attachmentUrl,
+            attachment_name: chatAttachment.name,
+            attachment_type: chatAttachment.type || 'application/octet-stream',
+            attachment_size: chatAttachment.size,
+          };
+        }
+        await sendMessage(
+          selectedMessageClientId,
+          clientMessageDraft.trim(),
+          null,
+          'outbound',
+          attachment,
+        );
+        setClientMessageDraft('');
+        setChatAttachment(null);
+      } catch (error: any) {
+        addToast(`Message failed: ${error?.message || error}`, 'error');
+      }
     };
 
     return (
@@ -3599,6 +3612,18 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
                         />
                       </div>
                     )}
+                    {msg.attachment_url && (
+                      <a
+                        href={msg.attachment_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        download={msg.attachment_name || undefined}
+                        className="mt-4 flex items-center gap-3 rounded-2xl border border-current/20 bg-black/10 px-4 py-3 text-xs font-black"
+                      >
+                        <FileArchive className="w-5 h-5 shrink-0" />
+                        <span className="truncate">{msg.attachment_name || 'Download attachment'}</span>
+                      </a>
+                    )}
                     {msg.content}
                     <div
                       className={cn(
@@ -3629,17 +3654,15 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
               <div className="p-10 border-t border-zinc-900 bg-zinc-950/50 backdrop-blur-md">
                 <div className="max-w-4xl mx-auto relative">
                   {chatAttachment && (
-                    <div className="absolute bottom-full left-0 mb-6 p-3 bg-zinc-950 border border-zinc-900 rounded-[2rem] flex items-center gap-4 shadow-2xl">
-                      <div className="w-16 h-16 rounded-2xl overflow-hidden bg-black border border-zinc-900">
-                        <img
-                          src={chatAttachment}
-                          className="w-full h-full object-cover"
-                        />
+                    <div className="absolute bottom-full left-0 mb-6 max-w-md p-4 bg-zinc-950 border border-zinc-900 rounded-[2rem] flex items-center gap-4 shadow-2xl">
+                      <div className="w-12 h-12 rounded-2xl bg-black border border-zinc-900 flex items-center justify-center text-orange-500 shrink-0">
+                        <FileArchive className="w-6 h-6" />
                       </div>
-                      <button
-                        onClick={() => setChatAttachment(null)}
-                        className="p-2 hover:text-rose-500 transition-colors"
-                      >
+                      <div className="min-w-0">
+                        <div className="text-xs font-black truncate">{chatAttachment.name}</div>
+                        <div className="text-[9px] text-zinc-600 uppercase tracking-widest">{Math.max(1, Math.round(chatAttachment.size / 1024))} KB</div>
+                      </div>
+                      <button onClick={() => setChatAttachment(null)} className="p-2 hover:text-rose-500 transition-colors">
                         <X className="w-5 h-5" />
                       </button>
                     </div>
@@ -3665,8 +3688,7 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
                     <input
                       type="file"
                       ref={chatImageInputRef}
-                      onChange={handleChatImageUpload}
-                      accept="image/*"
+                      onChange={handleChatAttachmentUpload}
                       className="hidden"
                     />
                     <button
