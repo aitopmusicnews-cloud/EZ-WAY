@@ -617,7 +617,7 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
     } catch (error: any) {
       console.error('[MediaStore] AWS media upload failed', error);
       addToast(`Cloud media upload failed: ${error?.message || error}`, 'error');
-      return null;
+      throw error;
     }
   };
 
