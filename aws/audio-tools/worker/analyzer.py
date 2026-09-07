@@ -6,8 +6,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import httpx
-
 from music_intelligence_core import build_profile
 
 ANALYZER_VERSION = "music-intelligence-gemini-v2"
@@ -99,6 +97,8 @@ lyric content."""
 
 
 def download_audio(url: str, target_dir: Path) -> Path:
+    import httpx
+
     suffix = Path(url.split("?", 1)[0]).suffix.lower()
     if suffix not in {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}:
         suffix = ".mp3"
