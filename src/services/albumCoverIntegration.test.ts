@@ -24,6 +24,24 @@ test('Album Cover Studio preserves the standalone workflow and EZ-WAY actions', 
   assert.match(service, /generations\/\$\{encodeURIComponent\(generationId\)\}\/retry/);
 });
 
+test('selected EZ-WAY track auto-loads its MP3 and saved lyrics into Album Cover Studio', () => {
+  const component = read('../components/AlbumCoverStudio.tsx');
+
+  assert.match(component, /loadTrackAudioFile\(selectedTrack\)/);
+  assert.match(component, /setAudioFile\(hydratedAudio\)/);
+  assert.match(component, /setLyricsText\(selectedTrack\.lyrics \|\| ''\)/);
+  assert.match(component, /Auto-loaded EZ-WAY MP3/);
+  assert.match(component, /Auto-loaded saved lyrics/);
+});
+
+test('global AudioPlayer is scoped to music workspace views instead of every page', () => {
+  const app = read('../App.tsx');
+
+  assert.match(app, /const shouldShowGlobalPlayer = \['dashboard', 'tracks', 'playlists'\]\.includes\(activeView\);/);
+  assert.match(app, /\{shouldShowGlobalPlayer && <AudioPlayer onEdit=\{\(track\) => setEditingTrack\(track\)\} \/>\}/);
+  assert.doesNotMatch(app, /\n\s*<AudioPlayer onEdit=\{\(track\) => setEditingTrack\(track\)\} \/>\n/);
+});
+
 test('Edit Metadata contains manual artwork only and no cover-specific Pollinations or Flux generator', () => {
   const modal = read('../components/EditTrackModal.tsx');
 
