@@ -69,6 +69,17 @@ class AwsAudioToolsRuntimeDependencyContractTests(unittest.TestCase):
         self.assertIn("aws secretsmanager", deploy)
         self.assertIn('"GeminiApiKeySecretArn=${GEMINI_SECRET_ARN}"', deploy)
 
+    def test_deploy_reuses_existing_gemini_secret_without_local_key(self):
+        deploy = DEPLOY.read_text(encoding="utf-8")
+
+        self.assertIn('if [[ -n "$GEMINI_API_KEY" ]]; then', deploy)
+        self.assertIn('elif ! aws secretsmanager describe-secret', deploy)
+        self.assertIn('Using existing Gemini secret', deploy)
+        self.assertNotIn(
+            'if [[ -z "$GEMINI_API_KEY" ]]; then\n  echo "GEMINI_API_KEY is required.',
+            deploy,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

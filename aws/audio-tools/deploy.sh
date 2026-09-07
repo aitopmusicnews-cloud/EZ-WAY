@@ -13,11 +13,6 @@ command -v aws >/dev/null || { echo "AWS CLI is required." >&2; exit 1; }
 command -v docker >/dev/null || { echo "Docker is required." >&2; exit 1; }
 command -v sam >/dev/null || { echo "AWS SAM CLI is required." >&2; exit 1; }
 
-if [[ -z "$GEMINI_API_KEY" ]]; then
-  echo "GEMINI_API_KEY is required. Export it before deploying Audio Tools." >&2
-  exit 1
-fi
-
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 ECR_HOST="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 IMAGE_URI="${ECR_HOST}/${ECR_REPO}:latest"
@@ -25,19 +20,28 @@ IMAGE_URI="${ECR_HOST}/${ECR_REPO}:latest"
 echo "AWS account: ${ACCOUNT_ID}"
 echo "Region: ${REGION}"
 
-if aws secretsmanager describe-secret \
+if [[ -n "$GEMINI_API_KEY" ]]; then
+  if aws secretsmanager describe-secret \
+    --region "$REGION" \
+    --secret-id "$GEMINI_SECRET_NAME" >/dev/null 2>&1; then
+    aws secretsmanager put-secret-value \
+      --region "$REGION" \
+      --secret-id "$GEMINI_SECRET_NAME" \
+      --secret-string "$GEMINI_API_KEY" >/dev/null
+  else
+    aws secretsmanager create-secret \
+      --region "$REGION" \
+      --name "$GEMINI_SECRET_NAME" \
+      --description "Gemini API key for EZ-WAY Audio Tools" \
+      --secret-string "$GEMINI_API_KEY" >/dev/null
+  fi
+elif ! aws secretsmanager describe-secret \
   --region "$REGION" \
   --secret-id "$GEMINI_SECRET_NAME" >/dev/null 2>&1; then
-  aws secretsmanager put-secret-value \
-    --region "$REGION" \
-    --secret-id "$GEMINI_SECRET_NAME" \
-    --secret-string "$GEMINI_API_KEY" >/dev/null
+  echo "Gemini secret '$GEMINI_SECRET_NAME' was not found. Store the key in AWS Secrets Manager or export GEMINI_API_KEY before deploying." >&2
+  exit 1
 else
-  aws secretsmanager create-secret \
-    --region "$REGION" \
-    --name "$GEMINI_SECRET_NAME" \
-    --description "Gemini API key for EZ-WAY Audio Tools" \
-    --secret-string "$GEMINI_API_KEY" >/dev/null
+  echo "Using existing Gemini secret: ${GEMINI_SECRET_NAME}"
 fi
 
 GEMINI_SECRET_ARN="$(aws secretsmanager describe-secret \

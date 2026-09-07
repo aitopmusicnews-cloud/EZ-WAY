@@ -53,16 +53,23 @@ See `aws/audio-tools/README.md` for the guided CloudShell deployment and smoke t
 
 ## Gemini API key
 
-Before deploying Audio Tools, export a Gemini API key in the shell that runs the deployment script:
+The Gemini API key lives in AWS Secrets Manager. The default secret name is:
+
+```text
+ezway/audio-tools/gemini-api-key
+```
+
+If that secret already exists, deployment reuses it automatically and you do not need to export the key into CloudShell:
 
 ```bash
-export GEMINI_API_KEY='your-key-here'
 ./aws/audio-tools/deploy.sh
 ```
 
-The deployment script creates or updates the `ezway/audio-tools/gemini-api-key` AWS Secrets Manager secret and passes only its ARN to CloudFormation. ECS injects the secret into the worker as `GEMINI_API_KEY`; the key is never committed to the repository or exposed to browser code.
+If the existing secret uses another name, set `GEMINI_SECRET_NAME` for the deployment. Supplying `GEMINI_API_KEY` is only needed when creating or rotating the secret through the deployment script.
 
-To use a different secret name, set `GEMINI_SECRET_NAME` before deployment. To change the analysis model, set `GEMINI_MODEL` on the ECS worker task definition; the repository default is `gemini-3.8-flash`.
+The deployment passes only the secret ARN to CloudFormation. ECS injects the secret into the worker as `GEMINI_API_KEY`; the key is never committed to the repository or exposed to browser code.
+
+To change the analysis model, set `GEMINI_MODEL` on the ECS worker task definition; the repository default is `gemini-3.8-flash`.
 
 ## Web application environment
 
