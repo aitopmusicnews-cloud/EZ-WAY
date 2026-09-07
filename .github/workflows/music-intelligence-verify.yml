@@ -92,6 +92,15 @@ jobs:
       - name: AWS worker syntax check
         run: python -m py_compile aws/audio-tools/worker/*.py
 
+      - name: Install Render audio test dependencies
+        run: python -m pip install --quiet 'fastapi>=0.115,<1' 'httpx>=0.27,<1'
+
+      - name: Render Audio Tools tests
+        run: python -m unittest discover -s render_audio_tools -p 'test_*.py' -v
+
+      - name: Render Audio Tools syntax check
+        run: python -m py_compile render_audio_tools/*.py
+
       - name: AWS API syntax check
         run: node --check aws/audio-tools/api/handler.mjs aws/audio-tools/api/jobContract.mjs aws/music-intelligence/handler.mjs aws/app-data/api/db.mjs aws/app-data/api/contract.mjs aws/app-data/api/handler.mjs aws/app-data/api/rows.mjs aws/app-data/api/storage.mjs aws/app-data/scripts/migrate.mjs
 

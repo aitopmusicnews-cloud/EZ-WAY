@@ -189,30 +189,33 @@ class MusicIntelligenceEngine:
         self.model_name = str(os.getenv("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
         self.client = genai.Client(api_key=api_key)
 
+    def analyze_file(self, source: Path) -> dict[str, Any]:
+        uploaded = None
+        try:
+            uploaded = self.client.files.upload(file=str(source))
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=[ANALYSIS_PROMPT, uploaded],
+                config={
+                    "temperature": 0.1,
+                    "response_mime_type": "application/json",
+                    "response_json_schema": GEMINI_ANALYSIS_SCHEMA,
+                },
+            )
+            return profile_from_gemini_payload(_parsed_response(response), self.model_name)
+        finally:
+            uploaded_name = getattr(uploaded, "name", None)
+            if uploaded_name:
+                try:
+                    self.client.files.delete(name=uploaded_name)
+                except Exception as error:
+                    print(
+                        f"[GeminiMusicAnalyzer] Could not delete temporary Gemini file: {type(error).__name__}: {error}",
+                        flush=True,
+                    )
+
     def analyze_url(self, file_url: str) -> dict[str, Any]:
         with tempfile.TemporaryDirectory(prefix="ezway-gemini-analysis-") as temp_name:
             temp_dir = Path(temp_name)
             source = download_audio(file_url, temp_dir)
-            uploaded = None
-            try:
-                uploaded = self.client.files.upload(file=str(source))
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=[ANALYSIS_PROMPT, uploaded],
-                    config={
-                        "temperature": 0.1,
-                        "response_mime_type": "application/json",
-                        "response_json_schema": GEMINI_ANALYSIS_SCHEMA,
-                    },
-                )
-                return profile_from_gemini_payload(_parsed_response(response), self.model_name)
-            finally:
-                uploaded_name = getattr(uploaded, "name", None)
-                if uploaded_name:
-                    try:
-                        self.client.files.delete(name=uploaded_name)
-                    except Exception as error:
-                        print(
-                            f"[GeminiMusicAnalyzer] Could not delete temporary Gemini file: {type(error).__name__}: {error}",
-                            flush=True,
-                        )
+            return self.analyze_file(source)
