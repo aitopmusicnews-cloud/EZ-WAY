@@ -20,6 +20,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Install AWS app-data Lambda dependencies
+        run: npm install --prefix aws/app-data/api --ignore-scripts --no-audit --no-fund
       - name: Apply deterministic messaging UI patch
         run: python scripts/patch_messaging_ui.py
       - name: Verify backend messaging contracts
