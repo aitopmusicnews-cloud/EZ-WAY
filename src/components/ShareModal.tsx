@@ -69,16 +69,6 @@ export default function ShareModal({ track, playlist, onClose }: ShareModalProps
   const gmailShareUrl = shareLink
     ? `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(selectedClient?.email || '')}&su=${encodeURIComponent(shareSubject)}&body=${encodeURIComponent(shareBody)}`
     : '#';
-  const handleGmailShare = () => {
-    if (!shareLink) return;
-    try {
-      window.location.assign(gmailShareUrl);
-    } catch (error) {
-      console.error('[ShareModal] Gmail navigation failed', error);
-      addToast('Gmail could not be opened. Copy the share link and paste it into Gmail.', 'error');
-    }
-  };
-
   const whatsappShareUrl = shareLink
     ? `https://wa.me/?text=${encodeURIComponent(`Hey, check out this master reference: ${shareLink}`)}`
     : '#';
@@ -289,13 +279,14 @@ export default function ShareModal({ track, playlist, onClose }: ShareModalProps
                    </div>
 
                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      <button
-                        type="button"
-                        onClick={handleGmailShare}
+                      <a
+                        href={gmailShareUrl}
+                        target="_top"
+                        rel="noopener noreferrer"
                         className="flex flex-col items-center justify-center gap-2 bg-zinc-900 border border-zinc-800 text-white h-20 rounded-2xl text-[8px] font-black uppercase tracking-[0.2em] hover:bg-zinc-800 transition-all"
                       >
                         <Mail className="w-5 h-5 text-orange-500" /> Gmail
-                      </button>
+                      </a>
                       <a
                         href={whatsappShareUrl}
                         target="_blank"
