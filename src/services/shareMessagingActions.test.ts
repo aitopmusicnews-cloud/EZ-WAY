@@ -38,7 +38,7 @@ test('public portal refreshes messages without reloading the share payload', () 
   const portal = read('../components/SharePortal.tsx');
   const dataStore = read('./dataStore.ts');
 
-  assert.match(handler, /\/public\/share\/\[\^\/\]\+\\\/messages/);
+  assert.ok(handler.includes("rawPath.match(/^\\/public\\/share\\/[^/]+\\/messages$/)"));
   assert.match(dataStore, /getPublicShareMessages/);
   assert.match(portal, /getPublicShareMessages\(shareLink\.token\)/);
   assert.match(portal, /setInterval\(refreshMessages, 5000\)/);
