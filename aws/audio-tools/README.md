@@ -22,24 +22,31 @@ The existing job and Song Profile contracts do not change. Gemini replaces the o
 
 ## Gemini credential setup
 
-Audio analysis requires a Gemini API key. Export it in the shell before deployment:
+Audio analysis requires a Gemini API key stored in AWS Secrets Manager. The default secret name is `ezway/audio-tools/gemini-api-key`.
+
+If that secret already exists in AWS, no local key export is required; `deploy.sh` reuses it automatically. If you need to create or rotate the secret during deployment, provide a local key once:
 
 ```bash
 export GEMINI_API_KEY='your-key-here'
 ```
 
-`deploy.sh` creates or updates the AWS Secrets Manager secret `ezway/audio-tools/gemini-api-key`, then passes only the secret ARN to SAM. ECS injects the value into the worker as `GEMINI_API_KEY` through the task definition `Secrets` field. The key is not committed to the repository or exposed to the browser.
+When `GEMINI_API_KEY` is supplied, `deploy.sh` creates or updates the configured Secrets Manager secret. Otherwise it resolves the existing secret and passes only its ARN to SAM. ECS injects the value into the worker as `GEMINI_API_KEY` through the task definition `Secrets` field. The key is not committed to the repository or exposed to the browser.
 
 You can override the secret name with `GEMINI_SECRET_NAME`. The worker defaults to `gemini-3.8-flash`; `GEMINI_MODEL` can be changed in the task definition if needed.
 
 ## CloudShell deployment
 
-From a checkout of the EZ-WAY repository in AWS CloudShell:
+From a checkout of the EZ-WAY repository in AWS CloudShell, when the default Gemini secret already exists:
 
 ```bash
-export GEMINI_API_KEY='your-key-here'
 chmod +x aws/audio-tools/deploy.sh
 ./aws/audio-tools/deploy.sh
+```
+
+To use a differently named existing secret:
+
+```bash
+GEMINI_SECRET_NAME='your/existing/secret-name' ./aws/audio-tools/deploy.sh
 ```
 
 Defaults:
@@ -52,12 +59,11 @@ Defaults:
 - CORS production origin: `https://ezwaypro.theartistcut.com`
 - CORS Amplify origin: `https://main.d1wu55zn1feotm.amplifyapp.com`
 
-The script stores/updates the Gemini key in Secrets Manager, builds/pushes the worker image, discovers the default VPC/public subnets, runs `sam build` and `sam deploy`, and calls the deployed `/health` endpoint.
+The script resolves the Gemini secret, builds/pushes the worker image, discovers the default VPC/public subnets, runs `sam build` and `sam deploy`, and calls the deployed `/health` endpoint.
 
 If the account does not use the default VPC, provide existing public subnets explicitly:
 
 ```bash
-export GEMINI_API_KEY='your-key-here'
 VPC_ID=vpc-123456 \
 SUBNET_IDS=subnet-111111,subnet-222222 \
 ./aws/audio-tools/deploy.sh
