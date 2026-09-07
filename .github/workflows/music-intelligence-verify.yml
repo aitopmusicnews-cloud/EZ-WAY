@@ -47,6 +47,9 @@ jobs:
       - name: Ghost UI cleanup contract
         run: node --experimental-strip-types --test src/services/ghostUiCleanup.test.ts
 
+      - name: Share and messaging action tests
+        run: node --experimental-strip-types --test src/services/shareMessagingActions.test.ts
+
       - name: Track analysis recovery tests
         run: node --experimental-strip-types --test src/services/trackAnalysisRecovery.test.ts
 
