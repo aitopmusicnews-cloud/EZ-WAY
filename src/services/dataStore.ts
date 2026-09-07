@@ -2,6 +2,7 @@ import type {
   Activity,
   Client,
   Message,
+  MessageAttachment,
   Playlist,
   PromoVideo,
   ShareLink,
@@ -31,7 +32,7 @@ export interface PublicSharePayload {
   messages: Message[];
 }
 
-export interface PublicShareEvent {
+export interface PublicShareEvent extends MessageAttachment {
   type: 'play' | 'thumbs_up' | 'thumbs_down' | 'comment';
   track_id?: string;
   content?: string;
@@ -86,8 +87,6 @@ export async function uploadMediaForWorkspace({
   createLocalUrl,
   cloudUpload,
 }: WorkspaceMediaUploadOptions): Promise<{ url: string; objectKey: string | null }> {
-  // Bootstrap availability controls cached workspace data, not whether the configured
-  // upload API can accept a file. Keep this value explicit to prevent re-coupling them.
   void bootstrapConnected;
   if (!cloudApiConfigured) {
     return { url: createLocalUrl(file), objectKey: null };
@@ -108,6 +107,7 @@ const stripBrowserFields = <T extends Record<string, any>>(value: T): Record<str
     ['avatar_key', 'avatar_url'],
     ['video_key', 'video_url'],
     ['thumbnail_key', 'thumbnail_url'],
+    ['attachment_key', 'attachment_url'],
   ] as const;
   for (const [keyField, urlField] of stablePairs) {
     if (output[keyField]) delete output[urlField];
@@ -147,6 +147,7 @@ export function createDataStoreClient(options: ClientOptions) {
       createShareLink: configurationError, deleteShareLink: configurationError, createActivity: configurationError,
       createMessage: configurationError, putProfile: configurationError, createPromoVideo: configurationError,
       deletePromoVideo: configurationError, uploadFile: configurationError, getPublicShare: configurationError,
+      getPublicShareMessages: configurationError, uploadPublicShareAttachment: configurationError,
       postPublicShareEvent: configurationError,
     } as any;
   }
@@ -204,6 +205,21 @@ export function createDataStoreClient(options: ClientOptions) {
     return { ...payload, tracks: recoveredTracks };
   }
 
+  const putPresignedFile = async (presign: {
+    upload_url: string;
+    object_key: string;
+    read_url: string;
+    headers?: Record<string, string>;
+  }, file: File) => {
+    const put = await fetchImpl(presign.upload_url, {
+      method: 'PUT',
+      headers: presign.headers || { 'content-type': file.type || 'application/octet-stream' },
+      body: file,
+    });
+    if (!put.ok) throw new DataStoreError(`Media upload failed (${put.status}).`, put.status);
+    return { url: presign.read_url, objectKey: presign.object_key };
+  };
+
   return {
     configured: true,
     health: () => request<{ status: 'ok'; provider: 'aws' }>('/health', {}, false),
@@ -240,19 +256,31 @@ export function createDataStoreClient(options: ClientOptions) {
         category,
         relatedId,
         filename: file.name,
-        contentType: file.type,
+        contentType: file.type || 'application/octet-stream',
         size: file.size,
       }));
-      const put = await fetchImpl(presign.upload_url, {
-        method: 'PUT',
-        headers: presign.headers || { 'content-type': file.type },
-        body: file,
-      });
-      if (!put.ok) throw new DataStoreError(`Media upload failed (${put.status}).`, put.status);
-      return { url: presign.read_url, objectKey: presign.object_key };
+      return putPresignedFile(presign, file);
+    },
+
+    async uploadPublicShareAttachment(token: string, file: File): Promise<{ url: string; objectKey: string }> {
+      const presign = await request<{
+        upload_url: string;
+        object_key: string;
+        read_url: string;
+        headers?: Record<string, string>;
+      }>(`/public/share/${encoded(token)}/uploads/presign`, jsonInit('POST', {
+        filename: file.name,
+        contentType: file.type || 'application/octet-stream',
+        size: file.size,
+      }), false);
+      return putPresignedFile(presign, file);
     },
 
     getPublicShare: (token: string) => request<PublicSharePayload | null>(`/public/share/${encoded(token)}`, {}, false),
+    getPublicShareMessages: async (token: string) => {
+      const payload = await request<{ messages: Message[] }>(`/public/share/${encoded(token)}/messages`, {}, false);
+      return payload.messages || [];
+    },
     postPublicShareEvent: (token: string, event: PublicShareEvent) => request<void>(
       `/public/share/${encoded(token)}/events`, jsonInit('POST', event), false,
     ),
