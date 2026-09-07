@@ -23,6 +23,9 @@ Parameters:
     Default: 1
     MinValue: 1
     MaxValue: 4
+  GeminiApiKeySecretArn:
+    Type: String
+    Description: ARN of the AWS Secrets Manager secret containing the Gemini API key.
 
 Globals:
   Function:
@@ -192,6 +195,15 @@ Resources:
               - sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: GeminiApiKeySecretAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref GeminiApiKeySecretArn
 
   WorkerTaskRole:
     Type: AWS::IAM::Role
@@ -266,6 +278,11 @@ Resources:
               Value: '86400'
             - Name: TORCH_NUM_THREADS
               Value: '4'
+            - Name: GEMINI_MODEL
+              Value: gemini-3.8-flash
+          Secrets:
+            - Name: GEMINI_API_KEY
+              ValueFrom: !Ref GeminiApiKeySecretArn
           LogConfiguration:
             LogDriver: awslogs
             Options:
