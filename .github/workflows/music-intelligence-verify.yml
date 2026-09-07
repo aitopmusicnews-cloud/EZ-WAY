@@ -74,6 +74,9 @@ jobs:
       - name: Albumcover title and font tests
         run: node --experimental-strip-types --test src/services/albumCoverTitleFont.test.ts
 
+      - name: Album Cover integration workflow tests
+        run: node --experimental-strip-types --test src/services/albumCoverIntegration.test.ts
+
       - name: YouTube upload dropdown tests
         run: node --experimental-strip-types --test src/services/youtubeUploadCore.test.ts
 
