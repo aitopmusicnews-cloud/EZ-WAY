@@ -15,6 +15,15 @@ MODEL_ROOT = Path(os.getenv("MODEL_ROOT", "/models"))
 GEMINI_RETRYABLE_STATUS_CODES = {429, 503}
 GEMINI_MAX_ATTEMPTS = 3
 GEMINI_RETRY_INITIAL_DELAY_SECONDS = 2.0
+DEFAULT_GEMINI_REQUEST_TIMEOUT_MS = 120000
+GEMINI_TIMEOUT_ERROR_NAMES = {
+    "TimeoutError",
+    "TimeoutException",
+    "ReadTimeout",
+    "ConnectTimeout",
+    "WriteTimeout",
+    "PoolTimeout",
+}
 
 GEMINI_ANALYSIS_SCHEMA = {
     "type": "object",
@@ -192,6 +201,13 @@ def _gemini_error_status_code(error: Exception) -> int | None:
     return None
 
 
+def _is_gemini_timeout_error(error: Exception) -> bool:
+    return any(
+        error_type.__name__ in GEMINI_TIMEOUT_ERROR_NAMES
+        for error_type in type(error).__mro__
+    )
+
+
 class MusicIntelligenceEngine:
     retry_sleep = staticmethod(time.sleep)
 
@@ -203,7 +219,14 @@ class MusicIntelligenceEngine:
             raise RuntimeError("GEMINI_API_KEY is required for music analysis.")
 
         self.model_name = str(os.getenv("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
-        self.client = genai.Client(api_key=api_key)
+        request_timeout_ms = max(
+            1000,
+            int(os.getenv("GEMINI_REQUEST_TIMEOUT_MS", str(DEFAULT_GEMINI_REQUEST_TIMEOUT_MS))),
+        )
+        self.client = genai.Client(
+            api_key=api_key,
+            http_options=genai.types.HttpOptions(timeout=request_timeout_ms),
+        )
 
     def _generate_analysis(self, uploaded: Any) -> Any:
         for attempt in range(1, GEMINI_MAX_ATTEMPTS + 1):
@@ -219,11 +242,16 @@ class MusicIntelligenceEngine:
                 )
             except Exception as error:
                 status_code = _gemini_error_status_code(error)
-                if status_code not in GEMINI_RETRYABLE_STATUS_CODES or attempt >= GEMINI_MAX_ATTEMPTS:
+                retryable = (
+                    status_code in GEMINI_RETRYABLE_STATUS_CODES
+                    or _is_gemini_timeout_error(error)
+                )
+                if not retryable or attempt >= GEMINI_MAX_ATTEMPTS:
                     raise
                 delay = GEMINI_RETRY_INITIAL_DELAY_SECONDS * (2 ** (attempt - 1))
+                reason = status_code if status_code is not None else type(error).__name__
                 print(
-                    f"[GeminiMusicAnalyzer] Gemini returned {status_code}; retrying attempt {attempt + 1}/{GEMINI_MAX_ATTEMPTS} in {delay:.1f}s.",
+                    f"[GeminiMusicAnalyzer] Gemini returned {reason}; retrying attempt {attempt + 1}/{GEMINI_MAX_ATTEMPTS} in {delay:.1f}s.",
                     flush=True,
                 )
                 self.retry_sleep(delay)
