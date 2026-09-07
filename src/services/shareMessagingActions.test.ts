@@ -16,7 +16,7 @@ test('external share actions use browser-safe web flows', () => {
   assert.match(modal, /navigator\.share/);
 });
 
-// Gmail must use native top-level navigation so browser shells/frames cannot trap it in the app context.
+// Keep Gmail as a native _top link: it must escape any app/browser shell without using popup or scripted navigation.
 test('Gmail share uses a native top-level link', () => {
   const modal = read('../components/ShareModal.tsx');
 
