@@ -14,17 +14,30 @@ This is the AWS-only runtime for Music Intelligence, synced lyrics, and stem sep
 
 ## Runtime actions
 
-- `analysis`: All-In-One-Infer + CLAP + librosa
-- `lyrics`: Demucs + faster-whisper on CPU/int8
+- `analysis`: Gemini structured audio/music analysis
+- `lyrics`: Demucs vocal isolation + faster-whisper `large-v3` on CPU/int8
 - `stems`: Demucs on CPU
 
-The first AWS version intentionally uses Fargate CPU. A later GPU worker can replace the task definition without changing the browser API.
+The existing job and Song Profile contracts do not change. Gemini replaces the old All-In-One/CLAP/librosa analysis stack only.
+
+## Gemini credential setup
+
+Audio analysis requires a Gemini API key. Export it in the shell before deployment:
+
+```bash
+export GEMINI_API_KEY='your-key-here'
+```
+
+`deploy.sh` creates or updates the AWS Secrets Manager secret `ezway/audio-tools/gemini-api-key`, then passes only the secret ARN to SAM. ECS injects the value into the worker as `GEMINI_API_KEY` through the task definition `Secrets` field. The key is not committed to the repository or exposed to the browser.
+
+You can override the secret name with `GEMINI_SECRET_NAME`. The worker defaults to `gemini-3.8-flash`; `GEMINI_MODEL` can be changed in the task definition if needed.
 
 ## CloudShell deployment
 
 From a checkout of the EZ-WAY repository in AWS CloudShell:
 
 ```bash
+export GEMINI_API_KEY='your-key-here'
 chmod +x aws/audio-tools/deploy.sh
 ./aws/audio-tools/deploy.sh
 ```
@@ -34,20 +47,23 @@ Defaults:
 - Region: `us-west-2`
 - Stack: `ezway-audio-tools`
 - ECR repository: `ezway-audio-tools`
+- Gemini secret: `ezway/audio-tools/gemini-api-key`
+- Gemini model: `gemini-3.8-flash`
 - CORS production origin: `https://ezwaypro.theartistcut.com`
 - CORS Amplify origin: `https://main.d1wu55zn1feotm.amplifyapp.com`
 
-The script builds/pushes the worker image, discovers the default VPC/public subnets, runs `sam build` and `sam deploy`, and calls the deployed `/health` endpoint.
+The script stores/updates the Gemini key in Secrets Manager, builds/pushes the worker image, discovers the default VPC/public subnets, runs `sam build` and `sam deploy`, and calls the deployed `/health` endpoint.
 
 If the account does not use the default VPC, provide existing public subnets explicitly:
 
 ```bash
+export GEMINI_API_KEY='your-key-here'
 VPC_ID=vpc-123456 \
 SUBNET_IDS=subnet-111111,subnet-222222 \
 ./aws/audio-tools/deploy.sh
 ```
 
-The worker has no inbound listener. It needs outbound internet access to fetch uploaded audio and first-use model files.
+The worker has no inbound listener. It needs outbound internet access to fetch uploaded audio, call Gemini, and fetch first-use Demucs/Whisper model files.
 
 ## Production verification before Amplify configuration
 
@@ -74,7 +90,7 @@ for i in {1..40}; do
 done
 ```
 
-A successful analysis must return `status: completed` and a non-empty `profile`.
+A successful analysis must return `status: completed`, a non-empty `profile`, and `profile.evidence.provider: gemini`.
 
 Then verify the canonical profile read:
 
@@ -93,8 +109,9 @@ The intended stable custom hostname is `https://audio-tools-api.theartistcut.com
 
 ## Security
 
-- No AWS keys belong in Vite variables or browser code.
+- No AWS or Gemini keys belong in Vite variables or browser code.
+- The Gemini API key is stored in AWS Secrets Manager and injected into ECS as a secret.
 - S3 generated outputs are private.
-- The worker task role is limited to its queue, tables, and output bucket.
+- The worker task role is limited to its queue, tables, and output bucket; the ECS execution role can read only the configured Gemini secret in addition to its standard task-execution permissions.
 - CORS is restricted to the two EZ-WAY web origins in the stack parameters.
 - CORS is not authentication. Before broad multi-user exposure, add API Gateway throttling/WAF and user-level authorization.
