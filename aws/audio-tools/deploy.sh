@@ -6,10 +6,17 @@ STACK_NAME="${STACK_NAME:-ezway-audio-tools}"
 ECR_REPO="${ECR_REPO:-ezway-audio-tools}"
 PRODUCTION_ORIGIN="${PRODUCTION_ORIGIN:-https://ezwaypro.theartistcut.com}"
 AMPLIFY_ORIGIN="${AMPLIFY_ORIGIN:-https://main.d1wu55zn1feotm.amplifyapp.com}"
+GEMINI_API_KEY="${GEMINI_API_KEY:-}"
+GEMINI_SECRET_NAME="${GEMINI_SECRET_NAME:-ezway/audio-tools/gemini-api-key}"
 
 command -v aws >/dev/null || { echo "AWS CLI is required." >&2; exit 1; }
 command -v docker >/dev/null || { echo "Docker is required." >&2; exit 1; }
 command -v sam >/dev/null || { echo "AWS SAM CLI is required." >&2; exit 1; }
+
+if [[ -z "$GEMINI_API_KEY" ]]; then
+  echo "GEMINI_API_KEY is required. Export it before deploying Audio Tools." >&2
+  exit 1
+fi
 
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 ECR_HOST="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
@@ -17,6 +24,30 @@ IMAGE_URI="${ECR_HOST}/${ECR_REPO}:latest"
 
 echo "AWS account: ${ACCOUNT_ID}"
 echo "Region: ${REGION}"
+
+if aws secretsmanager describe-secret \
+  --region "$REGION" \
+  --secret-id "$GEMINI_SECRET_NAME" >/dev/null 2>&1; then
+  aws secretsmanager put-secret-value \
+    --region "$REGION" \
+    --secret-id "$GEMINI_SECRET_NAME" \
+    --secret-string "$GEMINI_API_KEY" >/dev/null
+else
+  aws secretsmanager create-secret \
+    --region "$REGION" \
+    --name "$GEMINI_SECRET_NAME" \
+    --description "Gemini API key for EZ-WAY Audio Tools" \
+    --secret-string "$GEMINI_API_KEY" >/dev/null
+fi
+
+GEMINI_SECRET_ARN="$(aws secretsmanager describe-secret \
+  --region "$REGION" \
+  --secret-id "$GEMINI_SECRET_NAME" \
+  --query ARN \
+  --output text)"
+unset GEMINI_API_KEY
+
+echo "Gemini secret: ${GEMINI_SECRET_ARN}"
 
 if ! aws ecr describe-repositories --region "$REGION" --repository-names "$ECR_REPO" >/dev/null 2>&1; then
   aws ecr create-repository \
@@ -69,7 +100,8 @@ sam deploy \
     "VpcId=${VPC_ID}" \
     "SubnetIds=${SUBNET_IDS}" \
     "ProductionOrigin=${PRODUCTION_ORIGIN}" \
-    "AmplifyOrigin=${AMPLIFY_ORIGIN}"
+    "AmplifyOrigin=${AMPLIFY_ORIGIN}" \
+    "GeminiApiKeySecretArn=${GEMINI_SECRET_ARN}"
 
 API_BASE="$(aws cloudformation describe-stacks \
   --region "$REGION" \
