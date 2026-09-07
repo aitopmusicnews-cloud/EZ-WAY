@@ -222,3 +222,50 @@ test('configured cloud uploads are not blocked by a failed workspace bootstrap',
     objectKey: 'tracks/audio/track-1/song.wav',
   });
 });
+
+test('authenticated request restores an expired session before sending the request', async () => {
+  let token: string | null = null;
+  let restoreCalls = 0;
+  let authorization = '';
+  const client = createDataStoreClient({
+    apiBase: 'https://api.example.com',
+    getToken: () => token,
+    restoreAuth: async () => {
+      restoreCalls += 1;
+      token = 'refreshed-id-token';
+      return true;
+    },
+    fetchImpl: async (_url, init) => {
+      authorization = String((init?.headers as Record<string, string>)?.Authorization || '');
+      return jsonResponse({ tracks: [], playlists: [], clients: [], activities: [], share_links: [], messages: [], promo_videos: [], profile: null });
+    },
+  } as any);
+
+  await client.bootstrap();
+  assert.equal(restoreCalls, 1);
+  assert.equal(authorization, 'Bearer refreshed-id-token');
+});
+
+test('authenticated request refreshes once and retries after an API 401', async () => {
+  let token = 'stale-id-token';
+  let restoreCalls = 0;
+  const authorizations: string[] = [];
+  const client = createDataStoreClient({
+    apiBase: 'https://api.example.com',
+    getToken: () => token,
+    restoreAuth: async () => {
+      restoreCalls += 1;
+      token = 'fresh-id-token';
+      return true;
+    },
+    fetchImpl: async (_url, init) => {
+      authorizations.push(String((init?.headers as Record<string, string>)?.Authorization || ''));
+      if (authorizations.length === 1) return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ tracks: [], playlists: [], clients: [], activities: [], share_links: [], messages: [], promo_videos: [], profile: null });
+    },
+  } as any);
+
+  await client.bootstrap();
+  assert.equal(restoreCalls, 1);
+  assert.deepEqual(authorizations, ['Bearer stale-id-token', 'Bearer fresh-id-token']);
+});
