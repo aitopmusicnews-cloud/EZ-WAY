@@ -21,3 +21,10 @@ test('MediaStoreContext preserves public share and upload component contracts', 
   assert.match(source, /dataStore\.getPublicShare\(token\)/);
   assert.match(source, /pendingMediaKeys/);
 });
+
+test('MediaStoreContext preserves the original AWS media upload failure for the caller', () => {
+  const uploadFileStart = source.indexOf('const uploadFile = async');
+  const uploadFileEnd = source.indexOf('const handleSetEnableMockData', uploadFileStart);
+  const uploadFileSource = source.slice(uploadFileStart, uploadFileEnd);
+  assert.match(uploadFileSource, /throw error;/);
+});
