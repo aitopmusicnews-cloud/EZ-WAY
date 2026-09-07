@@ -10,6 +10,7 @@ const CATEGORY = {
   artwork: { prefix: 'tracks/artwork', family: 'image/', max: 20 * 1024 * 1024 },
   'promo-video': { prefix: 'promo/videos', family: 'video/', max: 2 * 1024 * 1024 * 1024 },
   'message-image': { prefix: 'messages/images', family: 'image/', max: 20 * 1024 * 1024 },
+  'message-file': { prefix: 'messages/files', family: null, max: 100 * 1024 * 1024 },
   'profile-image': { prefix: 'profiles', family: 'image/', max: 20 * 1024 * 1024 },
 };
 
@@ -34,8 +35,9 @@ export function normalizeUploadRequest(body = {}) {
 
   const relatedId = safeRelatedId(body.relatedId ?? body.related_id);
   const filename = safeFilename(body.filename);
-  const contentType = String(body.contentType ?? body.content_type ?? '').trim().toLowerCase();
-  if (!contentType.startsWith(config.family)) throw new Error('Upload content type is invalid for this category.');
+  const contentType = String(body.contentType ?? body.content_type ?? 'application/octet-stream').trim().toLowerCase()
+    || 'application/octet-stream';
+  if (config.family && !contentType.startsWith(config.family)) throw new Error('Upload content type is invalid for this category.');
 
   const size = Number(body.size);
   if (!Number.isFinite(size) || size <= 0 || size > config.max) throw new Error('Upload size is invalid for this category.');
@@ -59,7 +61,11 @@ const ensureBucket = () => {
 export async function presignRead(objectKey) {
   if (!objectKey) return null;
   ensureBucket();
-  return getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: objectKey }), { expiresIn: 30 * 60 });
+  const commandInput = { Bucket: bucket, Key: objectKey };
+  if (String(objectKey).startsWith('messages/files/')) {
+    commandInput.ResponseContentDisposition = 'attachment';
+  }
+  return getSignedUrl(s3, new GetObjectCommand(commandInput), { expiresIn: 30 * 60 });
 }
 
 export async function presignUpload(body) {

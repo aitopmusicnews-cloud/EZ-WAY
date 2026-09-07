@@ -2,6 +2,7 @@ import type {
   Activity,
   Client,
   Message,
+  MessageAttachment,
   Playlist,
   PromoVideo,
   ShareLink,
@@ -35,6 +36,10 @@ export interface PublicShareEvent {
   type: 'play' | 'thumbs_up' | 'thumbs_down' | 'comment';
   track_id?: string;
   content?: string;
+}
+
+export interface PublicShareMessageInput extends MessageAttachment {
+  content: string;
 }
 
 export interface DiagnosticsPayload {
@@ -86,8 +91,6 @@ export async function uploadMediaForWorkspace({
   createLocalUrl,
   cloudUpload,
 }: WorkspaceMediaUploadOptions): Promise<{ url: string; objectKey: string | null }> {
-  // Bootstrap availability controls cached workspace data, not whether the configured
-  // upload API can accept a file. Keep this value explicit to prevent re-coupling them.
   void bootstrapConnected;
   if (!cloudApiConfigured) {
     return { url: createLocalUrl(file), objectKey: null };
@@ -108,6 +111,7 @@ const stripBrowserFields = <T extends Record<string, any>>(value: T): Record<str
     ['avatar_key', 'avatar_url'],
     ['video_key', 'video_url'],
     ['thumbnail_key', 'thumbnail_url'],
+    ['attachment_key', 'attachment_url'],
   ] as const;
   for (const [keyField, urlField] of stablePairs) {
     if (output[keyField]) delete output[urlField];
@@ -147,7 +151,8 @@ export function createDataStoreClient(options: ClientOptions) {
       createShareLink: configurationError, deleteShareLink: configurationError, createActivity: configurationError,
       createMessage: configurationError, putProfile: configurationError, createPromoVideo: configurationError,
       deletePromoVideo: configurationError, uploadFile: configurationError, getPublicShare: configurationError,
-      postPublicShareEvent: configurationError,
+      getPublicShareMessages: configurationError, createPublicShareMessage: configurationError,
+      uploadPublicShareAttachment: configurationError, postPublicShareEvent: configurationError,
     } as any;
   }
 
@@ -204,6 +209,22 @@ export function createDataStoreClient(options: ClientOptions) {
     return { ...payload, tracks: recoveredTracks };
   }
 
+  async function uploadToPresignedUrl(file: File, presign: {
+    upload_url: string;
+    object_key: string;
+    read_url: string;
+    headers?: Record<string, string>;
+  }): Promise<{ url: string; objectKey: string }> {
+    const contentType = file.type || 'application/octet-stream';
+    const put = await fetchImpl(presign.upload_url, {
+      method: 'PUT',
+      headers: presign.headers || { 'content-type': contentType },
+      body: file,
+    });
+    if (!put.ok) throw new DataStoreError(`Media upload failed (${put.status}).`, put.status);
+    return { url: presign.read_url, objectKey: presign.object_key };
+  }
+
   return {
     configured: true,
     health: () => request<{ status: 'ok'; provider: 'aws' }>('/health', {}, false),
@@ -231,6 +252,7 @@ export function createDataStoreClient(options: ClientOptions) {
     deletePromoVideo: (id: string) => request<void>(`/promo-videos/${encoded(id)}`, { method: 'DELETE' }),
 
     async uploadFile(category: string, relatedId: string, file: File): Promise<{ url: string; objectKey: string }> {
+      const contentType = file.type || 'application/octet-stream';
       const presign = await request<{
         upload_url: string;
         object_key: string;
@@ -240,19 +262,41 @@ export function createDataStoreClient(options: ClientOptions) {
         category,
         relatedId,
         filename: file.name,
-        contentType: file.type,
+        contentType,
         size: file.size,
       }));
-      const put = await fetchImpl(presign.upload_url, {
-        method: 'PUT',
-        headers: presign.headers || { 'content-type': file.type },
-        body: file,
-      });
-      if (!put.ok) throw new DataStoreError(`Media upload failed (${put.status}).`, put.status);
-      return { url: presign.read_url, objectKey: presign.object_key };
+      return uploadToPresignedUrl(file, presign);
     },
 
     getPublicShare: (token: string) => request<PublicSharePayload | null>(`/public/share/${encoded(token)}`, {}, false),
+    getPublicShareMessages: (token: string) => request<Message[]>(
+      `/public/share/${encoded(token)}/messages`, {}, false,
+    ),
+    createPublicShareMessage: (token: string, message: PublicShareMessageInput) => request<Message>(
+      `/public/share/${encoded(token)}/messages`, jsonInit('POST', stripBrowserFields(message as Record<string, any>)), false,
+    ),
+    async uploadPublicShareAttachment(token: string, file: File): Promise<MessageAttachment> {
+      if (file.size > 100 * 1024 * 1024) throw new DataStoreError('Attachment exceeds the 100 MB limit.', 400);
+      const contentType = file.type || 'application/octet-stream';
+      const presign = await request<{
+        upload_url: string;
+        object_key: string;
+        read_url: string;
+        headers?: Record<string, string>;
+      }>(`/public/share/${encoded(token)}/attachments/presign`, jsonInit('POST', {
+        filename: file.name,
+        contentType,
+        size: file.size,
+      }), false);
+      const uploaded = await uploadToPresignedUrl(file, presign);
+      return {
+        attachment_url: uploaded.url,
+        attachment_key: uploaded.objectKey,
+        attachment_name: file.name,
+        attachment_type: contentType,
+        attachment_size: file.size,
+      };
+    },
     postPublicShareEvent: (token: string, event: PublicShareEvent) => request<void>(
       `/public/share/${encoded(token)}/events`, jsonInit('POST', event), false,
     ),

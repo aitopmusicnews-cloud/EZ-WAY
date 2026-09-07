@@ -91,7 +91,15 @@ export interface Activity {
   playlist_id?: string;
 }
 
-export interface Message {
+export interface MessageAttachment {
+  attachment_url?: string | null;
+  attachment_key?: string | null;
+  attachment_name?: string | null;
+  attachment_type?: string | null;
+  attachment_size?: number | null;
+}
+
+export interface Message extends MessageAttachment {
   id: string;
   client_id: string;
   recipient_id: string;
