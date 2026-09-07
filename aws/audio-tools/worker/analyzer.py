@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,9 @@ from music_intelligence_core import build_profile
 ANALYZER_VERSION = "music-intelligence-gemini-v2"
 DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
 MODEL_ROOT = Path(os.getenv("MODEL_ROOT", "/models"))
+GEMINI_RETRYABLE_STATUS_CODES = {429, 503}
+GEMINI_MAX_ATTEMPTS = 3
+GEMINI_RETRY_INITIAL_DELAY_SECONDS = 2.0
 
 GEMINI_ANALYSIS_SCHEMA = {
     "type": "object",
@@ -178,7 +182,19 @@ def _parsed_response(response: Any) -> dict[str, Any]:
     return decoded
 
 
+def _gemini_error_status_code(error: Exception) -> int | None:
+    for attribute in ("code", "status_code"):
+        value = getattr(error, attribute, None)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 class MusicIntelligenceEngine:
+    retry_sleep = staticmethod(time.sleep)
+
     def __init__(self) -> None:
         from google import genai
 
@@ -189,19 +205,35 @@ class MusicIntelligenceEngine:
         self.model_name = str(os.getenv("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
         self.client = genai.Client(api_key=api_key)
 
+    def _generate_analysis(self, uploaded: Any) -> Any:
+        for attempt in range(1, GEMINI_MAX_ATTEMPTS + 1):
+            try:
+                return self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=[ANALYSIS_PROMPT, uploaded],
+                    config={
+                        "temperature": 0.1,
+                        "response_mime_type": "application/json",
+                        "response_json_schema": GEMINI_ANALYSIS_SCHEMA,
+                    },
+                )
+            except Exception as error:
+                status_code = _gemini_error_status_code(error)
+                if status_code not in GEMINI_RETRYABLE_STATUS_CODES or attempt >= GEMINI_MAX_ATTEMPTS:
+                    raise
+                delay = GEMINI_RETRY_INITIAL_DELAY_SECONDS * (2 ** (attempt - 1))
+                print(
+                    f"[GeminiMusicAnalyzer] Gemini returned {status_code}; retrying attempt {attempt + 1}/{GEMINI_MAX_ATTEMPTS} in {delay:.1f}s.",
+                    flush=True,
+                )
+                self.retry_sleep(delay)
+        raise RuntimeError("Gemini analysis retry loop ended unexpectedly.")
+
     def analyze_file(self, source: Path) -> dict[str, Any]:
         uploaded = None
         try:
             uploaded = self.client.files.upload(file=str(source))
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=[ANALYSIS_PROMPT, uploaded],
-                config={
-                    "temperature": 0.1,
-                    "response_mime_type": "application/json",
-                    "response_json_schema": GEMINI_ANALYSIS_SCHEMA,
-                },
-            )
+            response = self._generate_analysis(uploaded)
             return profile_from_gemini_payload(_parsed_response(response), self.model_name)
         finally:
             uploaded_name = getattr(uploaded, "name", None)
