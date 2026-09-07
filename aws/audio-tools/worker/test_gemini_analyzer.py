@@ -1,6 +1,10 @@
+import os
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from analyzer import ANALYZER_VERSION, MusicIntelligenceEngine, profile_from_gemini_payload
 
@@ -66,6 +70,10 @@ class _FakeGeminiError(Exception):
         super().__init__(f"{code} transient Gemini error")
 
 
+class ReadTimeout(Exception):
+    pass
+
+
 class _RetryingModels:
     def __init__(self, code):
         self.code = code
@@ -75,6 +83,17 @@ class _RetryingModels:
         self.calls.append(kwargs)
         if len(self.calls) < 3:
             raise _FakeGeminiError(self.code)
+        return _FakeResponse()
+
+
+class _TimeoutRetryingModels:
+    def __init__(self):
+        self.calls = []
+
+    def generate_content(self, **kwargs):
+        self.calls.append(kwargs)
+        if len(self.calls) < 3:
+            raise ReadTimeout("Gemini request timed out")
         return _FakeResponse()
 
 
@@ -135,6 +154,50 @@ class GeminiAnalyzerTests(unittest.TestCase):
                 self.assertEqual(delays, [2.0, 4.0])
                 self.assertEqual(profile["evidence"]["provider"], "gemini")
                 self.assertEqual(engine.client.files.deleted_name, "files/test-audio")
+
+    def test_gemini_client_has_configurable_request_timeout(self):
+        captured = {}
+        fake_google = types.ModuleType("google")
+        fake_genai = types.ModuleType("google.genai")
+
+        class _FakeTypes:
+            @staticmethod
+            def HttpOptions(**kwargs):
+                return kwargs
+
+        def fake_client(**kwargs):
+            captured.update(kwargs)
+            return object()
+
+        fake_genai.Client = fake_client
+        fake_genai.types = _FakeTypes
+        fake_google.genai = fake_genai
+
+        with patch.dict(sys.modules, {"google": fake_google, "google.genai": fake_genai}):
+            with patch.dict(
+                os.environ,
+                {"GEMINI_API_KEY": "test-key", "GEMINI_REQUEST_TIMEOUT_MS": "12345"},
+            ):
+                MusicIntelligenceEngine()
+
+        self.assertEqual(captured["http_options"], {"timeout": 12345})
+
+    def test_retries_gemini_read_timeout_before_succeeding(self):
+        models = _TimeoutRetryingModels()
+        engine = MusicIntelligenceEngine.__new__(MusicIntelligenceEngine)
+        engine.model_name = "gemini-3.8-flash"
+        engine.client = _FakeClient(models=models)
+        delays = []
+        engine.retry_sleep = delays.append
+
+        with tempfile.TemporaryDirectory() as temp_name:
+            source = Path(temp_name) / "track.mp3"
+            source.write_bytes(b"test-audio")
+            profile = engine.analyze_file(source)
+
+        self.assertEqual(len(models.calls), 3)
+        self.assertEqual(delays, [2.0, 4.0])
+        self.assertEqual(profile["evidence"]["provider"], "gemini")
 
     def test_rejects_non_object_gemini_payload(self):
         with self.assertRaisesRegex(ValueError, "object"):
