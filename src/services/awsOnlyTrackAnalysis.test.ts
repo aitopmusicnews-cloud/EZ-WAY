@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+// Regression contract: track metadata analysis must have one AWS source of truth.
 const read = (path: string) => readFileSync(path, 'utf8');
 
 test('MediaStore no longer exposes the legacy local or /api/analyze engines', () => {
