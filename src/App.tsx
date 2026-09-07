@@ -48,7 +48,6 @@ import {
   VolumeX,
   Pause,
   Volume2,
-  Cpu,
   Sparkles,
   ArrowUpDown,
 } from "lucide-react";
@@ -256,8 +255,6 @@ export default function App() {
     incrementShareLinkAccess,
     getShareContent,
     uploadFile,
-    analysisEngine,
-    setAnalysisEngine,
     toasts,
     addToast,
     removeToast,
@@ -1888,67 +1885,10 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
             </div>
           </div>
           
-          <div className="flex items-center gap-1.5 bg-zinc-900/60 p-1 rounded-2xl border border-zinc-800 self-stretch lg:self-auto shadow-inner shrink-0">
-            <button
-              onClick={() => setAnalysisEngine('dsp')}
-              className={`flex-1 lg:flex-none px-4 py-2.5 rounded-xl text-[10px] uppercase font-black tracking-widest transition-all flex items-center justify-center gap-2 ${
-                analysisEngine === 'dsp'
-                  ? 'bg-orange-500 text-black shadow font-black'
-                  : 'text-zinc-500 hover:text-white'
-              }`}
-            >
-              <Cpu className="w-3.5 h-3.5" />
-              Web Audio DSP
-            </button>
-            <button
-              onClick={() => setAnalysisEngine('ai')}
-              className={`flex-1 lg:flex-none px-4 py-2.5 rounded-xl text-[10px] uppercase font-black tracking-widest transition-all flex items-center justify-center gap-2 ${
-                analysisEngine === 'ai'
-                  ? 'bg-orange-500 text-black shadow font-black'
-                  : 'text-zinc-500 hover:text-white'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              Cognitive AI
-            </button>
-          </div>
+
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 pt-6 border-t border-zinc-900/70">
-          <div 
-            onClick={() => setAnalysisEngine('dsp')}
-            className={`p-4 rounded-2xl border transition-all cursor-pointer ${
-              analysisEngine === 'dsp'
-                ? 'bg-zinc-900/40 border-orange-500/20 shadow-lg'
-                : 'bg-transparent border-transparent hover:border-zinc-900'
-            }`}
-          >
-            <div className="flex items-center gap-2 text-zinc-200">
-              <div className={`w-1.5 h-1.5 rounded-full ${analysisEngine === 'dsp' ? 'bg-orange-500' : 'bg-zinc-600'}`} />
-              <span className="text-[10.5px] font-mono font-black uppercase tracking-widest">Web Audio DSP (Local Engine)</span>
-            </div>
-            <p className="text-[10px] text-zinc-500 mt-2 leading-relaxed">
-              Decodes actual binary wave blocks in the browser. Uses <strong>envelope detectors</strong> and <strong>spectral pitch profiles</strong> to extract raw physical characteristics (BPM, Root Triads, Peak Crest Factor) with 100% privacy and zero latency.
-            </p>
-          </div>
 
-          <div 
-            onClick={() => setAnalysisEngine('ai')}
-            className={`p-4 rounded-2xl border transition-all cursor-pointer ${
-              analysisEngine === 'ai'
-                ? 'bg-zinc-900/40 border-orange-500/20 shadow-lg'
-                : 'bg-transparent border-transparent hover:border-zinc-900'
-            }`}
-          >
-            <div className="flex items-center gap-2 text-zinc-200">
-              <div className={`w-1.5 h-1.5 rounded-full ${analysisEngine === 'ai' ? 'bg-orange-500' : 'bg-zinc-600'}`} />
-              <span className="text-[10.5px] font-mono font-black uppercase tracking-widest">Cognitive AI (Gemini Agent)</span>
-            </div>
-            <p className="text-[10px] text-zinc-500 mt-2 leading-relaxed">
-              Applies advanced contextual reasoning via <strong>Gemini 3.5</strong> on the server. Classifies micro-genres, mood patterns, visual textures, SEO keywords, and label-ready marketing pitches.
-            </p>
-          </div>
-        </div>
       </div>
 
       <div className="flex flex-col md:flex-row items-center gap-4">
