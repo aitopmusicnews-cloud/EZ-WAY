@@ -33,9 +33,54 @@ test('public share payload includes owner outbound messages for two-way portal m
   assert.match(handler, /SELECT \* FROM messages WHERE client_id = CAST\(:client_id AS uuid\) ORDER BY timestamp ASC/);
 });
 
+test('public portal refreshes messages without reloading the share payload', () => {
+  const handler = read('../../aws/app-data/api/handler.mjs');
+  const portal = read('../components/SharePortal.tsx');
+  const dataStore = read('./dataStore.ts');
+
+  assert.match(handler, /\/public\/share\/\[\^\/\]\+\\\/messages/);
+  assert.match(dataStore, /getPublicShareMessages/);
+  assert.match(portal, /getPublicShareMessages\(shareLink\.token\)/);
+  assert.match(portal, /setInterval\(refreshMessages, 5000\)/);
+});
+
+test('message refresh path does not increment share access count', () => {
+  const handler = read('../../aws/app-data/api/handler.mjs');
+  const messageRouteIndex = handler.indexOf("rawPath.match(/^\\/public\\/share\\/[^/]+\\/messages$/)");
+  const shareRouteIndex = handler.indexOf("rawPath.startsWith('/public/share/')");
+  assert.ok(messageRouteIndex >= 0 && shareRouteIndex > messageRouteIndex);
+  const messageRoute = handler.slice(messageRouteIndex, shareRouteIndex);
+  assert.doesNotMatch(messageRoute, /access_count/);
+});
+
 test('share portal renders both owner messages and client replies', () => {
   const portal = read('../components/SharePortal.tsx');
   assert.match(portal, /conversationMessages/);
   assert.match(portal, /message\.direction === 'outbound'/);
   assert.match(portal, /message\.direction === 'inbound'/);
+});
+
+test('admin and client messaging accept general files instead of image-only attachments', () => {
+  const app = read('../App.tsx');
+  const portal = read('../components/SharePortal.tsx');
+  const context = read('../context/MediaStoreContext.tsx');
+  const storage = read('../../aws/app-data/api/storage.mjs');
+
+  assert.match(app, /handleChatAttachmentUpload/);
+  assert.match(app, /uploadFile\('messages', chatAttachment\)/);
+  assert.doesNotMatch(app, /onChange=\{handleChatAttachmentUpload\}[\s\S]{0,120}accept="image\/\*"/);
+  assert.match(portal, /uploadPublicShareAttachment\(shareLink\.token, selectedAttachment\)/);
+  assert.match(portal, /100 \* 1024 \* 1024/);
+  assert.match(context, /MessageAttachment/);
+  assert.match(storage, /'message-attachment': \{ prefix: 'messages\/attachments', family: null, max: 100 \* 1024 \* 1024 \}/);
+});
+
+test('message bubbles expose saved attachments as downloads in both portals', () => {
+  const app = read('../App.tsx');
+  const portal = read('../components/SharePortal.tsx');
+
+  assert.match(app, /msg\.attachment_url/);
+  assert.match(app, /download=\{msg\.attachment_name \|\| undefined\}/);
+  assert.match(portal, /item\.attachment_url/);
+  assert.match(portal, /download=\{item\.attachment_name \|\| undefined\}/);
 });
