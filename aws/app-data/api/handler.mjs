@@ -242,7 +242,7 @@ async function resolvePublicShare(token) {
   let messages = [];
   if (shareRow.client_id) {
     const rows = await execute(
-      "SELECT * FROM messages WHERE client_id = CAST(:client_id AS uuid) AND direction = 'inbound' ORDER BY timestamp ASC",
+      "SELECT * FROM messages WHERE client_id = CAST(:client_id AS uuid) ORDER BY timestamp ASC",
       [{ name: 'client_id', value: shareRow.client_id }],
     );
     messages = await mapManyAndResolve('messages', rows);

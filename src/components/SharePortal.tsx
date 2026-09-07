@@ -194,24 +194,26 @@ export default function SharePortal({ track: initialTrack, playlist, shareLink }
     }
   };
 
-  const historicalComments = useMemo(() => messages
+  const conversationMessages = useMemo(() => messages
     .filter((message) => {
       const clientMatches = shareLink.client_id ? message.client_id === shareLink.client_id : true;
-      const trackMatches = activeTrack ? message.content.includes(activeTrack.name) : true;
-      return message.direction === 'inbound' && clientMatches && trackMatches;
+      return clientMatches && (message.direction === 'outbound' || message.direction === 'inbound');
     })
     .map((message) => ({
       id: message.id,
-      user: 'Industry Client',
+      user: message.direction === 'outbound' ? 'OGBeatz' : 'Industry Client',
       text: message.content
         .replace(/^\[Feedback on [^\]]+\]:\s*/i, '')
         .replace(/^\[Industry Feedback on [^\]]+\]:\s*/i, '')
         .replace(/^\[Mix Approval\]:\s*/i, '👍 ')
         .replace(/^\[Revision Request\]:\s*/i, '👎 '),
       time: new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    })), [messages, shareLink.client_id, activeTrack]);
+    })), [messages, shareLink.client_id]);
 
-  const comments = [...localComments, ...historicalComments.filter((item) => !localComments.some((local) => local.id === item.id))];
+  const comments = [
+    ...localComments,
+    ...conversationMessages.filter((item) => !localComments.some((local) => local.id === item.id)),
+  ];
   const progressPct = duration > 0 ? Math.min(100, (progress / duration) * 100) : 0;
 
   return (
@@ -306,7 +308,7 @@ export default function SharePortal({ track: initialTrack, playlist, shareLink }
             </div>
 
             <div className="bg-zinc-950/90 border border-zinc-900 rounded-[2rem] p-7">
-              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-4">Review History</div>
+              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-4">Messages & Review History</div>
               <div className="space-y-3 max-h-[360px] overflow-y-auto">
                 {comments.length ? comments.map((item) => (
                   <div key={item.id} className="bg-black/60 border border-zinc-900 rounded-2xl p-4"><div className="flex items-center justify-between mb-2"><span className="text-[10px] font-black uppercase text-orange-500">{item.user}</span><span className="text-[9px] text-zinc-700">{item.time}</span></div><p className="text-sm text-zinc-300 leading-relaxed">{item.text}</p></div>
