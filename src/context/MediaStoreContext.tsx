@@ -497,6 +497,7 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
     const candidate = withPendingKeys({
       id: uuidv4(),
       client_id: clientId,
+      sender_id: direction === 'outbound' ? 'producer@ogbeatz.com' : (client?.email || 'unknown@client.com'),
       recipient_id: direction === 'outbound' ? (client?.email || 'unknown@client.com') : 'producer@ogbeatz.com',
       content,
       image_url: image_url || null,
@@ -617,7 +618,7 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
     } catch (error: any) {
       console.error('[MediaStore] AWS media upload failed', error);
       addToast(`Cloud media upload failed: ${error?.message || error}`, 'error');
-      return null;
+      throw error;
     }
   };
 
