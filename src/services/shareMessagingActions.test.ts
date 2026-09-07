@@ -16,6 +16,7 @@ test('external share actions use browser-safe web flows', () => {
   assert.match(modal, /navigator\.share/);
 });
 
+// Gmail must not depend on opening a new browsing context; embedded/PWA shells can suppress it.
 test('Gmail share uses an explicit same-window navigation handler', () => {
   const modal = read('../components/ShareModal.tsx');
 
