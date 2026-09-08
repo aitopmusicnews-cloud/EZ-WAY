@@ -38,6 +38,9 @@ jobs:
       - name: Track analysis source refresh tests
         run: node --experimental-strip-types --test src/services/musicIntelligenceSourceRefresh.test.ts
 
+      - name: Audio Tools polling reconnect tests
+        run: node --experimental-strip-types --test src/services/audioTools.test.ts
+
       - name: AWS-only track analysis regression
         run: node --experimental-strip-types --test src/services/awsOnlyTrackAnalysis.test.ts
 
