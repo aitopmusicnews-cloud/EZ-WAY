@@ -1,9 +1,11 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from render_audio_tools.processor import AudioProcessor, download_source
+from render_audio_tools.processor import AudioProcessor, download_source, whisper_model_name
 
 
 class _FakeS3:
@@ -44,7 +46,11 @@ class _FakeAnalysisEngine:
 
 
 class _FakeWhisperModel:
+    def __init__(self):
+        self.sources = []
+
     def transcribe(self, source, **kwargs):
+        self.sources.append(Path(source))
         segments = [
             SimpleNamespace(start=1.25, text=" First line "),
             SimpleNamespace(start=4.5, text="Second line"),
@@ -131,6 +137,12 @@ class RenderAudioProcessorTests(unittest.TestCase):
                     http_downloader=lambda *_: None,
                 )
 
+    def test_whisper_model_defaults_to_base_and_allows_override(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(whisper_model_name(), "base")
+        with patch.dict(os.environ, {"WHISPER_MODEL": "small"}, clear=True):
+            self.assertEqual(whisper_model_name(), "small")
+
     def test_analysis_reads_s3_source_and_persists_canonical_profile(self):
         s3 = _FakeS3()
         state = _FakeState()
@@ -188,15 +200,22 @@ class RenderAudioProcessorTests(unittest.TestCase):
         self.assertIn("instrumental", result["files"])
         self.assertIn("bundle_url", result)
 
-    def test_lyrics_uses_vocal_stem_and_returns_lrc_text(self):
+    def test_lyrics_transcribes_source_directly_without_demucs(self):
+        demucs_calls = []
+        whisper = _FakeWhisperModel()
+
+        def forbidden_demucs(*args, **kwargs):
+            demucs_calls.append((args, kwargs))
+            raise AssertionError("lyrics must not run Demucs")
+
         processor = AudioProcessor(
             state=_FakeState(),
             source_bucket="private-media-bucket",
             output_bucket="audio-output-bucket",
             s3_client=_FakeS3(),
             analysis_engine_factory=_FakeAnalysisEngine,
-            demucs_runner=_fake_demucs,
-            whisper_model_factory=lambda: _FakeWhisperModel(),
+            demucs_runner=forbidden_demucs,
+            whisper_model_factory=lambda: whisper,
         )
 
         result = processor.process({
@@ -208,12 +227,14 @@ class RenderAudioProcessorTests(unittest.TestCase):
             "track_name": "Song Three",
         })
 
+        self.assertEqual(demucs_calls, [])
+        self.assertEqual([path.name for path in whisper.sources], ["source.wav"])
         self.assertIn("[00:01.25] First line", result["lyrics"])
         self.assertIn("[00:04.50] Second line", result["lyrics"])
         self.assertEqual(result["language"], "en")
         self.assertIn("lrc", result["files"])
         self.assertIn("plain", result["files"])
-        self.assertIn("vocals", result["files"])
+        self.assertNotIn("vocals", result["files"])
 
 
 if __name__ == "__main__":
