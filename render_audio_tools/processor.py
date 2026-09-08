@@ -94,12 +94,17 @@ def _run_demucs(source: Path, output_dir: Path, two_stem: bool) -> Path:
     return stem_dir
 
 
+def whisper_model_name() -> str:
+    return str(os.getenv("WHISPER_MODEL") or "base").strip() or "base"
+
+
 def _build_whisper_model() -> Any:
     from faster_whisper import WhisperModel
 
-    whisper_root = MODEL_ROOT / "faster-whisper-large-v3"
+    model_name = whisper_model_name()
+    whisper_root = MODEL_ROOT / f"faster-whisper-{_safe_label(model_name)}"
     return WhisperModel(
-        "large-v3",
+        model_name,
         device="cpu",
         compute_type="int8",
         download_root=str(whisper_root),
@@ -181,16 +186,12 @@ class AudioProcessor:
     def _lyrics(self, payload: dict[str, Any], source: Path, temp_dir: Path) -> dict[str, Any]:
         job_id = str(payload.get("job_id") or payload.get("call_id") or "job")
         track_name = str(payload.get("track_name") or "track")
-        stem_dir = self.demucs_runner(source, temp_dir / "separated", True)
-        vocal_path = stem_dir / "vocals.wav"
-        if not vocal_path.is_file():
-            raise RuntimeError("Vocal stem was not produced, so lyrics were not generated.")
 
         model = self.whisper_model_factory()
         segments, info = model.transcribe(
-            str(vocal_path),
-            beam_size=5,
-            word_timestamps=True,
+            str(source),
+            beam_size=1,
+            word_timestamps=False,
             condition_on_previous_text=False,
             vad_filter=False,
         )
@@ -218,7 +219,6 @@ class AudioProcessor:
             "files": {
                 "lrc": self._upload_output(lrc_path, job_id, "lyrics"),
                 "plain": self._upload_output(txt_path, job_id, "lyrics-plain"),
-                "vocals": self._upload_output(vocal_path, job_id, "vocals"),
             },
         }
 
