@@ -22,6 +22,14 @@ export interface AudioToolJobResult {
   error?: unknown;
 }
 
+export interface AudioToolsPollOptions {
+  baseUrl?: string;
+  fetchImpl?: typeof fetch;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+  retryDelayMs?: number;
+}
+
 const getBaseUrl = () => {
   const value = String((import.meta as any).env?.VITE_AUDIO_TOOLS_URL || '').trim();
   return value.replace(/\/+$/, '');
@@ -123,17 +131,31 @@ export async function pollAudioToolsJob(
   callId: string,
   onProgress?: (status: string) => void,
   timeoutMs = 30 * 60 * 1000,
+  options: AudioToolsPollOptions = {},
 ): Promise<AudioToolJobResult> {
-  const baseUrl = getBaseUrl();
+  const baseUrl = String(options.baseUrl ?? getBaseUrl()).trim().replace(/\/+$/, '');
   if (!baseUrl) throw new Error('AWS Audio Tools is not configured.');
 
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    const response = await fetch(`${baseUrl}/jobs/${encodeURIComponent(callId)}`);
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const now = options.now ?? Date.now;
+  const retryDelayMs = Math.max(0, Number(options.retryDelayMs ?? 3000));
+
+  const startedAt = now();
+  while (now() - startedAt < timeoutMs) {
+    let response: Response;
+    try {
+      response = await fetchImpl(`${baseUrl}/jobs/${encodeURIComponent(callId)}`);
+    } catch {
+      onProgress?.('Audio Tools connection interrupted. Reconnecting…');
+      if (now() - startedAt >= timeoutMs) break;
+      await sleep(retryDelayMs);
+      continue;
+    }
 
     if (response.status === 202) {
       onProgress?.('Processing audio on AWS…');
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await sleep(3000);
       continue;
     }
 
