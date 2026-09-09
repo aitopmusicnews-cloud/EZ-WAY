@@ -1,6 +1,8 @@
 /// <reference lib="webworker" />
 
-import { pipeline } from '@huggingface/transformers';
+import { env, pipeline } from '@huggingface/transformers';
+
+env.backends.onnx.wasm.wasmPaths = '/transformers-wasm/';
 
 const MODEL_ID = 'onnx-community/whisper-tiny';
 
