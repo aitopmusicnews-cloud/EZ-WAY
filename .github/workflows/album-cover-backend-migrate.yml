@@ -1,0 +1,73 @@
+name: Migrate Album Cover Backend into EZ-WAY
+
+on:
+  push:
+    branches:
+      - feature/cloudflare-album-cover-backend
+    paths:
+      - .github/workflows/album-cover-backend-migrate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  migrate-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout EZ-WAY branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/cloudflare-album-cover-backend
+          fetch-depth: 0
+
+      - name: Checkout corrected legacy backend source
+        uses: actions/checkout@v4
+        with:
+          repository: aitopmusicnews-cloud/EZ-AI-Album-cover-studio
+          ref: main
+          path: .legacy-album-cover
+
+      - name: Copy backend into EZ-WAY
+        shell: bash
+        run: |
+          rm -rf album_cover_backend
+          mkdir -p album_cover_backend
+          rsync -a \
+            --exclude '__pycache__/' \
+            --exclude '*.pyc' \
+            --exclude 'album_cover_studio_backend.egg-info/' \
+            --exclude 'app/prompts.py.backup' \
+            .legacy-album-cover/backend/ album_cover_backend/
+          cp .legacy-album-cover/.env.example album_cover_backend/.env.example
+          rm -rf .legacy-album-cover
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r album_cover_backend/requirements.txt
+
+      - name: Compile backend
+        working-directory: album_cover_backend
+        run: python -m compileall -q app
+
+      - name: Run Cloudflare renderer regression
+        working-directory: album_cover_backend
+        run: python -m pytest -q tests/test_flux_image_renderer.py
+
+      - name: Run full backend suite
+        working-directory: album_cover_backend
+        run: python -m pytest -q tests
+
+      - name: Commit migrated backend to EZ-WAY
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add album_cover_backend
+          if git diff --cached --quiet; then
+            echo "No backend migration changes to commit."
+          else
+            git commit -m "feat: move Cloudflare album cover backend into EZ-WAY"
+            git push origin HEAD:feature/cloudflare-album-cover-backend
+          fi
