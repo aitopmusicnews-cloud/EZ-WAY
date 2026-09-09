@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { transcribePcmLocally, type WorkerLike } from './lyricsWorkerClient.ts';
@@ -64,4 +65,16 @@ test('transcribePcmLocally rejects worker errors and terminates the worker', asy
     /model failed/,
   );
   assert.equal(worker.terminated, true);
+});
+
+test('lyrics worker self-hosts the Transformers ONNX runtime instead of fetching it from a third-party CDN', () => {
+  const workerSource = readFileSync(new URL('../workers/lyrics.worker.ts', import.meta.url), 'utf8');
+  const packageJson = JSON.parse(
+    readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+  ) as { scripts?: Record<string, string> };
+
+  assert.match(workerSource, /import \{ env, pipeline \} from '@huggingface\/transformers';/);
+  assert.match(workerSource, /env\.backends\.onnx\.wasm\.wasmPaths = '\/transformers-wasm\/';/);
+  assert.equal(packageJson.scripts?.prebuild, 'node scripts/copy-transformers-wasm.mjs');
+  assert.equal(packageJson.scripts?.predev, 'node scripts/copy-transformers-wasm.mjs');
 });
