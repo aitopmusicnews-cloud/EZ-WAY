@@ -52,3 +52,20 @@ test('Edit Metadata contains manual artwork only and no cover-specific Pollinati
   assert.match(modal, /imageInputRef/);
   assert.match(modal, /transcribe-lyrics-pollinations/);
 });
+
+test('Album Cover Studio exposes creative controls and sends them to the backend', () => {
+  const component = read('../components/AlbumCoverStudio.tsx');
+  const service = read('./albumCoverStudio.ts');
+  const router = read('../../album_cover_backend/app/routers/generations.py');
+  const renderPrompts = read('../../album_cover_backend/app/render_prompts.py');
+
+  for (const label of ['Creative Control', 'Subject / Scene', 'Style', 'Composition', 'Must include', 'Avoid', 'Creative strength']) {
+    assert.match(component, new RegExp(label.replace('/', '\\/')));
+  }
+  for (const field of ['subject_hint', 'scene_hint', 'style_preset', 'composition_preset', 'color_mood', 'must_include', 'avoid', 'creative_strength']) {
+    assert.match(service, new RegExp(field));
+    assert.match(router, new RegExp(field));
+  }
+  assert.match(renderPrompts, /build_creative_control_prompt/);
+  assert.match(renderPrompts, /Follow the user creative controls strictly/);
+});
