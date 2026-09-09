@@ -62,6 +62,9 @@ jobs:
       - name: Browser WAV encoder tests
         run: node --experimental-strip-types --test src/services/wav.test.ts
 
+      - name: AWS generated-output storage contract tests
+        run: node --test aws/app-data/api/storage.test.mjs
+
       - name: AWS-only track analysis regression
         run: node --experimental-strip-types --test src/services/awsOnlyTrackAnalysis.test.ts
 
