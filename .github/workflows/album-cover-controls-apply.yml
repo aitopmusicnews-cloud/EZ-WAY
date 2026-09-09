@@ -1,0 +1,65 @@
+name: Apply Album Cover Creative Controls
+
+on:
+  push:
+    branches:
+      - feature/album-cover-creative-controls
+    paths:
+      - .github/workflows/album-cover-controls-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/album-cover-creative-controls
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Apply creative-control patch
+        run: python scripts/apply_album_cover_creative_controls.py
+
+      - name: Install backend dependencies
+        run: python -m pip install --quiet -r album_cover_backend/requirements.txt
+
+      - name: Album Cover integration regression
+        run: node --experimental-strip-types --test src/services/albumCoverIntegration.test.ts
+
+      - name: Backend prompt and pipeline tests
+        run: python -m pytest -q album_cover_backend/tests/test_prompts.py album_cover_backend/tests/test_pipeline.py album_cover_backend/tests/test_flux_image_renderer.py
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit verified implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/services/albumCoverStudio.ts src/components/AlbumCoverStudio.tsx \
+            album_cover_backend/app/schemas.py album_cover_backend/app/routers/generations.py \
+            album_cover_backend/app/validation.py album_cover_backend/app/service.py \
+            album_cover_backend/app/major_label_service.py album_cover_backend/app/feedback_generation_service.py \
+            album_cover_backend/app/render_prompts.py
+          git commit -m "feat: add Album Cover creative controls"
+          git push origin feature/album-cover-creative-controls
