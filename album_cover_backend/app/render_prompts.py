@@ -5,6 +5,41 @@ from typing import Any
 from .style_presets import StylePreset
 
 
+def build_creative_control_prompt(
+    base_prompt: str, controls: dict[str, Any] | None = None
+) -> str:
+    values = controls or {}
+    if not any(str(value).strip() for value in values.values() if value is not None):
+        return base_prompt.strip()
+
+    strength = str(values.get("creative_strength") or "balanced").strip().lower()
+    if strength == "strict":
+        authority = (
+            "Follow the user creative controls strictly. User-specified subject, scene, must-include, "
+            "and avoid instructions outrank automatic creative choices. Do not substitute a different central subject or setting."
+        )
+    elif strength == "loose":
+        authority = "Use the user creative controls as guidance while allowing tasteful interpretation."
+    else:
+        authority = "Follow the user creative controls closely while preserving tasteful creative judgment."
+
+    lines = ["USER CREATIVE CONTROLS — PRIORITY INSTRUCTIONS", authority]
+    labels = (
+        ("subject_hint", "Primary subject"),
+        ("scene_hint", "Scene / setting"),
+        ("style_preset", "Visual style"),
+        ("composition_preset", "Composition"),
+        ("color_mood", "Color / mood"),
+        ("must_include", "Must include"),
+        ("avoid", "Avoid / do not include"),
+    )
+    for key, label in labels:
+        value = str(values.get(key) or "").strip()
+        if value and value != "auto":
+            lines.append(f"{label}: {value}.")
+    return " ".join(lines + ["SONG-DRIVEN CREATIVE BRIEF:", base_prompt.strip()]).strip()
+
+
 _RENDER_VARIATIONS = {
     1: "Use the strongest direct execution of the concept with disciplined commercial polish.",
     2: "Preserve the exact concept and metaphor, but change camera distance, crop, and lighting execution.",

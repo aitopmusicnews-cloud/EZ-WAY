@@ -13,7 +13,7 @@ from .concept_ranking import ConceptRankingResult
 from .cover_critic import CoverInput
 from .models import ConceptCandidate, Generation, Variation, VariationSet
 from .prompts import build_image_prompt
-from .render_prompts import build_render_prompt
+from .render_prompts import build_creative_control_prompt, build_render_prompt
 from .retry import with_retry
 from .service import GenerationService
 from .signals import combine_signals
@@ -60,7 +60,8 @@ class MajorLabelGenerationService(GenerationService):
         )
 
     async def _create_and_fill_set(
-        self, db: Session, generation: Generation, variation_count: int, mood_path: str
+        self, db: Session, generation: Generation, variation_count: int, mood_path: str,
+        creative_controls: dict[str, str] | None = None,
     ) -> None:
         if not 3 <= variation_count <= 8:
             raise ValueError("variation_count must be between 3 and 8")
@@ -68,13 +69,16 @@ class MajorLabelGenerationService(GenerationService):
         signal = combine_signals(analysis.get("audio"), analysis.get("lyrics"), mood_path=mood_path)
         set_number = max((item.set_number for item in generation.variation_sets), default=0) + 1
         seed = f"{generation.input_hash}:set:{set_number}:path:{mood_path}"
-        brief = build_image_prompt(
-            signal,
-            mood_path,
-            title=generation.title,
-            artist=generation.artist,
-            parental_advisory=bool(generation.parental_advisory),
-            creative_seed=seed,
+        brief = build_creative_control_prompt(
+            build_image_prompt(
+                signal,
+                mood_path,
+                title=generation.title,
+                artist=generation.artist,
+                parental_advisory=bool(generation.parental_advisory),
+                creative_seed=seed,
+            ),
+            creative_controls,
         )
         concepts = await self._plan_concepts(db, generation, signal, brief, seed)
         ranking: ConceptRankingResult = await self.concept_ranker.rank(

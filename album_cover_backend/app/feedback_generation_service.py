@@ -22,16 +22,17 @@ class FeedbackDrivenGenerationService(MajorLabelGenerationService):
         generation_id: str,
         variation_count: int = 4,
         mood_path: str = "blend",
+        creative_controls: dict[str, str] | None = None,
     ) -> None:
         with self.database.session_factory() as db:
             generation = self.get(db, generation_id)
             if not generation.analysis_json:
-                await self.process_generation(generation_id, variation_count, mood_path)
+                await self.process_generation(generation_id, variation_count, mood_path, creative_controls)
                 return
 
             source_set = self._latest_scored_set(generation)
             if source_set is None:
-                await self._create_and_fill_set(db, generation, variation_count, mood_path)
+                await self._create_and_fill_set(db, generation, variation_count, mood_path, creative_controls)
                 return
 
             context, source_variation_id = build_improvement_context(source_set)
@@ -50,10 +51,11 @@ class FeedbackDrivenGenerationService(MajorLabelGenerationService):
                         "mood_path": mood_path,
                         "variation_count": variation_count,
                         "improvement_context": context,
+                        "creative_controls": creative_controls or {},
                     },
                     source_set.id,
                 )
-                await self._create_and_fill_set(db, generation, variation_count, mood_path)
+                await self._create_and_fill_set(db, generation, variation_count, mood_path, creative_controls)
                 refreshed = self.get(db, generation.id)
                 created_set = max(refreshed.variation_sets, key=lambda item: item.set_number)
                 succeeded = created_set.status in {"complete", "partial"}

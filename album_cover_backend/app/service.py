@@ -18,6 +18,7 @@ from .image_client import ImageClient
 from .lyrics_analysis import LyricsAnalyzer
 from .models import AuditEvent, Generation, Variation, VariationSet
 from .prompts import attach_concept_plan, build_image_prompt
+from .render_prompts import build_creative_control_prompt
 from .retry import with_retry
 from .signals import combine_signals, detect_conflict
 from .storage import LocalStorage
@@ -67,12 +68,14 @@ class GenerationService:
         title: str | None,
         artist: str | None,
         parental_advisory: bool,
+        creative_controls: dict[str, str] | None = None,
     ) -> CreateResult:
         collection_id = self._normalize_collection_id(collection_id)
         audio_hash = sha256_bytes(audio_bytes) if audio_bytes else None
         lyrics_hash = sha256_bytes(lyrics_text.encode("utf-8")) if lyrics_text else None
         input_hash = build_input_hash(
-            audio_hash, lyrics_hash, title=title, artist=artist, parental_advisory=parental_advisory
+            audio_hash, lyrics_hash, title=title, artist=artist, parental_advisory=parental_advisory,
+            creative_controls=creative_controls,
         )
 
         cached = db.scalar(
@@ -124,12 +127,14 @@ class GenerationService:
                 "title": title,
                 "artist": artist,
                 "parental_advisory": parental_advisory,
+                "creative_controls": creative_controls or {},
             },
         )
         return CreateResult(self.get(db, generation.id), False)
 
     async def process_generation(
-        self, generation_id: str, variation_count: int = 4, mood_path: str = "auto"
+        self, generation_id: str, variation_count: int = 4, mood_path: str = "auto",
+        creative_controls: dict[str, str] | None = None,
     ) -> None:
         with self.database.session_factory() as db:
             generation = self.get(db, generation_id)
@@ -154,7 +159,7 @@ class GenerationService:
                     )
                     return
                 resolved_path = self._resolve_path(generation, mood_path)
-                await self._create_and_fill_set(db, generation, variation_count, resolved_path)
+                await self._create_and_fill_set(db, generation, variation_count, resolved_path, creative_controls)
             except Exception as exc:
                 generation = db.get(Generation, generation_id)
                 if generation:
@@ -172,14 +177,15 @@ class GenerationService:
                     )
 
     async def regenerate(
-        self, generation_id: str, variation_count: int, mood_path: str
+        self, generation_id: str, variation_count: int, mood_path: str,
+        creative_controls: dict[str, str] | None = None,
     ) -> None:
         with self.database.session_factory() as db:
             generation = self.get(db, generation_id)
             if not generation.analysis_json:
-                await self.process_generation(generation_id, variation_count, mood_path)
+                await self.process_generation(generation_id, variation_count, mood_path, creative_controls)
                 return
-            await self._create_and_fill_set(db, generation, variation_count, mood_path)
+            await self._create_and_fill_set(db, generation, variation_count, mood_path, creative_controls)
 
     async def retry_failed(self, generation_id: str) -> None:
         with self.database.session_factory() as db:
@@ -345,7 +351,8 @@ class GenerationService:
         return True
 
     async def _create_and_fill_set(
-        self, db: Session, generation: Generation, variation_count: int, mood_path: str
+        self, db: Session, generation: Generation, variation_count: int, mood_path: str,
+        creative_controls: dict[str, str] | None = None,
     ) -> None:
         if variation_count < 3 or variation_count > 5:
             raise ValueError("variation_count must be between 3 and 5")
@@ -356,13 +363,16 @@ class GenerationService:
         # therefore get different visual DNA, while a Fresh Variations request for
         # the same song deliberately rotates to a new art direction.
         creative_seed = f"{generation.input_hash}:set:{next_number}:path:{mood_path}"
-        prompt = build_image_prompt(
-            signal,
-            mood_path,
-            title=generation.title,
-            artist=generation.artist,
-            parental_advisory=bool(generation.parental_advisory),
-            creative_seed=creative_seed,
+        prompt = build_creative_control_prompt(
+            build_image_prompt(
+                signal,
+                mood_path,
+                title=generation.title,
+                artist=generation.artist,
+                parental_advisory=bool(generation.parental_advisory),
+                creative_seed=creative_seed,
+            ),
+            creative_controls,
         )
 
         # Ask a separate creative-director model to invent the actual visual premises.

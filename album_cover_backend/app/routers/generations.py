@@ -8,6 +8,7 @@ from ..metrics import collection_metrics
 from ..presentation import generation_response
 from ..schemas import (
     CollectionMetricsResponse,
+    CreativeControls,
     GenerationResponse,
     HistoryResponse,
     RegenerateRequest,
@@ -42,6 +43,14 @@ async def create_generation(
     mood_path: str = Form(default="auto", pattern="^(auto|blend|audio|lyrics)$"),
     variation_count: int = Form(default=4, ge=3, le=5),
     run_async: bool = Form(default=True),
+    subject_hint: str | None = Form(default=None),
+    scene_hint: str | None = Form(default=None),
+    style_preset: str = Form(default="auto"),
+    composition_preset: str = Form(default="auto"),
+    color_mood: str | None = Form(default=None),
+    must_include: str | None = Form(default=None),
+    avoid: str | None = Form(default=None),
+    creative_strength: str = Form(default="balanced"),
 ):
     settings = request.app.state.settings
     audio_bytes = await read_validated_mp3(audio, settings.max_audio_bytes) if audio else None
@@ -50,6 +59,16 @@ async def create_generation(
     combined_lyrics = "\n\n".join(part for part in (pasted_lyrics, file_lyrics) if part).strip() or None
     clean_title = sanitize_metadata_text(title, field_name="Title")
     clean_artist = sanitize_metadata_text(artist, field_name="Artist")
+    controls = CreativeControls(
+        subject_hint=sanitize_metadata_text(subject_hint, field_name="Subject hint", max_chars=300),
+        scene_hint=sanitize_metadata_text(scene_hint, field_name="Scene hint", max_chars=300),
+        style_preset=style_preset,
+        composition_preset=composition_preset,
+        color_mood=sanitize_metadata_text(color_mood, field_name="Color / mood", max_chars=200),
+        must_include=sanitize_metadata_text(must_include, field_name="Must include", max_chars=500),
+        avoid=sanitize_metadata_text(avoid, field_name="Avoid", max_chars=500),
+        creative_strength=creative_strength,
+    ).as_prompt_dict()
     if not audio_bytes and not combined_lyrics:
         from fastapi import HTTPException
 
@@ -64,6 +83,7 @@ async def create_generation(
         title=clean_title,
         artist=clean_artist,
         parental_advisory=parental_advisory,
+        creative_controls=controls,
     )
     if created.cache_hit:
         response.status_code = 200
@@ -71,12 +91,12 @@ async def create_generation(
 
     if run_async:
         background_tasks.add_task(
-            svc.process_generation, created.generation.id, variation_count, mood_path
+            svc.process_generation, created.generation.id, variation_count, mood_path, controls
         )
         response.status_code = 202
         return generation_response(created.generation)
 
-    await svc.process_generation(created.generation.id, variation_count, mood_path)
+    await svc.process_generation(created.generation.id, variation_count, mood_path, controls)
     response.status_code = 201
     return generation_response(svc.get(db, created.generation.id))
 
@@ -116,11 +136,11 @@ async def generate_after_choice(
     svc.get(db, generation_id)
     if payload.run_async:
         background_tasks.add_task(
-            svc.regenerate, generation_id, payload.variation_count, payload.mood_path
+            svc.regenerate, generation_id, payload.variation_count, payload.mood_path, payload.as_prompt_dict()
         )
         response.status_code = 202
     else:
-        await svc.regenerate(generation_id, payload.variation_count, payload.mood_path)
+        await svc.regenerate(generation_id, payload.variation_count, payload.mood_path, payload.as_prompt_dict())
         response.status_code = 200
     return generation_response(svc.get(db, generation_id))
 
@@ -138,11 +158,11 @@ async def regenerate(
     svc.get(db, generation_id)
     if payload.run_async:
         background_tasks.add_task(
-            svc.regenerate, generation_id, payload.variation_count, payload.mood_path
+            svc.regenerate, generation_id, payload.variation_count, payload.mood_path, payload.as_prompt_dict()
         )
         response.status_code = 202
     else:
-        await svc.regenerate(generation_id, payload.variation_count, payload.mood_path)
+        await svc.regenerate(generation_id, payload.variation_count, payload.mood_path, payload.as_prompt_dict())
         response.status_code = 200
     return generation_response(svc.get(db, generation_id))
 
@@ -165,11 +185,11 @@ async def generate_better(
         raise HTTPException(status_code=409, detail="Generate Better is not enabled.")
     if payload.run_async:
         background_tasks.add_task(
-            improve, generation_id, payload.variation_count, payload.mood_path
+            improve, generation_id, payload.variation_count, payload.mood_path, payload.as_prompt_dict()
         )
         response.status_code = 202
     else:
-        await improve(generation_id, payload.variation_count, payload.mood_path)
+        await improve(generation_id, payload.variation_count, payload.mood_path, payload.as_prompt_dict())
         response.status_code = 200
     return generation_response(svc.get(db, generation_id))
 
