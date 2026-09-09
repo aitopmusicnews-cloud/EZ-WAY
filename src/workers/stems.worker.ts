@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-import * as ort from 'onnxruntime-web';
+import * as ort from 'onnxruntime-web/webgpu';
 import { fft, ifft } from 'fourier-transform';
 
 const SAMPLE_RATE = 44100;
@@ -146,7 +146,7 @@ const addChunkToOutputs = (
     for (let localFrame = 0; localFrame < frameCount; localFrame += 1) {
       const spectrum = spectra[channelIndex][localFrame];
       const modeledMasks = STEMS.map(() => new Float32Array(MODEL_BINS));
-      let averageByStem = new Float64Array(STEMS.length);
+      const averageByStem = new Float64Array(STEMS.length);
 
       for (let bin = 0; bin < MODEL_BINS; bin += 1) {
         let denominator = EPSILON;
