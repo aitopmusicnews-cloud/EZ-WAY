@@ -73,7 +73,13 @@ For stems:
 4. Build the ZIP locally.
 5. Upload generated outputs to AWS when app-data storage is configured; otherwise expose local object URLs for immediate download.
 
-The AWS app-data upload contract currently has no dedicated generated-audio category. Add one narrowly scoped category such as `audio-tools-output` with an `audio/` content-type family and a suitable per-file size ceiling. Generated ZIPs can either use a second dedicated category or the same generated-output category with an explicitly allowed ZIP content type. The category must remain authenticated and private.
+Extend the authenticated AWS app-data upload contract with three narrow private categories:
+
+- `audio-tools-audio`: generated WAV/audio outputs under a generated-audio prefix, accepting only `audio/*` and a per-file ceiling suitable for long WAV stems.
+- `audio-tools-text`: generated `.lrc` and plain-text lyric files under a generated-text prefix, accepting only `text/*` with a small ceiling.
+- `audio-tools-bundle`: generated stem ZIP files under a generated-bundle prefix, accepting only `application/zip` with a ceiling large enough for a full stem bundle.
+
+These categories use the existing presigned-upload flow. They do not expose AWS credentials to browser code and remain private S3 objects.
 
 ## 4. Lyrics Processing
 
@@ -86,13 +92,15 @@ Preferred execution order:
 1. WebGPU when available.
 2. WASM fallback when WebGPU is unavailable and the selected model is supported within practical browser memory limits.
 
-The initial production model should prioritize reliability and reasonable browser memory over maximum model size. The implementation plan must pin the chosen model and package versions after a browser compatibility smoke test.
+The initial production model must prioritize reliability and reasonable browser memory over maximum model size. The implementation plan must pin the exact model and package versions after a compatibility smoke test on the browsers EZ-WAY supports.
 
 ### 4.2 Input
 
 Lyrics should transcribe the original mixed track directly by default.
 
 Do not require stem separation before transcription. Requiring Demucs first would recreate the existing coupling and make Synced Lyrics dependent on the heavier feature.
+
+The current UI text that says Synced Lyrics "isolates the vocal first" must be replaced with accurate wording that says transcription runs locally on the source track and does not invent missing lyrics.
 
 ### 4.3 Output
 
@@ -209,6 +217,8 @@ Use the same resilient source rules as browser Music Intelligence:
 
 This prevents old S3 signed URLs from becoming a hidden dependency.
 
+The current Lyrics/Stems UI guards that require a non-`blob:` cloud URL must be replaced with a shared local-source availability check. A valid `track.file_data` source is sufficient and must not be rejected just because the track has no cloud URL yet.
+
 ## 9. Service Boundary
 
 Replace remote job execution in UI consumers with a local service contract rather than duplicating model logic inside components.
@@ -226,7 +236,7 @@ runLocalAudioTool(
 
 `AudioAnalyzerStudio.tsx` and `TrackOptionsMenu.tsx` should call this boundary.
 
-`audioTools.ts` should either become the local compatibility facade or be replaced by a clearly named browser-local module. Existing consumers should not know or care whether the implementation uses workers, WebGPU, ONNX, or Transformers.js.
+`audioTools.ts` should become the browser-local compatibility facade so existing consumers keep the same result types while the remote job/polling implementation is removed from the production execution path. Model/worker internals must live in focused modules rather than in React components.
 
 ## 10. Render and Legacy AWS Audio Tools
 
@@ -274,9 +284,10 @@ Required automated contracts:
 8. Stem result exposes a ZIP bundle URL.
 9. Progress callbacks are emitted for model load, processing, and persistence phases.
 10. Source refresh is attempted for stale signed URLs when `file_key` is available.
-11. AWS generated-output upload category accepts intended audio/ZIP types and rejects unrelated file types/sizes.
-12. Unsupported browser capability errors do not trigger a server fallback.
-13. TypeScript, full existing CI, and production build remain green.
+11. AWS generated-output upload categories accept only the intended audio/text/ZIP types and reject unrelated file types/sizes.
+12. A valid `file_data` source can run Lyrics/Stems without requiring a cloud URL.
+13. Unsupported browser capability errors do not trigger a server fallback.
+14. TypeScript, full existing CI, and production build remain green.
 
 ## 14. Production Verification Gate
 
