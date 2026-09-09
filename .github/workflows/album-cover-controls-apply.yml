@@ -44,7 +44,8 @@ jobs:
         run: node --experimental-strip-types --test src/services/albumCoverIntegration.test.ts
 
       - name: Backend prompt and pipeline tests
-        run: python -m pytest -q album_cover_backend/tests/test_prompts.py album_cover_backend/tests/test_pipeline.py album_cover_backend/tests/test_flux_image_renderer.py
+        working-directory: album_cover_backend
+        run: python -m pytest -q tests/test_prompts.py tests/test_pipeline.py tests/test_flux_image_renderer.py
 
       - name: TypeScript check
         run: npm run lint
