@@ -1,121 +1,225 @@
-# EZ-WAY Audio Tools — AWS Runtime
+# EZ-WAY Audio Tools — Browser-Local Runtime
 
-EZ-WAY Audio Tools runs on AWS. There is no production Modal dependency.
+EZ-WAY's production Audio Tools compute path runs in the user's browser.
 
-## Music Intelligence
+Music Intelligence, Synced Lyrics, and Stem Separation do **not** depend on Modal, Gemini, Render inference, ECS workers, or Lambda inference. AWS remains responsible for authentication, source-media persistence, application data, and optional persistence of generated files.
 
-Every newly uploaded track is analyzed once and the saved Song Profile is reused across EZ-WAY.
+## Production flow
 
-The analyzer uses **Gemini** for structured music/audio analysis. The worker uploads the downloaded master audio to the Gemini Files API, requests schema-constrained metadata, then converts that response into EZ-WAY's existing canonical Song Profile.
+```text
+Track source
+  -> prefer track.file_data
+  -> otherwise refresh/use current signed S3 file_url
+  -> browser decode/resample
 
-The profile includes BPM, BPM confidence, musical key, Camelot key, key confidence, ranked genre/style/mood/instrument traits, functional song sections, chapters, and deterministic profile warnings. The default model is `gemini-3.8-flash` and can be overridden with `GEMINI_MODEL` in the worker environment.
+Music Intelligence
+  -> browser-local song-profile analysis
 
-Gemini is not used for lyric transcription. The analysis prompt explicitly excludes lyric reconstruction so lyrics remain the responsibility of Whisper.
+Synced Lyrics
+  -> Whisper Tiny Web Worker
+  -> timestamped LRC + plain text
+  -> save lyrics to track
+  -> optional private AWS output upload
+
+Stem Separation
+  -> Spleeter 4-stem ONNX Web Worker
+  -> vocals / drums / bass / other
+  -> optional vocals + instrumental derivation
+  -> WAV files + ZIP
+  -> optional private AWS output upload
+```
 
 ## Synced Lyrics
 
-- Demucs isolates the vocal.
-- faster-whisper `large-v3` transcribes the vocal with timestamps.
-- EZ-WAY saves timestamped lyrics back to the selected track.
-- Generated `.lrc`, plain text, and vocal-stem files are stored in private S3 and returned through presigned URLs.
-- If a reliable transcript cannot be produced, the job fails instead of inventing lyrics.
+Implementation:
+
+- Facade: `src/services/browserAudioTools.ts`
+- Worker client: `src/services/lyricsWorkerClient.ts`
+- Worker: `src/workers/lyrics.worker.ts`
+- Formatter: `src/services/lyricsCore.ts`
+- Runtime: `@huggingface/transformers@4.2.0`
+- Model: `onnx-community/whisper-tiny`
+
+The source audio is decoded in the browser, mixed to mono, and resampled to 16 kHz before transcription. The worker prefers WebGPU when available and falls back to the Transformers.js browser runtime/WASM path.
+
+The worker requests timestamps and returns transcript chunks. EZ-WAY converts those chunks into:
+
+- timestamped LRC-style lyrics stored on the track;
+- a downloadable `.lrc` file;
+- a downloadable plain-text lyric file.
+
+If no reliable transcript text is produced, the operation fails and existing track lyrics remain unchanged.
+
+Lyrics transcribes the original source mix directly. It does **not** require stem separation first.
 
 ## Stem Separation
 
-- **Vocals + Instrumental** returns vocal and no-vocals stems.
-- **Full Separation** returns vocals, drums, bass, and other.
-- A ZIP bundle is also written to S3.
+Implementation:
 
-## AWS architecture
+- Facade: `src/services/browserAudioTools.ts`
+- Worker client: `src/services/stemsWorkerClient.ts`
+- Worker: `src/workers/stems.worker.ts`
+- DSP helpers: `src/services/spleeterCore.ts`
+- WAV encoder: `src/services/wav.ts`
+- Runtime: `onnxruntime-web@1.29.0`
+- FFT runtime: `fourier-transform@2.4.1`
+- Model: `Best-Practice/spleeter-4stems-onnx`
 
-```text
-EZ-WAY
-  -> API Gateway / Lambda POST /jobs
-  -> SQS
-  -> ECS Fargate Audio Tools worker
-       -> Gemini (analysis)
-       -> Demucs (stems / vocal isolation)
-       -> faster-whisper (lyrics)
-  -> DynamoDB jobs + track-analysis
-  -> S3 generated outputs
-  <- API Gateway / Lambda GET /jobs/{call_id}
+The selected four-stem ONNX model emits magnitude estimates for:
+
+- vocals
+- drums
+- bass
+- other
+
+The worker uses the published Spleeter contract:
+
+- 44.1 kHz stereo input
+- periodic Hann window
+- FFT size 4096
+- hop size 1024
+- 1024 modeled frequency bins
+- 512 frames per inference split
+- four-way squared soft-ratio masks
+- average extension across the unmodeled high-frequency bins
+- original phase plus overlap-add inverse reconstruction
+
+### Modes
+
+`vocals_instrumental`
+
+- vocals
+- instrumental, derived by summing drums + bass + other
+
+`full`
+
+- vocals
+- drums
+- bass
+- other
+
+Each requested stem is encoded as 16-bit stereo WAV. EZ-WAY also builds a ZIP containing the requested stem files.
+
+## Model loading and browser capability
+
+Large models are loaded only when the user invokes the corresponding feature.
+
+The browser workers try accelerated execution first when supported. If an operation cannot run on the current browser/device, it fails locally with a clear error; it does not silently submit the track to Render or another paid inference service.
+
+Model files downloaded from Hugging Face are expected to be cacheable by the browser/runtime after first use.
+
+## Source handling
+
+`src/services/trackAudioSource.ts` defines the shared source behavior.
+
+Priority:
+
+1. `track.file_data` when a real local File/Blob is still available.
+2. Current `track.file_url` when fetchable.
+3. If `track.file_key` exists, refresh the track through the authenticated AWS app-data `/bootstrap` flow before using an older signed URL.
+
+Lyrics and Stems do not require an HTTPS cloud source when valid local `file_data` is available.
+
+## Generated output persistence
+
+Local processing succeeds independently of AWS output persistence.
+
+When the AWS app-data store is configured, `browserAudioTools.ts` uploads finished files through the existing authenticated presigned-upload flow using these private categories:
+
+| Category | Prefix | Allowed type | Limit |
+| --- | --- | --- | ---: |
+| `audio-tools-audio` | `generated/audio` | `audio/*` | 1 GiB/file |
+| `audio-tools-text` | `generated/text` | `text/*` | 5 MiB/file |
+| `audio-tools-bundle` | `generated/bundle` | `application/zip` | 2 GiB/file |
+
+If cloud persistence fails after local processing succeeds, EZ-WAY keeps the browser object URLs so the user can still download the completed files and returns a warning rather than discarding the result.
+
+AWS access keys are never exposed to browser code.
+
+## Production UI contract
+
+The production consumers are:
+
+- `src/components/TrackOptionsMenu.tsx`
+- `src/components/AudioAnalyzerStudio.tsx`
+
+They call `runLocalAudioTool(...)` for Lyrics/Stems.
+
+They must not call `runAudioToolsJob(...)`, `POST /jobs`, or depend on `VITE_AUDIO_TOOLS_URL` for the live Lyrics/Stems path.
+
+`AudioToolJobResult` compatibility is preserved so existing result/download UI can continue using:
+
+```ts
+{
+  status: 'completed',
+  action: 'lyrics' | 'stems',
+  lyrics?: string,
+  files?: Record<string, string>,
+  bundle_url?: string,
+  warning?: string,
+}
 ```
 
-The worker is CPU-backed for Demucs and Whisper. Gemini analysis runs through the remote Gemini API without changing the browser API.
+## Legacy remote Audio Tools
 
-Implementation and deployment files live under:
+The repository still contains:
 
 ```text
 aws/audio-tools/
+render_audio_tools/
+src/services/audioTools.ts
 ```
 
-See `aws/audio-tools/README.md` for the guided CloudShell deployment and smoke test.
+These are retained as rollback/diagnostic infrastructure. They are not the production browser execution path for Analyze, Lyrics, or Stems.
 
-## Gemini API key
+Do not delete the legacy infrastructure as part of browser-runtime changes unless a separate cleanup change has an explicit rollback decision.
 
-The Gemini API key lives in AWS Secrets Manager. The default secret name is:
+## Frontend environment
 
-```text
-ezway/audio-tools/gemini-api-key
-```
-
-If that secret already exists, deployment reuses it automatically and you do not need to export the key into CloudShell:
-
-```bash
-./aws/audio-tools/deploy.sh
-```
-
-If the existing secret uses another name, set `GEMINI_SECRET_NAME` for the deployment. Supplying `GEMINI_API_KEY` is only needed when creating or rotating the secret through the deployment script.
-
-The deployment passes only the secret ARN to CloudFormation. ECS injects the secret into the worker as `GEMINI_API_KEY`; the key is never committed to the repository or exposed to browser code.
-
-To change the analysis model, set `GEMINI_MODEL` on the ECS worker task definition; the repository default is `gemini-3.8-flash`.
-
-## Web application environment
-
-After the AWS endpoint has been deployed and a real analysis job has completed successfully, set:
+Active application-data configuration may include:
 
 ```env
-VITE_AUDIO_TOOLS_URL=https://YOUR-VERIFIED-AWS-AUDIO-TOOLS-ENDPOINT
+VITE_EZWAY_API_URL=...
 ```
 
-Do not append `/jobs`; the app automatically calls:
+An explicit separate Music Intelligence profile API may use:
 
-- `POST /jobs`
-- `GET /jobs/{call_id}`
-- `GET /track-analysis/{track_id}`
-
-The intended stable custom hostname is:
-
-```text
-https://audio-tools-api.theartistcut.com
+```env
+VITE_MUSIC_INTELLIGENCE_API_URL=...
 ```
 
-Do not hard-code that hostname until DNS, TLS, API mapping, `/health`, and a real analysis job are verified.
+`VITE_AUDIO_TOOLS_URL` is legacy rollback configuration and is not required for the browser-local Analyze/Lyrics/Stems path.
 
-`VITE_MUSIC_INTELLIGENCE_API_URL` remains optional. When explicitly configured it is treated as a separate authenticated profile-write API. Without it, browser writes stay local while the AWS worker writes successful canonical Song Profiles server-side.
+## Security and privacy
 
-## Automatic upload behavior
+- Audio inference remains in the browser.
+- Hugging Face serves model assets; user audio is not uploaded to the model host for inference.
+- AWS stores the original source already used by EZ-WAY and only the generated outputs explicitly persisted by the app.
+- No Gemini/Modal/Render inference credential is required for these browser Audio Tools operations.
+- Private generated outputs are returned through signed AWS URLs when cloud persistence succeeds.
 
-1. Read track duration locally.
-2. Upload the real audio master to cloud storage.
-3. Create the EZ-WAY track in `processing` state.
-4. Submit one AWS `analysis` job using the cloud audio URL and source fingerprint.
-5. Poll the AWS job until terminal.
-6. Reuse the returned Song Profile, copy BPM/key/tags to the track, and mark it `ready`.
-7. The AWS worker also persists the canonical Song Profile in DynamoDB.
+## Licensing and provenance
 
-Bulk uploads stay sequential to avoid flooding the worker. If analysis fails, the uploaded track stays in the library with `error` status and no fabricated metadata.
+EZ-WAY intentionally does not ship the HTDemucs browser weights previously evaluated because that browser port restricts those weights to personal/research use.
 
-## Source file requirement
+The production stem worker points to `Best-Practice/spleeter-4stems-onnx` fp16 model files. The upstream model card/repository documents Apache-2.0 conversion artifacts and the Deezer Spleeter model-weight provenance/licensing discussion. See `THIRD_PARTY_NOTICES.md` before changing, mirroring, or redistributing those weights.
 
-Audio Tools requires an HTTPS cloud-accessible `track.file_url`. Browser-only `blob:` URLs cannot be processed by the AWS worker.
+## Verification
 
-## Security
+The GitHub Actions verification workflow covers:
 
-- No AWS or Gemini secret keys belong in browser code or Vite variables.
-- Gemini credentials are stored in AWS Secrets Manager and injected into ECS through the task definition `Secrets` field.
-- Worker IAM permissions are scoped to its SQS queue, DynamoDB tables, S3 output bucket, and the specific Gemini API-key secret.
-- S3 public access is blocked.
-- CORS is restricted to the EZ-WAY production and Amplify origins.
-- Before broad multi-user exposure, protect the public job API with user authorization plus API Gateway throttling/WAF.
+- browser Audio Tools facade contracts;
+- lyrics formatting;
+- worker-client protocols;
+- stem DSP helpers;
+- WAV encoding;
+- AWS generated-output validation;
+- UI routing away from remote jobs;
+- existing Music Intelligence and application regressions;
+- retained AWS/Render regression tests;
+- Python/Node syntax checks;
+- CloudFormation lint;
+- TypeScript;
+- production build.
+
+A production deployment is not considered verified merely because CI passes. The final gate is a successful Amplify deploy plus real-browser validation of Lyrics/Stems downloads and network behavior.
