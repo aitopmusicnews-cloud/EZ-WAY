@@ -1,7 +1,9 @@
 import type { Track } from '../types.ts';
 import { getIdToken } from './auth.ts';
-import { runAudioToolsJob } from './audioTools.ts';
-import { resolveMusicIntelligenceReadBase } from './musicIntelligenceAws.ts';
+import {
+  analyzeTrackLocally,
+  LOCAL_MUSIC_INTELLIGENCE_VERSION,
+} from './localMusicIntelligence.ts';
 import {
   buildAnalysisSourceFingerprint,
   hasUsableMusicIntelligenceProfile,
@@ -10,7 +12,7 @@ import {
   type MusicIntelligenceProfile,
 } from './musicIntelligenceCore.ts';
 
-export const MUSIC_INTELLIGENCE_VERSION = 'music-intelligence-v1';
+export const MUSIC_INTELLIGENCE_VERSION = LOCAL_MUSIC_INTELLIGENCE_VERSION;
 const LOCAL_CACHE_KEY = 'ezway_music_intelligence_v1';
 
 export interface TrackAnalysisRecord {
@@ -34,11 +36,10 @@ const getEnv = (name: string): string => {
 
 const cleanBase = (value: unknown): string => String(value ?? '').trim().replace(/\/+$/, '');
 
-const getCloudReadBase = (): string => resolveMusicIntelligenceReadBase(
-  getEnv('VITE_MUSIC_INTELLIGENCE_API_URL'),
-  getEnv('VITE_AUDIO_TOOLS_URL'),
-);
-
+// Local browser analysis is the default source of truth. A separate profile API can
+// still be configured explicitly, but the Render Audio Tools service is no longer
+// treated as an analysis-profile backend merely because VITE_AUDIO_TOOLS_URL exists.
+const getCloudReadBase = (): string => cleanBase(getEnv('VITE_MUSIC_INTELLIGENCE_API_URL'));
 const getCloudWriteBase = (): string => cleanBase(getEnv('VITE_MUSIC_INTELLIGENCE_API_URL'));
 const getAppDataBase = (): string => cleanBase(getEnv('VITE_EZWAY_API_URL'));
 
@@ -69,7 +70,7 @@ const writeLocalRecord = (record: TrackAnalysisRecord) => {
     cache[record.track_id] = record;
     localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cache));
   } catch {
-    // Browser cache is best-effort; AWS is canonical after a successful worker analysis.
+    // Browser profile caching is best-effort.
   }
 };
 
@@ -108,9 +109,8 @@ export async function refreshTrackAnalysisSource(
   options: RefreshTrackAnalysisSourceOptions = {},
 ): Promise<Track> {
   // Tracks stored by object key receive temporary S3 read URLs. Refresh that URL
-  // immediately before an analysis job so a long-open browser tab never submits
-  // an expired source URL to the AWS worker.
-  if (!track.file_key) return track;
+  // immediately before browser analysis so a long-open tab does not fetch an expired URL.
+  if (!track.file_key || track.file_data) return track;
 
   const apiBase = cleanBase(options.apiBase === undefined ? getAppDataBase() : options.apiBase);
   const token = options.token === undefined ? getIdToken() : options.token;
@@ -150,7 +150,7 @@ export async function getTrackAnalysisRecord(trackId: string): Promise<TrackAnal
 
       if (response.status === 404) return local;
       if (!response.ok) {
-        throw new Error(`AWS Music Intelligence lookup failed (${response.status}).`);
+        throw new Error(`Music Intelligence profile lookup failed (${response.status}).`);
       }
 
       const record = unwrapRecordResponse(await response.json());
@@ -160,7 +160,7 @@ export async function getTrackAnalysisRecord(trackId: string): Promise<TrackAnal
       }
       return local;
     } catch (error) {
-      console.warn('[MusicIntelligence] AWS profile lookup unavailable; using local cache.', error);
+      console.warn('[MusicIntelligence] Profile lookup unavailable; using local cache.', error);
       return local;
     }
   }
@@ -183,8 +183,8 @@ export async function saveTrackAnalysisRecord(record: TrackAnalysisRecord): Prom
 
   writeLocalRecord(normalized);
 
-  // Browser writes are allowed only when a separate authenticated profile API is explicitly configured.
-  // The AWS Audio Tools worker writes successful canonical profiles server-side.
+  // Browser analysis works without a remote profile service. Write remotely only when
+  // an explicit authenticated Music Intelligence profile API is configured.
   const cloudUrl = getCloudWriteRecordUrl(record.track_id);
   if (!cloudUrl) return;
 
@@ -200,7 +200,7 @@ export async function saveTrackAnalysisRecord(record: TrackAnalysisRecord): Prom
   if (!response.ok) {
     const message = await response.text().catch(() => '');
     throw new Error(
-      `AWS Music Intelligence save failed (${response.status})${message ? `: ${message.slice(0, 240)}` : ''}`,
+      `Music Intelligence save failed (${response.status})${message ? `: ${message.slice(0, 240)}` : ''}`,
     );
   }
 }
@@ -215,8 +215,13 @@ export async function analyzeAndPersistTrack(
   options: AnalyzeMusicOptions = {},
 ): Promise<MusicIntelligenceProfile> {
   const analysisTrack = await refreshTrackAnalysisSource(track);
-  if (!analysisTrack.file_url || analysisTrack.file_url.startsWith('blob:')) {
-    throw new Error('Music Intelligence requires the uploaded cloud audio URL.');
+  const hasLocalBlob = Boolean(analysisTrack.file_data);
+  const hasFetchableUrl = Boolean(
+    analysisTrack.file_url
+    && !analysisTrack.file_url.startsWith('blob:'),
+  );
+  if (!hasLocalBlob && !hasFetchableUrl) {
+    throw new Error('Music Intelligence requires an available audio source.');
   }
 
   const sourceFingerprint = buildAnalysisSourceFingerprint(analysisTrack);
@@ -244,13 +249,12 @@ export async function analyzeAndPersistTrack(
   });
 
   try {
-    options.onProgress?.('Analyzing song structure, genre, mood, and production…');
-    const result = await runAudioToolsJob(analysisTrack, 'analysis', undefined, options.onProgress);
-    if (!result.profile) {
-      throw new Error('Music Intelligence did not return a song profile.');
+    options.onProgress?.('Analyzing genre, BPM, key, mood, and production locally…');
+    const profile = await analyzeTrackLocally(analysisTrack);
+    if (!hasUsableMusicIntelligenceProfile(profile)) {
+      throw new Error('Music Intelligence could not produce a usable song profile.');
     }
 
-    const profile = result.profile;
     await saveTrackAnalysisRecord({
       track_id: analysisTrack.id,
       analyzer_version: profile.version || MUSIC_INTELLIGENCE_VERSION,
