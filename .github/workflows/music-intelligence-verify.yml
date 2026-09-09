@@ -41,8 +41,20 @@ jobs:
       - name: Track analysis source refresh tests
         run: node --experimental-strip-types --test src/services/musicIntelligenceSourceRefresh.test.ts
 
-      - name: Audio Tools polling reconnect tests
+      - name: Legacy Audio Tools polling reconnect tests
         run: node --experimental-strip-types --test src/services/audioTools.test.ts
+
+      - name: Browser Audio Tools facade tests
+        run: node --experimental-strip-types --test src/services/browserAudioTools.test.ts
+
+      - name: Browser synced lyrics formatter tests
+        run: node --experimental-strip-types --test src/services/lyricsCore.test.ts
+
+      - name: Browser stem DSP tests
+        run: node --experimental-strip-types --test src/services/spleeterCore.test.ts
+
+      - name: Browser WAV encoder tests
+        run: node --experimental-strip-types --test src/services/wav.test.ts
 
       - name: AWS-only track analysis regression
         run: node --experimental-strip-types --test src/services/awsOnlyTrackAnalysis.test.ts
