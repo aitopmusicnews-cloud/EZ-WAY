@@ -72,3 +72,11 @@ test('audio player back, forward, volume, and detail controls are wired', () => 
   assert.match(player, /onChange=\{\(event\) => setVolume\(Number\(event\.target\.value\)\)\}/);
   assert.match(player, /onClick=\{\(\) => onEdit\?\.\(activeTrack\)\}/);
 });
+
+test('shared audio playback refreshes expiring track URLs and never substitutes synthesized audio', () => {
+  const context = read('../context/AudioContext.tsx');
+  assert.match(context, /refreshTrackAudioSource/);
+  assert.match(context, /await refreshTrackAudioSource\(track\)/);
+  assert.doesNotMatch(context, /startProceduralSynth/);
+  assert.doesNotMatch(context, /Activating dynamic high-fidelity procedural synth/);
+});
