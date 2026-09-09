@@ -33,10 +33,15 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   const activeTrackRef = useRef<Track | null>(null);
   const localObjectUrlRef = useRef<string | null>(null);
   const playRequestRef = useRef(0);
+  const addToastRef = useRef(addToast);
 
   useEffect(() => {
     activeTrackRef.current = activeTrack;
   }, [activeTrack]);
+
+  useEffect(() => {
+    addToastRef.current = addToast;
+  }, [addToast]);
 
   const clearLocalObjectUrl = () => {
     if (!localObjectUrlRef.current) return;
@@ -57,7 +62,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     const onError = (error: Event) => {
       console.warn('Audio Load Error on track:', activeTrackRef.current?.name || 'Unknown', error);
       setIsPlaying(false);
-      addToast('The real track audio could not be loaded. Press play again to refresh its source.', 'error');
+      addToastRef.current('The real track audio could not be loaded. Press play again to refresh its source.', 'error');
     };
     const onEnded = () => {
       setIsPlaying(false);
@@ -78,7 +83,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
       clearLocalObjectUrl();
       audioRef.current = null;
     };
-  }, [addToast]);
+  }, []);
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
@@ -108,7 +113,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
           localObjectUrlRef.current = source;
         }
 
-        if (!source || source.startsWith('blob:') && !playbackTrack.file_data) {
+        if (!source || (source.startsWith('blob:') && !playbackTrack.file_data)) {
           throw new Error('The track has no playable audio source.');
         }
 
