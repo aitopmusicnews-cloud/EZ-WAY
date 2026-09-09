@@ -10,7 +10,9 @@
     "esbuild": "0.21.5"
   },
   "scripts": {
+    "predev": "node scripts/copy-transformers-wasm.mjs",
     "dev": "tsx server.ts",
+    "prebuild": "node scripts/copy-transformers-wasm.mjs",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
