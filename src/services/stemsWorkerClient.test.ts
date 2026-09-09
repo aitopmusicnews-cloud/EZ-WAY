@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 
 import { separatePcmLocally, type WorkerLike } from './stemsWorkerClient.ts';
 
@@ -77,4 +78,9 @@ test('separatePcmLocally rejects worker errors and terminates the worker', async
     /separation failed/,
   );
   assert.equal(worker.terminated, true);
+});
+
+test('stem worker imports the WebGPU-capable ONNX Runtime browser entrypoint', () => {
+  const workerSource = readFileSync(new URL('../workers/stems.worker.ts', import.meta.url), 'utf8');
+  assert.match(workerSource, /from ['"]onnxruntime-web\/webgpu['"]/);
 });
