@@ -12,9 +12,21 @@ test('track tools Analyze action stays wired to the manual analysis handler', ()
   assert.match(app, /onAnalyze=\{\(\) => handleAnalyzeTrackManual\(track\)\}/);
 });
 
-test('Audio Tools job requests include the persistent cloud object key when available', () => {
-  const service = read('./audioTools.ts');
-  assert.match(service, /file_key:\s*track\.file_key\s*\|\|\s*undefined/);
+test('Lyrics and Stems consumers use the browser-local Audio Tools facade instead of remote jobs', () => {
+  const menu = read('../components/TrackOptionsMenu.tsx');
+  const studio = read('../components/AudioAnalyzerStudio.tsx');
+  for (const source of [menu, studio]) {
+    assert.match(source, /runLocalAudioTool/);
+    assert.doesNotMatch(source, /runAudioToolsJob/);
+  }
+  assert.doesNotMatch(menu, /needs a cloud audio source before/i);
+  assert.doesNotMatch(studio, /needs a cloud audio source before synced lyrics/i);
+});
+
+test('Synced Lyrics UI describes local source transcription rather than vocal isolation first', () => {
+  const menu = read('../components/TrackOptionsMenu.tsx');
+  assert.doesNotMatch(menu, /Isolates the vocal first/i);
+  assert.match(menu, /locally/i);
 });
 
 test('analyzer screen Analyze button stays wired to shared Music Intelligence', () => {

@@ -12,6 +12,9 @@ const CATEGORY = {
   'message-image': { prefix: 'messages/images', family: 'image/', max: 20 * 1024 * 1024 },
   'message-attachment': { prefix: 'messages/attachments', family: null, max: 100 * 1024 * 1024 },
   'profile-image': { prefix: 'profiles', family: 'image/', max: 20 * 1024 * 1024 },
+  'audio-tools-audio': { prefix: 'generated/audio', family: 'audio/', max: 1024 * 1024 * 1024 },
+  'audio-tools-text': { prefix: 'generated/text', family: 'text/', max: 5 * 1024 * 1024 },
+  'audio-tools-bundle': { prefix: 'generated/bundle', family: null, contentTypes: ['application/zip'], max: 2 * 1024 * 1024 * 1024 },
 };
 
 const safeRelatedId = (value) => {
@@ -37,6 +40,7 @@ export function normalizeUploadRequest(body = {}) {
   const filename = safeFilename(body.filename);
   const contentType = String(body.contentType ?? body.content_type ?? '').trim().toLowerCase() || 'application/octet-stream';
   if (config.family && !contentType.startsWith(config.family)) throw new Error('Upload content type is invalid for this category.');
+  if (config.contentTypes && !config.contentTypes.includes(contentType)) throw new Error('Upload content type is invalid for this category.');
 
   const size = Number(body.size);
   if (!Number.isFinite(size) || size <= 0 || size > config.max) throw new Error('Upload size is invalid for this category.');
