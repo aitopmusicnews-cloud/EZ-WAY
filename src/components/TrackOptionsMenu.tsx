@@ -20,11 +20,8 @@ import {
 import { Track, Playlist } from '../types';
 import { cn } from '../lib/utils';
 import { useMediaStore } from '../context/MediaStoreContext';
-import {
-  AudioToolJobResult,
-  StemMode,
-  runAudioToolsJob,
-} from '../services/audioTools';
+import type { AudioToolJobResult, StemMode } from '../services/audioToolTypes';
+import { runLocalAudioTool } from '../services/browserAudioTools';
 
 interface TrackOptionsMenuProps {
   track: Track;
@@ -90,9 +87,9 @@ export default function TrackOptionsMenu({
     setProcessing(true);
     setAudioError('');
     setAudioResult(null);
-    setProgressText('Preparing vocal isolation…');
+    setProgressText('Preparing local transcription…');
     try {
-      const result = await runAudioToolsJob(track, 'lyrics', undefined, setProgressText);
+      const result = await runLocalAudioTool(track, 'lyrics', undefined, setProgressText);
       if (!result.lyrics?.trim()) {
         throw new Error('No reliable lyrics were detected. The existing lyrics were left unchanged.');
       }
@@ -111,9 +108,9 @@ export default function TrackOptionsMenu({
     setProcessing(true);
     setAudioError('');
     setAudioResult(null);
-    setProgressText('Preparing stem separation…');
+    setProgressText('Preparing local stem separation…');
     try {
-      const result = await runAudioToolsJob(track, 'stems', stemMode, setProgressText);
+      const result = await runLocalAudioTool(track, 'stems', stemMode, setProgressText);
       setAudioResult(result);
       setProgressText('Stem separation complete.');
     } catch (error: any) {
@@ -216,8 +213,8 @@ export default function TrackOptionsMenu({
                 <p className="text-xs font-black text-white truncate">{track.name}</p>
                 <p className="text-[10px] text-zinc-500 mt-1">
                   {audioDialog === 'lyrics'
-                    ? 'Isolates the vocal first, then generates real timestamped LRC lyrics. If vocals cannot be transcribed reliably, nothing is invented.'
-                    : 'Choose a simple karaoke split or full production stems before processing starts.'}
+                    ? 'Transcribes the source track locally in your browser and builds timestamped LRC lyrics. If no reliable transcript is detected, nothing is invented.'
+                    : 'Separates the source locally in your browser. Choose a karaoke split or full production stems before processing starts.'}
                 </p>
               </div>
 
@@ -271,6 +268,11 @@ export default function TrackOptionsMenu({
 
               {audioResult && (
                 <div className="space-y-3">
+                  {audioResult.warning && (
+                    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-[10px] text-amber-300 leading-relaxed">
+                      {audioResult.warning}
+                    </div>
+                  )}
                   <p className="text-[9px] uppercase tracking-[0.2em] text-zinc-500 font-black">Downloads</p>
                   {audioResult.bundle_url && (
                     <a href={audioResult.bundle_url} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-2xl border border-orange-500/20 bg-orange-500/10 px-4 py-3 text-xs font-black uppercase text-orange-400 hover:bg-orange-500/15">
