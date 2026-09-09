@@ -1,4 +1,5 @@
 from app.prompts import build_image_prompt, variation_prompt
+from app.render_prompts import build_creative_control_prompt
 from app.signals import combine_signals
 
 
@@ -117,3 +118,30 @@ def test_variation_archetypes_do_not_force_architecture_or_vehicle_heroes():
     prompts = [variation_prompt(base, i) for i in range(1, 6)]
     assert all("ARCHITECTURE-AS-CHARACTER" not in p for p in prompts)
     assert all("vehicle motion" not in p for p in prompts)
+
+
+def test_strict_creative_controls_are_front_loaded_for_flux_prompt_limit():
+    controls = {
+        "subject_hint": "woman in a tailored red suit",
+        "scene_hint": "empty theater stage",
+        "style_preset": "cinematic",
+        "composition_preset": "centered",
+        "color_mood": "warm amber and deep shadows",
+        "must_include": "single vintage microphone",
+        "avoid": "cars, city streets, neon signs",
+        "creative_strength": "strict",
+    }
+    prompt = build_creative_control_prompt("song brief " + ("detail " * 800), controls)
+    first_flux_window = prompt[:2048]
+
+    assert prompt.startswith("USER CREATIVE CONTROLS — PRIORITY INSTRUCTIONS")
+    assert "Follow the user creative controls strictly" in first_flux_window
+    assert "Primary subject: woman in a tailored red suit" in first_flux_window
+    assert "Scene / setting: empty theater stage" in first_flux_window
+    assert "Must include: single vintage microphone" in first_flux_window
+    assert "Avoid / do not include: cars, city streets, neon signs" in first_flux_window
+
+
+def test_empty_creative_controls_leave_existing_prompt_unchanged():
+    base = "existing song-driven prompt"
+    assert build_creative_control_prompt(base, {}) == base
