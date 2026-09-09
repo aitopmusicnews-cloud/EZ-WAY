@@ -14,7 +14,11 @@ WORKER_DIR = Path(__file__).resolve().parents[1] / "aws" / "audio-tools" / "work
 if str(WORKER_DIR) not in sys.path:
     sys.path.insert(0, str(WORKER_DIR))
 
-from analyzer import ANALYZER_VERSION, MODEL_ROOT, MusicIntelligenceEngine, download_audio  # noqa: E402
+from analyzer import MODEL_ROOT, download_audio  # noqa: E402
+from render_audio_tools.mirflex_analyzer import (  # noqa: E402
+    ANALYZER_VERSION,
+    MirflexMusicIntelligenceEngine,
+)
 
 AUDIO_SUFFIXES = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}
 
@@ -119,7 +123,7 @@ class AudioProcessor:
         source_bucket: str | None = None,
         output_bucket: str | None = None,
         s3_client: Any | None = None,
-        analysis_engine_factory: Callable[[], Any] = MusicIntelligenceEngine,
+        analysis_engine_factory: Callable[[], Any] = MirflexMusicIntelligenceEngine,
         demucs_runner: Callable[[Path, Path, bool], Path] = _run_demucs,
         whisper_model_factory: Callable[[], Any] = _build_whisper_model,
         http_downloader: Callable[[str, Path], Path] = download_audio,
