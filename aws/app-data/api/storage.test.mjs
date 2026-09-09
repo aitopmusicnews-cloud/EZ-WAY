@@ -55,3 +55,88 @@ test('message attachments normalize missing browser MIME types safely', () => {
   });
   assert.equal(input.contentType, 'application/octet-stream');
 });
+
+test('browser Audio Tools generated audio accepts audio only and uses a generated-audio key', () => {
+  const input = normalizeUploadRequest({
+    category: 'audio-tools-audio',
+    relatedId: 't1',
+    filename: 'song-vocals.wav',
+    contentType: 'audio/wav',
+    size: 250 * 1024 * 1024,
+  });
+  assert.equal(input.contentType, 'audio/wav');
+  assert.match(
+    buildObjectKey(input),
+    /^generated\/audio\/t1\/[0-9a-f-]+-song-vocals\.wav$/i,
+  );
+  assert.throws(() => normalizeUploadRequest({
+    category: 'audio-tools-audio',
+    relatedId: 't1',
+    filename: 'not-audio.exe',
+    contentType: 'application/octet-stream',
+    size: 1024,
+  }), /content type/i);
+  assert.throws(() => normalizeUploadRequest({
+    category: 'audio-tools-audio',
+    relatedId: 't1',
+    filename: 'too-large.wav',
+    contentType: 'audio/wav',
+    size: 1024 * 1024 * 1024 + 1,
+  }), /size/i);
+});
+
+test('browser Audio Tools generated lyrics accept text only and use a generated-text key', () => {
+  const input = normalizeUploadRequest({
+    category: 'audio-tools-text',
+    relatedId: 't1',
+    filename: 'song.lrc',
+    contentType: 'text/plain',
+    size: 2048,
+  });
+  assert.match(
+    buildObjectKey(input),
+    /^generated\/text\/t1\/[0-9a-f-]+-song\.lrc$/i,
+  );
+  assert.throws(() => normalizeUploadRequest({
+    category: 'audio-tools-text',
+    relatedId: 't1',
+    filename: 'song.zip',
+    contentType: 'application/zip',
+    size: 2048,
+  }), /content type/i);
+  assert.throws(() => normalizeUploadRequest({
+    category: 'audio-tools-text',
+    relatedId: 't1',
+    filename: 'too-large.lrc',
+    contentType: 'text/plain',
+    size: 5 * 1024 * 1024 + 1,
+  }), /size/i);
+});
+
+test('browser Audio Tools bundles accept only ZIP and use a generated-bundle key', () => {
+  const input = normalizeUploadRequest({
+    category: 'audio-tools-bundle',
+    relatedId: 't1',
+    filename: 'song-stems.zip',
+    contentType: 'application/zip',
+    size: 500 * 1024 * 1024,
+  });
+  assert.match(
+    buildObjectKey(input),
+    /^generated\/bundle\/t1\/[0-9a-f-]+-song-stems\.zip$/i,
+  );
+  assert.throws(() => normalizeUploadRequest({
+    category: 'audio-tools-bundle',
+    relatedId: 't1',
+    filename: 'song.wav',
+    contentType: 'audio/wav',
+    size: 1024,
+  }), /content type/i);
+  assert.throws(() => normalizeUploadRequest({
+    category: 'audio-tools-bundle',
+    relatedId: 't1',
+    filename: 'too-large.zip',
+    contentType: 'application/zip',
+    size: 2 * 1024 * 1024 * 1024 + 1,
+  }), /size/i);
+});
