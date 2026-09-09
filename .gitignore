@@ -1,3 +1,8 @@
 # Generated dependencies and build output
 node_modules/
 dist/
+
+# Python runtime/test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
