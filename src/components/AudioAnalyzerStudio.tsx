@@ -18,7 +18,8 @@ import {
   type MusicIntelligenceProfile,
   type RankedLabel,
 } from '../services/musicIntelligenceCore';
-import { runAudioToolsJob } from '../services/audioTools';
+import { runLocalAudioTool } from '../services/browserAudioTools';
+import { trackHasUsableAudioSource } from '../services/trackAudioSource';
 
 const displayLabels = (items: RankedLabel[] = [], limit = 5) => items.slice(0, limit);
 
@@ -100,14 +101,14 @@ export default function AudioAnalyzerStudio() {
 
   const generateSyncedLyrics = async () => {
     if (!selectedTrack) return;
-    if (!selectedTrack.file_url || selectedTrack.file_url.startsWith('blob:')) {
-      addToast('This track needs a cloud audio source before synced lyrics can run.', 'error');
+    if (!trackHasUsableAudioSource(selectedTrack)) {
+      addToast('This track needs an available local or cloud audio source before synced lyrics can run.', 'error');
       return;
     }
 
     setTranscribing(true);
     try {
-      const result = await runAudioToolsJob(
+      const result = await runLocalAudioTool(
         selectedTrack,
         'lyrics',
         undefined,
@@ -118,6 +119,7 @@ export default function AudioAnalyzerStudio() {
       }
       await updateTrack(selectedTrack.id, { lyrics: result.lyrics });
       addToast(`Synced lyrics saved for "${selectedTrack.name}".`, 'success');
+      if (result.warning) addToast(result.warning, 'error');
     } catch (error: any) {
       console.error('[AudioAnalyzerStudio] Lyrics transcription failed:', error);
       addToast(`Lyrics transcription failed: ${error?.message || error}`, 'error');
@@ -268,7 +270,7 @@ export default function AudioAnalyzerStudio() {
                 <h3 className="text-sm font-black uppercase tracking-wide">Synced Lyrics</h3>
               </div>
               <p className="text-xs text-zinc-500 mt-2 max-w-2xl">
-                Lyrics remain a separate factual audio tool. It isolates the vocal and transcribes it with timestamps; if no reliable transcript is detected, it fails instead of inventing lyrics.
+                Lyrics remain a separate factual audio tool. The source track is transcribed locally in your browser with timestamps; if no reliable transcript is detected, it fails instead of inventing lyrics.
               </p>
             </div>
             <button
