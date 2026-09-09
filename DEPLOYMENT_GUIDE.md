@@ -1,6 +1,6 @@
 # EZ-WAY Production Deployment Guide
 
-EZ-WAY production is an AWS-backed React/Vite application. The application-data stack and Music Intelligence stack are deployed separately and must each pass their live smoke gates before frontend cutover or PR merge.
+EZ-WAY production is an AWS-backed React/Vite application. The application-data stack, Music Intelligence stack, and Album Cover backend are deployed separately and must pass their relevant verification gates before production cutover.
 
 ## 1. Frontend
 
@@ -16,7 +16,7 @@ npm run lint
 npm run build
 ```
 
-Do not expose AWS keys, database secrets, Cognito client secrets, or RDS credentials through Vite variables.
+Do not expose AWS keys, database secrets, Cognito client secrets, RDS credentials, Gemini provider keys, or Cloudflare API tokens through Vite variables.
 
 ## 2. AWS application data
 
@@ -74,7 +74,34 @@ Only after that gate passes should production receive:
 VITE_AUDIO_TOOLS_URL=<verified Audio Tools API base>
 ```
 
-## 4. Amplify cutover safety
+## 4. Album Cover backend
+
+The Album Cover backend source lives under `album_cover_backend/` in this EZ-WAY repository. The browser integration remains in `src/services/albumCoverStudio.ts` and calls the backend through the browser-safe `VITE_ALBUM_COVER_API_URL` value.
+
+The public API hostname may remain:
+
+```text
+https://albumcover-api.theartistcut.com
+```
+
+The deployment behind that hostname must be built from the EZ-WAY `album_cover_backend/` subproject. The backend is API-only; the main EZ-WAY React application remains the Album Cover Studio user interface.
+
+Required server-side provider configuration:
+
+```text
+CLOUDFLARE_ACCOUNT_ID=<Cloudflare account id>
+CLOUDFLARE_API_TOKEN=<secret Workers AI token>
+CLOUDFLARE_FLUX_MODEL=@cf/black-forest-labs/flux-1-schnell
+CLOUDFLARE_FLUX_STEPS=4
+CLOUDFLARE_TIMEOUT_SECONDS=150
+GEMINI_API_KEY=<existing server-side Gemini key>
+```
+
+`CLOUDFLARE_API_TOKEN` must remain a backend hosting secret. Never add it to `.env.production`, any `VITE_*` variable, frontend TypeScript, or committed source.
+
+Before Album Cover production cutover, run the backend tests, confirm `/health` reports the Cloudflare renderer configuration, and generate a real cover through the EZ-WAY Album Cover Studio. Gemini remains responsible for creative direction/ranking/critique; Cloudflare Workers AI FLUX.1 Schnell performs the final image render.
+
+## 5. Amplify cutover safety
 
 Before modifying Amplify environment variables, retrieve the existing environment-variable map and preserve every unrelated value. Do not use a command that replaces the whole map with only the three new app-data variables.
 
@@ -87,13 +114,15 @@ Required production verification after cutover:
 5. Playlist/client/share CRUD persists.
 6. Public share opens without owner auth.
 7. Public playback, approval/revision, and comments persist through token-scoped endpoints.
-8. Reload confirms AWS is authoritative and localStorage is only cache/fallback.
+8. Album Cover Studio can call the configured Album Cover API without exposing provider secrets to the browser.
+9. Reload confirms AWS is authoritative and localStorage is only cache/fallback.
 
-## 5. Merge gate
+## 6. Merge gate
 
-Keep PR #5 draft and unmerged until both live gates are green:
+Keep changes unmerged until the relevant live gates are green:
 
 - app-data CRUD/private-media/public-share smoke test
 - real Music Intelligence audio analysis smoke test
+- Album Cover backend test suite and Cloudflare renderer regression for Album Cover changes
 
-Production frontend variables and merge approval are the final steps, not prerequisites to testing the isolated AWS stacks.
+Production frontend variables and merge approval are final steps, not prerequisites to testing isolated backend stacks.
