@@ -112,5 +112,6 @@ jobs:
             echo "No backend migration changes to commit."
           else
             git commit -m "feat: move Cloudflare album cover backend into EZ-WAY"
+            git pull --rebase origin feature/cloudflare-album-cover-backend
             git push origin HEAD:feature/cloudflare-album-cover-backend
           fi
