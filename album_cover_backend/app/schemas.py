@@ -7,6 +7,24 @@ from pydantic import BaseModel, Field
 
 
 MoodPath = Literal["auto", "blend", "audio", "lyrics"]
+StylePreset = Literal["auto", "photo", "cinematic", "illustration", "painting", "collage", "minimal"]
+CompositionPreset = Literal["auto", "close-up", "portrait", "wide", "centered", "off-center", "minimal"]
+CreativeStrength = Literal["loose", "balanced", "strict"]
+
+
+class CreativeControls(BaseModel):
+    subject_hint: str | None = Field(default=None, max_length=300)
+    scene_hint: str | None = Field(default=None, max_length=300)
+    style_preset: StylePreset = "auto"
+    composition_preset: CompositionPreset = "auto"
+    color_mood: str | None = Field(default=None, max_length=200)
+    must_include: str | None = Field(default=None, max_length=500)
+    avoid: str | None = Field(default=None, max_length=500)
+    creative_strength: CreativeStrength = "balanced"
+
+    def as_prompt_dict(self) -> dict[str, str]:
+        values = self.model_dump()
+        return {key: str(value).strip() for key, value in values.items() if value is not None and str(value).strip()}
 
 
 class GenerateRequest(BaseModel):
@@ -15,7 +33,7 @@ class GenerateRequest(BaseModel):
     run_async: bool = True
 
 
-class RegenerateRequest(BaseModel):
+class RegenerateRequest(CreativeControls):
     mood_path: Literal["blend", "audio", "lyrics"] = "blend"
     variation_count: int = Field(default=4, ge=3, le=8)
     run_async: bool = True

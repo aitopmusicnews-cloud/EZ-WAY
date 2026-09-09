@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import unicodedata
 from pathlib import Path
@@ -105,9 +106,11 @@ def build_input_hash(
     title: str | None = None,
     artist: str | None = None,
     parental_advisory: bool = False,
+    creative_controls: dict[str, str] | None = None,
 ) -> str:
+    controls = json.dumps(creative_controls or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     canonical = (
         f"audio:{audio_hash or '-'}|lyrics:{lyrics_hash or '-'}|"
-        f"title:{title or '-'}|artist:{artist or '-'}|advisory:{int(parental_advisory)}"
+        f"title:{title or '-'}|artist:{artist or '-'}|advisory:{int(parental_advisory)}|controls:{controls}"
     ).encode("utf-8")
     return sha256_bytes(canonical)

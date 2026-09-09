@@ -32,6 +32,7 @@ import {
   selectAlbumCoverVariation,
   waitForAlbumCoverGeneration,
   waitForAlbumCoverVariationSet,
+  type AlbumCoverCreativeControls,
   type AlbumCoverGeneration,
   type AlbumCoverMetrics,
   type AlbumCoverMoodPath,
@@ -110,6 +111,14 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
   const [autoLoadedLyrics, setAutoLoadedLyrics] = useState(false);
   const [parentalAdvisory, setParentalAdvisory] = useState(false);
   const [variationCount, setVariationCount] = useState<AlbumCoverVariationCount>(4);
+  const [subjectHint, setSubjectHint] = useState('');
+  const [sceneHint, setSceneHint] = useState('');
+  const [stylePreset, setStylePreset] = useState<NonNullable<AlbumCoverCreativeControls['stylePreset']>>('auto');
+  const [compositionPreset, setCompositionPreset] = useState<NonNullable<AlbumCoverCreativeControls['compositionPreset']>>('auto');
+  const [colorMood, setColorMood] = useState('');
+  const [mustInclude, setMustInclude] = useState('');
+  const [avoid, setAvoid] = useState('');
+  const [creativeStrength, setCreativeStrength] = useState<NonNullable<AlbumCoverCreativeControls['creativeStrength']>>('balanced');
   const [generation, setGeneration] = useState<AlbumCoverGeneration | null>(null);
   const [history, setHistory] = useState<AlbumCoverGeneration[]>([]);
   const [metrics, setMetrics] = useState<AlbumCoverMetrics | null>(null);
@@ -140,6 +149,16 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
     [variations, selectedVariationId],
   );
   const titleDirty = Boolean(selectedTrack && titleInput.trim() && titleInput.trim() !== String(selectedTrack.name || '').trim());
+  const creativeControls = useMemo<AlbumCoverCreativeControls>(() => ({
+    subjectHint: subjectHint.trim(),
+    sceneHint: sceneHint.trim(),
+    stylePreset,
+    compositionPreset,
+    colorMood: colorMood.trim(),
+    mustInclude: mustInclude.trim(),
+    avoid: avoid.trim(),
+    creativeStrength,
+  }), [subjectHint, sceneHint, stylePreset, compositionPreset, colorMood, mustInclude, avoid, creativeStrength]);
 
   const refreshCollection = async (id = collectionId) => {
     if (!configured || !id) return;
@@ -286,6 +305,7 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
         artist: artistInput.trim(),
         parentalAdvisory,
         variationCount,
+        creativeControls,
       });
       const completed = await applyGeneration(queued);
       if (completed.status === 'needs_mood_choice') {
@@ -309,7 +329,7 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
     setError('');
     const previousSetCount = generation.variation_sets.length;
     try {
-      const queued = await runAlbumCoverPath(generation.id, path, variationCount, action);
+      const queued = await runAlbumCoverPath(generation.id, path, variationCount, action, creativeControls);
       await applyGeneration(queued, previousSetCount);
     } catch (caught: any) {
       const message = caught?.message || 'The requested creative direction could not be generated.';
@@ -330,6 +350,7 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
         generation.id,
         moodPathFromSet(latestSet.mood_path),
         variationCount,
+        creativeControls,
       );
       await applyGeneration(queued, previousSetCount);
     } catch (caught: any) {
@@ -487,7 +508,7 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
               </div>
               <h1 className="text-3xl sm:text-5xl font-black uppercase tracking-tight"><span className="text-orange-500">EZ AI</span> Album Cover Studio</h1>
               <p className="text-zinc-400 mt-3 max-w-3xl">Turn an MP3, lyrics, or both into versioned cover-art concepts. Every input version and variation set remains available.</p>
-              <p className="text-[11px] text-zinc-600 mt-2">Creative direction: Gemini · Image rendering: OpenAI · Final export: 3000×3000</p>
+              <p className="text-[11px] text-zinc-600 mt-2">Creative planning: song intelligence + your controls · Image rendering: Cloudflare FLUX.1 Schnell · Final export: 3000×3000</p>
             </div>
             <div className="rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-xs text-zinc-400">
               <span className="font-black text-zinc-200">Audit collection:</span> {collectionId.slice(0, 18)}…
@@ -583,6 +604,30 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
               <textarea value={lyricsText} onChange={(event) => { setLyricsText(event.target.value); setAutoLoadedLyrics(false); }} rows={10} placeholder="Paste lyrics here…" className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-sm text-white outline-none focus:border-orange-500 resize-y" />
               {autoLoadedLyrics && <p className="text-[10px] font-bold text-emerald-400">Auto-loaded saved lyrics from the selected EZ-WAY track.</p>}
             </label>
+
+            <div className="rounded-3xl border border-orange-500/20 bg-orange-500/[0.04] p-4 space-y-4">
+              <div>
+                <div className="flex items-center gap-2"><WandSparkles className="w-4 h-4 text-orange-500" /><h3 className="text-sm font-black">Creative Control</h3></div>
+                <p className="text-[10px] text-zinc-500 mt-1">Subject / Scene, style, composition, color, required details, and exclusions are sent ahead of the song brief so FLUX sees them first.</p>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <label className="space-y-1.5 text-[10px] font-black uppercase tracking-wider text-zinc-500"><span>Primary subject</span><input value={subjectHint} onChange={(event) => setSubjectHint(event.target.value)} maxLength={300} placeholder="e.g. woman in a red suit" className="w-full rounded-xl border border-zinc-800 bg-black px-3 py-2.5 text-xs normal-case tracking-normal font-medium text-white outline-none focus:border-orange-500" /></label>
+                <label className="space-y-1.5 text-[10px] font-black uppercase tracking-wider text-zinc-500"><span>Scene / setting</span><input value={sceneHint} onChange={(event) => setSceneHint(event.target.value)} maxLength={300} placeholder="e.g. empty theater stage" className="w-full rounded-xl border border-zinc-800 bg-black px-3 py-2.5 text-xs normal-case tracking-normal font-medium text-white outline-none focus:border-orange-500" /></label>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <label className="space-y-1.5 text-[10px] font-black uppercase tracking-wider text-zinc-500"><span>Style</span><select value={stylePreset} onChange={(event) => setStylePreset(event.target.value as NonNullable<AlbumCoverCreativeControls['stylePreset']>)} className="w-full rounded-xl border border-zinc-800 bg-black px-3 py-2.5 text-xs normal-case tracking-normal font-medium text-white outline-none focus:border-orange-500"><option value="auto">Auto</option><option value="photo">Photo</option><option value="cinematic">Cinematic</option><option value="illustration">Illustration</option><option value="painting">Painting</option><option value="collage">Collage</option><option value="minimal">Minimal</option></select></label>
+                <label className="space-y-1.5 text-[10px] font-black uppercase tracking-wider text-zinc-500"><span>Composition</span><select value={compositionPreset} onChange={(event) => setCompositionPreset(event.target.value as NonNullable<AlbumCoverCreativeControls['compositionPreset']>)} className="w-full rounded-xl border border-zinc-800 bg-black px-3 py-2.5 text-xs normal-case tracking-normal font-medium text-white outline-none focus:border-orange-500"><option value="auto">Auto</option><option value="close-up">Close-up</option><option value="portrait">Portrait</option><option value="wide">Wide scene</option><option value="centered">Centered</option><option value="off-center">Off-center</option><option value="minimal">Minimal</option></select></label>
+              </div>
+              <label className="space-y-1.5 block text-[10px] font-black uppercase tracking-wider text-zinc-500"><span>Color / mood</span><input value={colorMood} onChange={(event) => setColorMood(event.target.value)} maxLength={200} placeholder="e.g. warm amber, deep shadows, restrained red" className="w-full rounded-xl border border-zinc-800 bg-black px-3 py-2.5 text-xs normal-case tracking-normal font-medium text-white outline-none focus:border-orange-500" /></label>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <label className="space-y-1.5 text-[10px] font-black uppercase tracking-wider text-zinc-500"><span>Must include</span><textarea value={mustInclude} onChange={(event) => setMustInclude(event.target.value)} rows={2} maxLength={500} placeholder="Objects, wardrobe, symbols, details…" className="w-full rounded-xl border border-zinc-800 bg-black px-3 py-2.5 text-xs normal-case tracking-normal font-medium text-white outline-none focus:border-orange-500 resize-y" /></label>
+                <label className="space-y-1.5 text-[10px] font-black uppercase tracking-wider text-zinc-500"><span>Avoid</span><textarea value={avoid} onChange={(event) => setAvoid(event.target.value)} rows={2} maxLength={500} placeholder="Cars, city streets, neon, faces…" className="w-full rounded-xl border border-zinc-800 bg-black px-3 py-2.5 text-xs normal-case tracking-normal font-medium text-white outline-none focus:border-orange-500 resize-y" /></label>
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-2">Creative strength</p>
+                <div className="grid grid-cols-3 gap-2">{(['loose', 'balanced', 'strict'] as const).map((strength) => <button key={strength} type="button" onClick={() => setCreativeStrength(strength)} className={`rounded-xl border px-3 py-2 text-[10px] font-black uppercase ${creativeStrength === strength ? 'border-orange-500 bg-orange-500 text-black' : 'border-zinc-800 bg-black text-zinc-400'}`}>{strength}</button>)}</div>
+              </div>
+            </div>
 
             <label className="space-y-2 block text-xs font-bold text-zinc-400">
               <span>Variations</span>

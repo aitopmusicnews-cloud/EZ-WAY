@@ -2,6 +2,18 @@ import type { AlbumCoverDraft } from './albumCoverCore';
 
 export type AlbumCoverMoodPath = 'auto' | 'blend' | 'audio' | 'lyrics';
 export type AlbumCoverVariationCount = 3 | 4 | 5;
+export type AlbumCoverCreativeStrength = 'loose' | 'balanced' | 'strict';
+
+export interface AlbumCoverCreativeControls {
+  subjectHint?: string;
+  sceneHint?: string;
+  stylePreset?: 'auto' | 'photo' | 'cinematic' | 'illustration' | 'painting' | 'collage' | 'minimal';
+  compositionPreset?: 'auto' | 'close-up' | 'portrait' | 'wide' | 'centered' | 'off-center' | 'minimal';
+  colorMood?: string;
+  mustInclude?: string;
+  avoid?: string;
+  creativeStrength?: AlbumCoverCreativeStrength;
+}
 
 export interface AlbumCoverSourceInput {
   audio?: Blob | File | null;
@@ -11,6 +23,7 @@ export interface AlbumCoverSourceInput {
   artist?: string;
   parentalAdvisory?: boolean;
   variationCount?: AlbumCoverVariationCount;
+  creativeControls?: AlbumCoverCreativeControls;
   collectionId: string;
 }
 
@@ -172,6 +185,17 @@ export const absoluteAlbumCoverUrl = (value: string): string => {
   return `${origin}${value.startsWith('/') ? value : `/${value}`}`;
 };
 
+const creativeControlPayload = (controls: AlbumCoverCreativeControls = {}) => ({
+  subject_hint: String(controls.subjectHint || '').trim(),
+  scene_hint: String(controls.sceneHint || '').trim(),
+  style_preset: controls.stylePreset || 'auto',
+  composition_preset: controls.compositionPreset || 'auto',
+  color_mood: String(controls.colorMood || '').trim(),
+  must_include: String(controls.mustInclude || '').trim(),
+  avoid: String(controls.avoid || '').trim(),
+  creative_strength: controls.creativeStrength || 'balanced',
+});
+
 const parseJson = async <T>(response: Response): Promise<T> => {
   const text = await response.text();
   let payload: any = null;
@@ -230,6 +254,8 @@ export const createAlbumCoverGeneration = async (
   form.set('variation_count', String(source.variationCount || 4));
   form.set('mood_path', 'auto');
   form.set('run_async', 'true');
+  const controls = creativeControlPayload(source.creativeControls);
+  Object.entries(controls).forEach(([key, value]) => form.set(key, value));
   if (source.audio) {
     const file = source.audio instanceof File
       ? source.audio
@@ -300,11 +326,17 @@ export const runAlbumCoverPath = async (
   moodPath: Exclude<AlbumCoverMoodPath, 'auto'>,
   variationCount: AlbumCoverVariationCount,
   action: 'generate' | 'regenerate' = 'regenerate',
+  creativeControls: AlbumCoverCreativeControls = {},
 ): Promise<AlbumCoverGeneration> => (
   parseJson<AlbumCoverGeneration>(await fetch(apiUrl(`/generations/${encodeURIComponent(generationId)}/${action}`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ mood_path: moodPath, variation_count: variationCount, run_async: true }),
+    body: JSON.stringify({
+      mood_path: moodPath,
+      variation_count: variationCount,
+      run_async: true,
+      ...creativeControlPayload(creativeControls),
+    }),
   }))
 );
 
@@ -312,17 +344,26 @@ export const regenerateAlbumCovers = async (
   generationId: string,
   moodPath: Exclude<AlbumCoverMoodPath, 'auto'> = 'blend',
   variationCount: AlbumCoverVariationCount = 4,
-): Promise<AlbumCoverGeneration> => runAlbumCoverPath(generationId, moodPath, variationCount, 'regenerate');
+  creativeControls: AlbumCoverCreativeControls = {},
+): Promise<AlbumCoverGeneration> => runAlbumCoverPath(
+  generationId, moodPath, variationCount, 'regenerate', creativeControls,
+);
 
 export const generateBetterAlbumCovers = async (
   generationId: string,
   moodPath: Exclude<AlbumCoverMoodPath, 'auto'>,
   variationCount: AlbumCoverVariationCount,
+  creativeControls: AlbumCoverCreativeControls = {},
 ): Promise<AlbumCoverGeneration> => (
   parseJson<AlbumCoverGeneration>(await fetch(apiUrl(`/generations/${encodeURIComponent(generationId)}/improve`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ mood_path: moodPath, variation_count: variationCount, run_async: true }),
+    body: JSON.stringify({
+      mood_path: moodPath,
+      variation_count: variationCount,
+      run_async: true,
+      ...creativeControlPayload(creativeControls),
+    }),
   }))
 );
 
