@@ -50,8 +50,14 @@ jobs:
       - name: Browser synced lyrics formatter tests
         run: node --experimental-strip-types --test src/services/lyricsCore.test.ts
 
+      - name: Browser Whisper worker protocol tests
+        run: node --experimental-strip-types --test src/services/lyricsWorkerClient.test.ts
+
       - name: Browser stem DSP tests
         run: node --experimental-strip-types --test src/services/spleeterCore.test.ts
+
+      - name: Browser stem worker protocol tests
+        run: node --experimental-strip-types --test src/services/stemsWorkerClient.test.ts
 
       - name: Browser WAV encoder tests
         run: node --experimental-strip-types --test src/services/wav.test.ts
