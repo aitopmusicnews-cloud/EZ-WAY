@@ -4,6 +4,7 @@ export const YOUTUBE_TOKEN_STORAGE_KEY = 'EZWAY_YOUTUBE_OAUTH_TOKEN';
 const YOUTUBE_SCOPES = [
   'https://www.googleapis.com/auth/youtube.readonly',
   'https://www.googleapis.com/auth/youtube.upload',
+  'https://www.googleapis.com/auth/youtube.force-ssl',
 ].join(' ');
 
 const metaEnv = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env || {});
@@ -107,7 +108,6 @@ export function createYouTubeBrowserClient(options: ClientOptions = {}): YouTube
   const fetchImpl = options.fetchImpl || globalThis.fetch.bind(globalThis);
   const getGoogleOAuth = options.getGoogleOAuth || browserGoogleOAuth;
   const now = options.now || Date.now;
-
   const clearToken = () => storage.removeItem(YOUTUBE_TOKEN_STORAGE_KEY);
   const getToken = (): string | null => {
     const raw = storage.getItem(YOUTUBE_TOKEN_STORAGE_KEY);

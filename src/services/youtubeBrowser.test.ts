@@ -31,6 +31,33 @@ test('YouTube browser client reports a clear configuration error without a publi
   await assert.rejects(client.connect(), /VITE_GOOGLE_CLIENT_ID/);
 });
 
+test('YouTube OAuth requests management access for videos and comments', async () => {
+  let requestedScope = '';
+  const client = createYouTubeBrowserClient({
+    clientId: 'client.apps.googleusercontent.com',
+    storage: memoryStorage(),
+    fetchImpl: async () => jsonResponse({
+      items: [{
+        id: 'channel-1',
+        snippet: { title: 'Channel' },
+        statistics: {},
+        contentDetails: { relatedPlaylists: { uploads: 'uploads-1' } },
+      }],
+    }),
+    getGoogleOAuth: () => ({
+      initTokenClient: (config) => {
+        requestedScope = config.scope;
+        return {
+          requestAccessToken: () => config.callback({ access_token: 'token-123', expires_in: 3600 }),
+        };
+      },
+    }),
+  });
+
+  await client.connect();
+  assert.match(requestedScope, /https:\/\/www\.googleapis\.com\/auth\/youtube\.force-ssl/);
+});
+
 test('connected YouTube state comes from the authenticated channel API', async () => {
   const storage = memoryStorage();
   storage.setItem('EZWAY_YOUTUBE_OAUTH_TOKEN', JSON.stringify({ accessToken: 'token-123', expiresAt: Date.now() + 60_000 }));
