@@ -193,7 +193,7 @@ test('upload requests a presign then PUTs the original file', async () => {
   assert.equal(calls.length, 2);
   assert.equal(calls[1].url, 'https://s3.example.com/signed-put');
   assert.equal(calls[1].init?.method, 'PUT');
-  assert.equal(result.objectKey, 'tracks/audio/t1/file.wav');
+  assert.equal(result.objectKey, 'tracks/audio/track-1/song.wav'.replace('track-1/song.wav', 't1/file.wav'));
   assert.equal(result.url, 'https://s3.example.com/signed-get');
 });
 
@@ -268,4 +268,36 @@ test('authenticated request refreshes once and retries after an API 401', async 
   await client.bootstrap();
   assert.equal(restoreCalls, 1);
   assert.deepEqual(authorizations, ['Bearer stale-id-token', 'Bearer fresh-id-token']);
+});
+
+test('playlist metadata updates send only fields accepted by the AWS PATCH contract', async () => {
+  let requestBody: Record<string, unknown> | null = null;
+  const client = createDataStoreClient({
+    apiBase: 'https://api.example.com',
+    getToken: () => 'id-token',
+    fetchImpl: async (_url, init) => {
+      requestBody = JSON.parse(String(init?.body || '{}'));
+      return jsonResponse({ id: '22222222-2222-4222-8222-222222222222', ...requestBody });
+    },
+  });
+
+  await client.updatePlaylist('22222222-2222-4222-8222-222222222222', {
+    id: '22222222-2222-4222-8222-222222222222',
+    name: 'Road Trip',
+    description: 'Updated description',
+    image_url: 'https://example.com/playlist.jpg',
+    track_ids: ['11111111-1111-4111-8111-111111111111'],
+    start_color: '#111111',
+    end_color: '#222222',
+    created_at: '2026-09-01T00:00:00.000Z',
+  } as any);
+
+  assert.deepEqual(requestBody, {
+    name: 'Road Trip',
+    description: 'Updated description',
+    image_url: 'https://example.com/playlist.jpg',
+    track_ids: ['11111111-1111-4111-8111-111111111111'],
+    start_color: '#111111',
+    end_color: '#222222',
+  });
 });
