@@ -38,7 +38,7 @@ def render_font_preview(font_style: str, *, text: str, size: int = 64, color: st
     width = min(900, max(300, text_width + 64))
     height = min(220, max(112, text_height + 52))
 
-    image = Image.new("RGBA", (width, height), (18, 18, 18, 255))
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
     x = width / 2
     y = height / 2
