@@ -89,6 +89,9 @@ jobs:
       - name: EZ-WAY data store tests
         run: node --experimental-strip-types --test src/services/dataStore.test.ts
 
+      - name: Track bundle stable-media tests
+        run: node --experimental-strip-types --test src/services/trackBundleMedia.test.ts
+
       - name: MediaStore AWS migration tests
         run: node --experimental-strip-types --test src/services/mediaStoreMigration.test.ts
 
