@@ -8,12 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .audio_analysis import AudioAnalyzer
-from .concept_ranking import GeminiConceptRanker
+from .cloudflare_creative_director import CloudflareGemmaCreativeDirector
+from .cloudflare_generation_service import CloudflareMajorLabelGenerationService
 from .config import Settings
-from .cover_critic import GeminiCoverCritic
-from .creative_director import GeminiCreativeDirector
 from .database import create_database
-from .feedback_generation_service import FeedbackDrivenGenerationService
 from .image_client import CloudflareFluxImageClient
 from .lyrics_analysis import LyricsAnalyzer
 from .routers.generations import router
@@ -26,6 +24,8 @@ class AppDependencies:
     lyrics_analyzer: object | None = None
     image_client: object | None = None
     creative_director: object | None = None
+    # Retained only so older test/integration callers do not break while the
+    # Gemini-era modules are phased out. Production does not instantiate them.
     concept_ranker: object | None = None
     cover_critic: object | None = None
 
@@ -49,25 +49,14 @@ def create_app(
         timeout_seconds=settings.cloudflare_timeout_seconds,
         allow_mock_images=settings.allow_mock_images,
     )
-    creative_director = dependencies.creative_director or GeminiCreativeDirector(
-        api_key=settings.gemini_api_key,
-        model=settings.gemini_concept_model,
-        timeout_seconds=min(settings.gemini_timeout_seconds, 90),
-        enabled=settings.use_gemini_creative_director,
+    creative_director = dependencies.creative_director or CloudflareGemmaCreativeDirector(
+        account_id=settings.cloudflare_account_id,
+        api_token=settings.cloudflare_api_token,
+        model=settings.cloudflare_creative_director_model,
+        timeout_seconds=settings.cloudflare_creative_director_timeout_seconds,
+        enabled=settings.enable_cloudflare_creative_director,
     )
-    concept_ranker = dependencies.concept_ranker or GeminiConceptRanker(
-        api_key=settings.gemini_api_key,
-        model=settings.gemini_concept_model,
-        timeout_seconds=min(settings.gemini_timeout_seconds, 90),
-        enabled=settings.enable_concept_ranking,
-    )
-    cover_critic = dependencies.cover_critic or GeminiCoverCritic(
-        api_key=settings.gemini_api_key,
-        model=settings.gemini_critic_model,
-        timeout_seconds=min(settings.gemini_timeout_seconds, 120),
-        enabled=settings.enable_cover_critic,
-    )
-    generation_service = FeedbackDrivenGenerationService(
+    generation_service = CloudflareMajorLabelGenerationService(
         settings=settings,
         database=database,
         storage=storage,
@@ -75,8 +64,8 @@ def create_app(
         lyrics_analyzer=lyrics_analyzer,
         image_client=image_client,
         creative_director=creative_director,
-        concept_ranker=concept_ranker,
-        cover_critic=cover_critic,
+        concept_ranker=dependencies.concept_ranker,
+        cover_critic=dependencies.cover_critic,
     )
 
     @asynccontextmanager
@@ -84,7 +73,7 @@ def create_app(
         database.create_all()
         yield
 
-    app = FastAPI(title=settings.app_name, version="1.2.0", lifespan=lifespan)
+    app = FastAPI(title=settings.app_name, version="2.0.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.database = database
     app.state.generation_service = generation_service
@@ -110,28 +99,23 @@ def create_app(
                 "selected_concept_count": settings.selected_concept_count,
                 "renders_per_concept": settings.renders_per_concept,
                 "render_count": settings.render_count,
-                "generate_better": True,
+                "finished_cover_selection": "user",
+                "generate_better_source": "user_selected_cover",
             },
             "providers": {
-                "gemini_creative_director": {
-                    "configured": bool(settings.gemini_api_key),
-                    "model": settings.gemini_concept_model,
-                },
-                "gemini_concept_ranker": {
-                    "configured": bool(settings.gemini_api_key),
-                    "enabled": settings.enable_concept_ranking,
-                    "model": settings.gemini_concept_model,
-                },
-                "gemini_cover_critic": {
-                    "configured": bool(settings.gemini_api_key),
-                    "enabled": settings.enable_cover_critic,
-                    "model": settings.gemini_critic_model,
+                "cloudflare_creative_director": {
+                    "configured": cloudflare_configured,
+                    "enabled": settings.enable_cloudflare_creative_director,
+                    "model": settings.cloudflare_creative_director_model,
+                    "vision": True,
                 },
                 "cloudflare_flux_images": {
                     "configured": cloudflare_configured,
                     "model": settings.cloudflare_flux_model,
                     "steps": settings.cloudflare_flux_steps,
                 },
+                # Compatibility key used by older clients; still points to the
+                # same Cloudflare FLUX renderer and exposes no credentials.
                 "flux_images": {
                     "configured": cloudflare_configured,
                     "model": "flux",
