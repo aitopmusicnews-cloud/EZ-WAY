@@ -1,0 +1,35 @@
+name: Album Cover Final Gate Fix
+
+on:
+  push:
+    branches:
+      - feature/album-cover-major-label-director
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/album-cover-major-label-director
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply targeted fix
+        run: python scripts/fix_album_cover_final_gate.py
+      - name: Verify frontend regression
+        run: node --experimental-strip-types --test src/services/albumCoverIntegration.test.ts
+      - name: Cleanup and commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm scripts/fix_album_cover_final_gate.py .github/workflows/album-cover-final-gate-fix.yml
+          git add src/services/albumCoverIntegration.test.ts src/components/AlbumCoverStudio.tsx
+          git diff --cached --check
+          git commit -m "fix: align album cover user-choice UI gate"
+          git push origin HEAD:feature/album-cover-major-label-director
