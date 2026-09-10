@@ -43,14 +43,15 @@ test('global AudioPlayer is scoped to music workspace views instead of every pag
   assert.doesNotMatch(app, /\n\s*<AudioPlayer onEdit=\{\(track\) => setEditingTrack\(track\)\} \/>\n/);
 });
 
-test('Edit Metadata contains manual artwork only and no cover-specific Pollinations or Flux generator', () => {
+test('Edit Metadata contains manual artwork and private browser-local lyric transcription', () => {
   const modal = read('../components/EditTrackModal.tsx');
 
   assert.match(modal, />Edit Metadata</);
   assert.doesNotMatch(modal, /enter\.pollinations\.ai|gen\.pollinations\.ai|VITE_POLLINATIONS_CLIENT_ID|pollinationsKeyConnected|flux-realism|flux-anime|handleGenerateAiArt|aiPrompt|aiModel|aiAspect|aiSeed|artStyle/);
   assert.match(modal, /handleDownloadArtwork/);
   assert.match(modal, /imageInputRef/);
-  assert.match(modal, /transcribe-lyrics-pollinations/);
+  assert.match(modal, /runLocalAudioTool\(formData, 'lyrics'/);
+  assert.doesNotMatch(modal, /transcribe-lyrics-pollinations|POLLINATIONS_USER_KEY/);
 });
 
 test('Album Cover Studio exposes creative controls and sends them to the backend', () => {

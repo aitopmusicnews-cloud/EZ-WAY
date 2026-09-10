@@ -1,32 +1,3 @@
-import { GoogleGenAI, Type } from "@google/genai";
-
-let ai: GoogleGenAI | null = null;
-let geminiApiKey = "";
-try {
-  geminiApiKey = ((import.meta as any).env?.VITE_GEMINI_API_KEY as string) || "";
-} catch (e) {}
-
-if (!geminiApiKey && typeof process !== 'undefined' && process.env) {
-  try {
-    geminiApiKey = process.env.GEMINI_API_KEY || "";
-  } catch (err) {}
-}
-
-if (geminiApiKey && geminiApiKey !== "undefined" && geminiApiKey.trim()) {
-  try {
-    ai = new GoogleGenAI({
-      apiKey: geminiApiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        }
-      }
-    });
-  } catch (err) {
-    console.warn("Failed to initialize GoogleGenAI client:", err);
-  }
-}
-
 export async function generateVideoAesthetic(trackInfo: any) {
   try {
     const response = await fetch("/api/generate-aesthetic", {

@@ -35,10 +35,12 @@ test('public share payload includes owner outbound messages for two-way portal m
 
 test('public portal refreshes messages without reloading the share payload', () => {
   const handler = read('../../aws/app-data/api/handler.mjs');
+  const template = read('../../aws/app-data/template.yaml');
   const portal = read('../components/SharePortal.tsx');
   const dataStore = read('./dataStore.ts');
 
   assert.ok(handler.includes("rawPath.match(/^\\/public\\/share\\/[^/]+\\/messages$/)"));
+  assert.match(template, /Path: \/public\/share\/\{token\}\/messages\s+Method: GET\s+Auth:\s+Authorizer: NONE/);
   assert.match(dataStore, /getPublicShareMessages/);
   assert.match(portal, /getPublicShareMessages\(shareLink\.token\)/);
   assert.match(portal, /setInterval\(refreshMessages, 5000\)/);
@@ -65,11 +67,13 @@ test('admin and client messaging accept general files instead of image-only atta
   const portal = read('../components/SharePortal.tsx');
   const context = read('../context/MediaStoreContext.tsx');
   const storage = read('../../aws/app-data/api/storage.mjs');
+  const template = read('../../aws/app-data/template.yaml');
 
   assert.match(app, /handleChatAttachmentUpload/);
   assert.match(app, /uploadFile\('messages', chatAttachment\)/);
   assert.doesNotMatch(app, /onChange=\{handleChatAttachmentUpload\}[\s\S]{0,120}accept="image\/\*"/);
   assert.match(portal, /uploadPublicShareAttachment\(shareLink\.token, selectedAttachment\)/);
+  assert.match(template, /Path: \/public\/share\/\{token\}\/uploads\/presign\s+Method: POST\s+Auth:\s+Authorizer: NONE/);
   assert.match(portal, /100 \* 1024 \* 1024/);
   assert.match(context, /MessageAttachment/);
   assert.match(storage, /'message-attachment': \{ prefix: 'messages\/attachments', family: null, max: 100 \* 1024 \* 1024 \}/);

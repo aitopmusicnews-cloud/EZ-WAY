@@ -6,6 +6,7 @@ import { useAudio } from '../context/AudioContext';
 import { formatLrcTime, parseLrc, convertJsonToLrc } from '../utils/lrcParser';
 import { runManualTrackAnalysis } from '../services/musicIntelligence';
 import { profileToLegacyTrackUpdates } from '../services/musicIntelligenceCore';
+import { runLocalAudioTool } from '../services/browserAudioTools';
 
 export default function EditTrackModal({ track, onClose, onSave, onDelete }: { 
   track: Track; 
@@ -56,73 +57,19 @@ export default function EditTrackModal({ track, onClose, onSave, onDelete }: {
 
   const handleTranscribeWithWhisper = async () => {
     setIsTranscribing(true);
-    setTranscriptionStatus("Extracting audio...");
-    addToast?.("Extracting audio for Whisper Transcription...", "info");
-    
-    let audioData: string | null = null;
-    let audioMimeType = "audio/mpeg";
+    setTranscriptionStatus("Loading audio locally...");
+    addToast?.("Starting private browser-local transcription...", "info");
 
     try {
-      let blob: Blob | null = null;
-      if (formData.file_data) {
-        blob = formData.file_data;
-      } else if (formData.file_url) {
-        const response = await fetch(formData.file_url);
-        blob = await response.blob();
-      }
-
-      if (!blob) {
-        throw new Error("No audio source available for transcription. Please upload a track audio file first.");
-      }
-
-      audioMimeType = blob.type || "audio/mpeg";
-      
-      audioData = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const result = reader.result as string;
-          const base64 = result.split(',')[1];
-          resolve(base64);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-      
-      setTranscriptionStatus("Transcribing...");
-      addToast?.("Transcribing with Whisper voice API...", "info");
-
-      const res = await fetch("/api/transcribe-lyrics-pollinations", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          trackInfo: formData,
-          audioData,
-          audioMimeType,
-          pollinationsUserKey: localStorage.getItem("POLLINATIONS_USER_KEY") || ""
-        }),
-      });
-      
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Server returned error status");
-      }
-      
-      if (data.lyrics) {
-        setFormData(prev => ({ ...prev, lyrics: data.lyrics }));
-        setTranscriptionStatus("");
-        if (data.isFallback) {
-          addToast?.("Demo Mode: No active API key found. Synthesized custom-themed track lyrics instead! To transcribe real audio, set your Gemini API key in Settings > Secrets.", "warning");
-        } else {
-          addToast?.("Whisper lyric transcription complete!", "success");
-        }
-      } else {
-        throw new Error("No lyrics returned in Whisper response");
-      }
+      const result = await runLocalAudioTool(formData, 'lyrics', undefined, setTranscriptionStatus);
+      if (!result.lyrics?.trim()) throw new Error("No reliable lyrics were returned.");
+      setFormData(prev => ({ ...prev, lyrics: result.lyrics! }));
+      setTranscriptionStatus("");
+      addToast?.("Private browser-local lyric transcription complete!", "success");
+      if (result.warning) addToast?.(result.warning, "info");
     } catch (err: any) {
       console.error(err);
-      addToast?.(`Whisper transcription failed: ${err.message || err}`, "error");
+      addToast?.(`Local transcription failed: ${err.message || err}`, "error");
       setTranscriptionStatus("");
     } finally {
       setIsTranscribing(false);

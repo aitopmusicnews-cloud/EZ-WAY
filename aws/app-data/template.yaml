@@ -346,6 +346,22 @@ Resources:
             Method: GET
             Auth:
               Authorizer: NONE
+        PublicShareMessages:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /public/share/{token}/messages
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        PublicShareUploadPresign:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /public/share/{token}/uploads/presign
+            Method: POST
+            Auth:
+              Authorizer: NONE
         PublicShareEvent:
           Type: HttpApi
           Properties:
