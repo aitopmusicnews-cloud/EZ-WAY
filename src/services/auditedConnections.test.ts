@@ -24,6 +24,20 @@ test('missing YouTube and Spotify credentials return honest configuration errors
   assert.match(server, /Spotify OAuth is not configured/);
 });
 
+test('production YouTube connection uses the browser OAuth bridge and never exposes the Google client secret', () => {
+  const vite = read('../../vite.config.ts');
+  const wrapper = read('../components/YouTubeHub.tsx');
+  const browserService = read('./youtubeBrowser.ts');
+
+  assert.match(vite, /VITE_GOOGLE_CLIENT_/);
+  assert.match(wrapper, /createYouTubeFetchBridge/);
+  assert.match(wrapper, /preloadGoogleIdentityServices/);
+  assert.match(wrapper, /YOUTUBE_OAUTH_SENTINEL_URL/);
+  assert.doesNotMatch(wrapper, /GOOGLE_CLIENT_SECRET/);
+  assert.doesNotMatch(browserService, /GOOGLE_CLIENT_SECRET/);
+  assert.match(browserService, /VITE_GOOGLE_CLIENT_ID/);
+});
+
 test('YouTube publishing refuses to pretend an upload succeeded while disconnected', () => {
   const youtube = read('../components/YouTubeHubLegacy.tsx');
 

@@ -1,6 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMediaStore } from '../context/MediaStoreContext';
+import {
+  createYouTubeBrowserClient,
+  createYouTubeFetchBridge,
+  preloadGoogleIdentityServices,
+  YOUTUBE_OAUTH_SENTINEL_URL,
+} from '../services/youtubeBrowser';
 import { promoVideosForTrack } from '../services/youtubeUploadCore';
 import YouTubeHubLegacy from './YouTubeHubLegacy';
 
@@ -29,6 +35,51 @@ export default function YouTubeHub(props: YouTubeHubProps) {
     () => promoVideosForTrack(promoVideos, selectedTrackId),
     [promoVideos, selectedTrackId],
   );
+
+  useEffect(() => {
+    const nativeFetch = window.fetch.bind(window);
+    const nativeOpen = window.open.bind(window);
+    const client = createYouTubeBrowserClient();
+    const bridgedFetch = createYouTubeFetchBridge({ nativeFetch, client });
+
+    const bridgedOpen = ((url?: string | URL, target?: string, features?: string) => {
+      if (String(url || '') !== YOUTUBE_OAUTH_SENTINEL_URL) {
+        return nativeOpen(url, target, features);
+      }
+
+      let closed = false;
+      const fakeWindow = {
+        get closed() { return closed; },
+        close() { closed = true; },
+      } as unknown as Window;
+
+      void client.connect()
+        .then((state) => {
+          if (!state.connected) throw new Error('Google authorization completed without a YouTube channel.');
+          try { localStorage.setItem('YOUTUBE_OAUTH_STATUS', 'SUCCESS'); } catch (_) {}
+          window.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, window.location.origin);
+        })
+        .catch((error) => {
+          console.error('[YouTube OAuth] Browser authorization failed.', error);
+        })
+        .finally(() => {
+          closed = true;
+        });
+
+      return fakeWindow;
+    }) as typeof window.open;
+
+    window.fetch = bridgedFetch;
+    window.open = bridgedOpen;
+    void preloadGoogleIdentityServices().catch((error) => {
+      console.warn('[YouTube OAuth] Google Identity Services preload failed.', error);
+    });
+
+    return () => {
+      if (window.fetch === bridgedFetch) window.fetch = nativeFetch;
+      if (window.open === bridgedOpen) window.open = nativeOpen;
+    };
+  }, []);
 
   useEffect(() => {
     const root = hostRef.current;
