@@ -18,7 +18,7 @@ Spec: `docs/superpowers/specs/2026-09-09-album-cover-major-label-creative-direct
 
 ## Task status
 
-- Task 1: pending
+- Task 1: complete — RED confirmed missing settings/module; focused 9/9 green; compile green; full backend suite green. Review: no production wiring changed yet; Cloudflare-only example and 8→3→6 defaults match spec.
 - Task 2: pending
 - Task 3: pending
 - Task 4: pending
