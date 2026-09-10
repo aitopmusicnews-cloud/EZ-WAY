@@ -5,6 +5,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+from .custom_fonts import resolve_custom_font_path
 from .storage import LocalStorage, WORKING_IMAGE_SIZE
 
 
@@ -105,6 +106,13 @@ def _draw_text_layer(image: Image.Image, text: str, style: dict[str, Any], *, ro
 
 def _font(style: Any, size: int) -> ImageFont.ImageFont:
     name = str(style or "editorial").lower()
+    custom_path = resolve_custom_font_path(name)
+    if custom_path is not None:
+        try:
+            return ImageFont.truetype(str(custom_path), size=size)
+        except OSError:
+            # Missing/corrupt server asset must not break a cover; use the built-in fallback.
+            pass
     if name == "script":
         return LocalStorage._font_from_candidates(size, LocalStorage._script_font_candidates("luxury_script"))
     if name == "marker":
