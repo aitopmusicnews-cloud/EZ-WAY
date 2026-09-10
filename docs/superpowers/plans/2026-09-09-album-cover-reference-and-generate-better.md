@@ -145,8 +145,8 @@ git commit -m "feat: add album cover reference image storage"
 - [ ] **Step 1: Write failing request/parse test**
 
 ```python
-import base64
 from dataclasses import asdict
+import json
 import httpx
 import pytest
 from app.cloudflare_creative_director import CloudflareGemmaCreativeDirector
@@ -157,7 +157,7 @@ async def test_reference_analysis_sends_image_and_returns_visible_descriptors():
     seen = {}
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        seen.update(request.json())
+        seen.update(json.loads(request.content.decode("utf-8")))
         return httpx.Response(200, json={
             "result": {
                 "response": '{"reference_type":"artist","appearance":{"skin_tone":"deep brown","hair":"long black braids","facial_hair":"none","distinctive_features":["round gold glasses"],"apparent_age_range":"adult"},"wardrobe_language":["tailored black suit"],"accessories":["gold glasses"],"attitude":["composed"],"visual_identity":["clean editorial tailoring"],"do_not_change":["long black braids","round gold glasses"],"uncertainties":[]}'
@@ -440,8 +440,6 @@ git commit -m "feat: refine the user-selected cover direction"
 
 - [ ] **Step 1: Write failing integration assertions**
 
-Add:
-
 ```ts
 assert.match(studioSource, /Reference guide/);
 assert.match(studioSource, /Exact facial identity may vary with the current renderer/);
@@ -492,8 +490,6 @@ Never fall back to the first cover, highest score, or prior backend winner.
 
 - [ ] **Step 6: Run frontend gates**
 
-Run:
-
 ```bash
 node --experimental-strip-types --test src/services/albumCoverIntegration.test.ts
 npm run lint
@@ -514,7 +510,7 @@ git commit -m "feat: add reference guidance and selected-cover refinement"
 ### Task 6: Reference and refinement verification gate
 
 **Files:**
-- Modify only if verification exposes a defect.
+- Modify only when a verification command exposes a concrete defect.
 
 - [ ] **Step 1: Run focused backend tests**
 
