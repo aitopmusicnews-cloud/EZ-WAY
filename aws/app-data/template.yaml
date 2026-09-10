@@ -99,8 +99,7 @@ Resources:
       CorsConfiguration:
         CorsRules:
           - AllowedOrigins:
-              - !Ref ProductionOrigin
-              - !Ref AmplifyOrigin
+              - '*'
             AllowedMethods:
               - GET
               - HEAD
@@ -109,7 +108,9 @@ Resources:
               - '*'
             ExposedHeaders:
               - ETag
-            MaxAge: 3600
+              - x-amz-request-id
+              - x-amz-id-2
+            MaxAge: 86400
 
   UserPool:
     Type: AWS::Cognito::UserPool

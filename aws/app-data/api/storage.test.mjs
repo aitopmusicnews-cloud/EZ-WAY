@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildObjectKey, normalizeUploadRequest } from './storage.mjs';
+import { buildObjectKey, normalizeUploadRequest, READ_URL_EXPIRES_IN } from './storage.mjs';
 
 test('audio upload gets a server-owned key', () => {
   const key = buildObjectKey({ category: 'tracks', relatedId: 't1', filename: 'master.wav' });
@@ -21,6 +21,10 @@ test('category content family and size limits are enforced', () => {
   assert.throws(() => normalizeUploadRequest({
     category: 'artwork', relatedId: 't1', filename: 'cover.png', contentType: 'image/png', size: 21 * 1024 * 1024,
   }), /size/i);
+});
+
+test('media read links remain valid for 24 hours', () => {
+  assert.equal(READ_URL_EXPIRES_IN, 24 * 60 * 60);
 });
 
 test('message attachments accept arbitrary file types up to 100 MB', () => {
