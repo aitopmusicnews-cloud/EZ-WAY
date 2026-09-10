@@ -5,7 +5,36 @@ export type AlbumCoverVariationCount = 3 | 4 | 5 | 6;
 export type AlbumCoverCreativeStrength = 'loose' | 'balanced' | 'strict';
 export type AlbumCoverReferenceType = 'artist' | 'character' | 'style';
 export type AlbumCoverTextPosition = 'top-left' | 'top-center' | 'top-right' | 'center-left' | 'center' | 'center-right' | 'bottom-left' | 'bottom-center' | 'bottom-right';
-export type AlbumCoverFontStyle = 'editorial' | 'serif' | 'sans' | 'sans-bold' | 'script' | 'marker' | 'vintage';
+export const ALBUM_COVER_FONT_OPTIONS = [
+  { value: 'editorial', label: 'Editorial', group: 'Built-in' },
+  { value: 'serif', label: 'Serif', group: 'Built-in' },
+  { value: 'sans', label: 'Sans', group: 'Built-in' },
+  { value: 'sans-bold', label: 'Bold Sans', group: 'Built-in' },
+  { value: 'script', label: 'Script', group: 'Built-in' },
+  { value: 'marker', label: 'Marker', group: 'Built-in' },
+  { value: 'vintage', label: 'Vintage', group: 'Built-in' },
+  { value: 'armadillo', label: 'Armadillo', group: 'Custom' },
+  { value: 'charles-wright-singapore', label: 'Charles Wright Singapore', group: 'Custom' },
+  { value: 'oxidaren', label: 'Oxidaren', group: 'Custom' },
+  { value: 'scapholene', label: 'Scapholene', group: 'Custom' },
+  { value: 'serati', label: 'Serati', group: 'Custom' },
+  { value: 'trigram', label: 'Trigram', group: 'Custom' },
+  { value: 'achtung-bravo', label: 'Achtung Bravo', group: 'Custom' },
+  { value: 'asterisk-mono', label: 'Asterisk Mono', group: 'Custom' },
+  { value: 'chainsaw-carnage', label: 'Chainsaw Carnage', group: 'Custom' },
+  { value: 'digit-tech', label: 'Digit Tech', group: 'Custom' },
+  { value: 'dystopian-canticle', label: 'Dystopian Canticle', group: 'Custom' },
+  { value: 'eightgon', label: 'Eightgon', group: 'Custom' },
+  { value: 'goodlookingfont', label: 'GoodLookingFont', group: 'Custom' },
+  { value: 'help-me', label: 'Help Me', group: 'Custom' },
+  { value: 'jogrunge', label: 'JOGRUNGE', group: 'Custom' },
+  { value: 'london-psycho', label: 'London Psycho', group: 'Custom' },
+  { value: 'lumierepolis', label: 'Lumierepolis', group: 'Custom' },
+  { value: 'midnight-letters', label: 'Midnight Letters', group: 'Custom' },
+  { value: 'moonlit-flow', label: 'Moonlit Flow', group: 'Custom' },
+  { value: 'powderworks', label: 'Powderworks', group: 'Custom' },
+] as const;
+export type AlbumCoverFontStyle = (typeof ALBUM_COVER_FONT_OPTIONS)[number]['value'];
 
 export interface AlbumCoverTextLayerStyle {
   position: AlbumCoverTextPosition;
