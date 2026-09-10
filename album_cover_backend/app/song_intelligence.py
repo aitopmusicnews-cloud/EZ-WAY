@@ -4,6 +4,7 @@ from dataclasses import asdict
 from typing import Any
 
 from .creative_direction import CreativeDirector, SongThesis
+from .errors import PipelineError
 from .retry import with_retry
 
 
@@ -65,7 +66,7 @@ class SongIntelligenceEngine:
                     "song_thesis": asdict(thesis),
                     "status": "advanced",
                 }
-            except Exception:
+            except PipelineError:
                 pass
 
         thesis = fallback_song_thesis(audio_signal, lyric_signal)
