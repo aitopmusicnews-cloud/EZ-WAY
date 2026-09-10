@@ -820,701 +820,25 @@ We need three core formats and an advanced music metadata analysis:
     }
   });
 
-  // Helper for 100% accurate, flawless lyrical transcripts mapping to the track or user intent
-  const getPerfectLyricsForTrack = (trackName: string): { lyrics: string; description: string } | null => {
-    return null;
-  };
-
-  // Helper to dynamically compile gorgeous custom-themed lyrics mapped specifically to the loaded track's attributes when AI is offline
-  const generateDynamicFallbackLyrics = (trackInfo: any): string => {
-    const name = trackInfo?.name || "Untitled Track";
-    const artist = trackInfo?.artist || "OG BEATZ";
-    const bpm = trackInfo?.bpm || 110;
-    const duration = Math.round(Number(trackInfo?.duration) || 162); // 162 seconds is 2:42
-    const tags = Array.isArray(trackInfo?.tags) ? trackInfo.tags : [];
-    const tagsLower = tags.map(t => t.toLowerCase());
-    
-    const isLofi = tagsLower.some(t => t.includes("lofi") || t.includes("chill") || t.includes("relaxed") || t.includes("study"));
-    const isDrill = tagsLower.some(t => t.includes("drill") || t.includes("aggressive") || t.includes("gritty") || t.includes("industrial"));
-    const isTrap = tagsLower.some(t => t.includes("trap") || t.includes("dark") || t.includes("heavy") || t.includes("rap"));
-    const isAcoustic = tagsLower.some(t => t.includes("acoustic") || t.includes("guitar") || t.includes("organic") || t.includes("sunset"));
-
-    // Formats a number of seconds as [mm:ss]
-    const formatTime = (secs: number): string => {
-      const mins = Math.floor(secs / 60);
-      const remainingSecs = secs % 60;
-      return `[${mins.toString().padStart(2, "0")}:${remainingSecs.toString().padStart(2, "0")}]`;
-    };
-
-    const lines: string[] = [];
-    
-    // Choose thematic lyric lines depending on the genre
-    let introText = "";
-    let verseLines: string[] = [];
-    let chorusLines: string[] = [];
-    let bridgeLines: string[] = [];
-    let outroText = "";
-
-    if (isLofi) {
-      introText = `(Soft organic lofi crackle, smooth warm keyboard loop at ${bpm} BPM)`;
-      verseLines = [
-        "Steam rises slow from the porcelain cup",
-        "Coffee steam dancing, keeping my emotions up",
-        "Relaxing thoughts turning around in my brain",
-        "Gently washing off any stress or lingering pain",
-        "Lost inside this late night chill lo-fi sound",
-        "Sinking in the warmth, feet off the ground",
-        "Neon lights flickering dim through the rain",
-        "Watching the world go by through the window pane",
-        "No need to hurry, no need to rush",
-        "Just matching the silence with a midnight brush",
-        "A peaceful journey designed in the dark",
-        "Leaving behind every shadow and spark"
-      ];
-      chorusLines = [
-        "Oh, feel the cozy vinyl spin all night",
-        "Underneath the crescent moon's silver light",
-        "Let the frequencies carry the weight away",
-        "We'll find our peace before the break of day"
-      ];
-      bridgeLines = [
-        "Time is standing still, the clock is on pause",
-        "Drifting in the groove without any cause"
-      ];
-      outroText = "(Soft cafe ambience and crackle fades to silence)";
-    } else if (isDrill) {
-      introText = `(Heavy industrial steel clanging, aggressive drill 808 slides at ${bpm} BPM)`;
-      verseLines = [
-        "Certified drill motion, hear the sirens wail",
-        "Playing this loud, we could never fail",
-        "Walking through the shadows, step into the cold",
-        "This is a story of grit, raw and bold",
-        "Heavy drum patterns striking through the dark",
-        "Ready to jump and leave our permanent mark",
-        "Gliding on sliding 808s, matching the pace",
-        "No time for runners, we're taking the space",
-        "Bricks in the wall, concrete on the street",
-        "No hesitation when we drop the heavy beat",
-        "Leveling up, we don't look at the cost",
-        "Reclaiming the crown that was once nearly lost"
-      ];
-      chorusLines = [
-        "Step to the throne, look straight in the eyes",
-        "We are the ones that are destined to rise",
-        "No duplicate copy can blur out our name",
-        "We're setting the pavement ablaze in the game"
-      ];
-      bridgeLines = [
-        "Quiet the talk, let the energy speak",
-        "We are the masters, we've reached the peak"
-      ];
-      outroText = "(Sudden sub bass drop and metallic echoes to silence)";
-    } else if (isTrap) {
-      introText = `(Pure black silence. Distant brass swelling into heavy trap 808s at ${bpm} BPM)`;
-      verseLines = [
-        "Looking at the scene, we control the game",
-        `"${name}" in the headphones, setting it aflame`,
-        "Cruising through the night, keeping it real",
-        "Solid brass, dark skies, cold polished steel",
-        "Drop the heavy bassline, hear the hi-hat roll",
-        `Engineered by ${artist} to take complete control`,
-        "Chasing the vision, we don't chase the trend",
-        "Solid foundations that never will bend",
-        "In the obsidian vault, keeping the key",
-        "Nothing is free, if you want the decree",
-        "Sipping the water of life from the source",
-        "Riding the wind like a dark-colored horse"
-      ];
-      chorusLines = [
-        "Never let them drown, just give them a sip",
-        "Keep the glass full, but don't let it drip",
-        "They want the whole cake, we leave them a crumb",
-        "Wondering when the big fortune is gonna come"
-      ];
-      bridgeLines = [
-        "Keep 'em thirsty, keep 'em wanting more",
-        "Locking the entrance, barricading the door"
-      ];
-      outroText = "(Trap beat rolls out with heavy delay and sub rumble)";
-    } else if (isAcoustic) {
-      introText = `(Warm acoustic guitar chords strummed slowly at ${bpm} BPM)`;
-      verseLines = [
-        "Sunset bleeding clean through the pine lines",
-        "Listening to the acoustic vibes, reading the signs",
-        "Simple strings speaking straight to the soul",
-        "Let the gentle rhythm make us whole",
-        "Let the golden hour drift beautiful and slow",
-        "Rising and shining under the twilight glow",
-        "A path in the woods, the air smelling sweet",
-        "Grass underfoot, guiding our walking feet",
-        "The rustle of leaves, the whisper of wind",
-        "A canvas of memories waiting to begin",
-        "Simple melodies, no complex design",
-        "Tracing the edge of the horizon line"
-      ];
-      chorusLines = [
-        "Singing along with the fire's warm light",
-        "Holding on tight to the edge of the night",
-        "Let the acoustic resonance carry our song",
-        "To the beautiful places where we belong"
-      ];
-      bridgeLines = [
-        "A quiet acoustic solo gently plays",
-        "Washing away all of our busy days"
-      ];
-      outroText = "(Guitar strings gently ring out to ambient silence)";
-    } else {
-      // Default / general genre-aware lyrics
-      const genreHeader = tags.length > 0 ? tags.join(" / ") : "Electronic / Neo-Noir";
-      introText = `(Intro - ${genreHeader} arrangement building up at ${bpm} BPM)`;
-      verseLines = [
-        "Let the heavy rhythm take over the stage",
-        `Turning the track "${name}" to a brand new page`,
-        `Masterfully designed and produced by ${artist} today`,
-        "Every single frequency guiding the way",
-        "Feel the driving energy, keeping us high",
-        "Soaring through the heights of the infinite sky",
-        "Pulses of synth waves hitting the line",
-        "Perfect sync patterns, beautifully aligned",
-        "A sonic journey that is taking us far",
-        "Guided by the light of a digital star",
-        "Synthesizer loops spinning around the room",
-        "Sweeping away any darkness and gloom"
-      ];
-      chorusLines = [
-        "Raise up the volume, let's power the sound",
-        "Feel the vibration right here on the ground",
-        "This is our anthem, we stand in the glow",
-        "Ready to ride on the ultimate flow"
-      ];
-      bridgeLines = [
-        "The beat simplifies, dropping down low",
-        "Building the tension, preparing to grow"
-      ];
-      outroText = "(Musical patterns fading to silent stereo echoes)";
-    }
-
-    // Generate structured timestamps across the full duration
-    lines.push(`${formatTime(0)} ${introText}`);
-
-    // We will distribute the segments depending on how long the duration is
-    const sections = [
-      { type: 'verse', data: verseLines.slice(0, 4), startPct: 0.10, endPct: 0.28 },
-      { type: 'chorus', data: chorusLines, startPct: 0.30, endPct: 0.48 },
-      { type: 'verse', data: verseLines.slice(4, 8), startPct: 0.50, endPct: 0.65 },
-      { type: 'chorus', data: chorusLines, startPct: 0.67, endPct: 0.82 },
-      { type: 'bridge', data: bridgeLines, startPct: 0.84, endPct: 0.92 }
-    ];
-
-    sections.forEach(sec => {
-      const startSec = Math.round(sec.startPct * duration);
-      const endSec = Math.round(sec.endPct * duration);
-      const count = sec.data.length;
-      if (count > 0 && startSec < duration) {
-        const step = (endSec - startSec) / count;
-        sec.data.forEach((lyric, idx) => {
-          const time = Math.round(startSec + idx * step);
-          if (time < duration) {
-            lines.push(`${formatTime(time)} ${lyric}`);
-          }
-        });
-      }
-    });
-
-    const outroTime = Math.round(0.95 * duration);
-    if (outroTime < duration) {
-      lines.push(`${formatTime(outroTime)} ${outroText}`);
-    } else {
-      lines.push(`${formatTime(duration - 2)} ${outroText}`);
-    }
-
-    return lines.join("\n");
-  };
-
-  // API - Generate Timestamped Lyrics
-  app.post("/api/generate-lyrics", async (req, res) => {
-    const { trackInfo, audioData, audioMimeType } = req.body;
-    if (!trackInfo) {
-      res.status(400).json({ error: "trackInfo is required" });
-      return;
-    }
-
-    // Direct match template lookup ONLY when no raw audio binary is attached, ensuring direct speech-to-text works flawlessly
-    const perfectLyricsResult = getPerfectLyricsForTrack(trackInfo.name || "");
-    if (!audioData && perfectLyricsResult) {
-      console.log(`[Lyrics Interceptor] Flawless verbatim template found for "${trackInfo.name}". Returning instantly.`);
-      res.json(perfectLyricsResult);
-      return;
-    }
-
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey === "undefined" || !apiKey.trim()) {
-      console.warn("Gemini API key is not configured/unreachable on the server. Deploying track-specific dynamic fallback lyrics.");
-      const dynamicLyrics = generateDynamicFallbackLyrics(trackInfo);
-      res.json({
-        lyrics: dynamicLyrics,
-        description: `API key unconfigured. High-fidelity dynamic fallback compiled for "${trackInfo.name || 'Untitled'}" successfully.`,
-        isFallback: true,
-        fallbackReason: "API key is not configured."
-      });
-      return;
-    }
-
-    try {
-      const ai = new GoogleGenAI({
-        apiKey: apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build-server',
-          }
-        }
-      });
-
-      const tagsList = trackInfo.tags || [];
-      const duration = Math.min(Number(trackInfo.duration) || 120, 300);
-
-      const parts: any[] = [];
-
-      let resolvedAudioBase64: string | null = null;
-      let resolvedMimeType = audioMimeType || "audio/mpeg";
-
-      if (audioData) {
-        let cleanBase64 = audioData;
-        if (cleanBase64.includes(",")) {
-          cleanBase64 = cleanBase64.split(",")[1];
-        }
-        resolvedAudioBase64 = cleanBase64;
-      } else if (trackInfo.file_url) {
-        try {
-          console.log(`[Lyrics Service] Server-side fetching track file to analyze: ${trackInfo.file_url}`);
-          const fetchRes = await fetch(trackInfo.file_url);
-          if (fetchRes.ok) {
-            const arrayBuffer = await fetchRes.arrayBuffer();
-            resolvedAudioBase64 = Buffer.from(arrayBuffer).toString("base64");
-            const contentType = fetchRes.headers.get("content-type");
-            if (contentType) {
-              resolvedMimeType = contentType;
-            }
-          }
-        } catch (fetchErr: any) {
-          console.warn("[Lyrics Service] Failed to fetch track file server-side:", fetchErr.message);
-        }
-      }
-
-      let whisperTranscript: string | null = null;
-      if (resolvedAudioBase64) {
-        try {
-          console.log("[Lyrics API] Pre-transcribing audio file with Whisper API for ultra-high fidelity lyrics generation...");
-          const pKey = process.env.POLLINATIONS_API_KEY || "";
-          
-          const formData = new globalThis.FormData();
-          const buffer = Buffer.from(resolvedAudioBase64, "base64");
-          const blob = new globalThis.Blob([buffer], { type: resolvedMimeType });
-          formData.append("file", blob, `audio.${resolvedMimeType.split("/")[1] || "mp3"}`);
-          formData.append("model", "whisper");
-
-          const headers: Record<string, string> = {};
-          if (pKey) {
-            headers["Authorization"] = `Bearer ${pKey}`;
-          }
-
-          const pResponse = await fetch("https://gen.pollinations.ai/v1/audio/transcriptions", {
-            method: "POST",
-            headers: headers,
-            body: formData
-          });
-
-          if (pResponse.ok) {
-            const result = await pResponse.json() as any;
-            whisperTranscript = result.text || "";
-            console.log("[Lyrics API] Whisper pre-transcription succeeded! Transcribed characters:", whisperTranscript?.length);
-          } else {
-            console.warn("[Lyrics API] Whisper pre-transcription API failed with status:", pResponse.status);
-          }
-        } catch (whisperErr: any) {
-          console.warn("[Lyrics API] Whisper pre-transcription failed, using direct Gemini audio analysis instead:", whisperErr.message);
-        }
-      }
-
-      if (resolvedAudioBase64) {
-        parts.push({
-          inlineData: {
-            data: resolvedAudioBase64,
-            mimeType: resolvedMimeType
-          }
-        });
-      }
-
-      let prompt = `You are provided with metadata and optionally the raw audio of the track:
-Track Name: "${trackInfo.name || "Untitled Track"}"
-Artist / Brand: "${trackInfo.artist || "OGBeatz"}"
-BPM: ${trackInfo.bpm || 110}
-Key: "${trackInfo.key_signature || "C Major"}"
-Total Duration: ${duration} seconds
-Sub-genres/Vibe tags: ${JSON.stringify(tagsList)}`;
-
-      if (whisperTranscript) {
-        prompt += `\n\nWHISPER HIGH-FIDELITY SPEECH-TO-TEXT TRANSCRIPT (VERBATIM VOCALS):
-"${whisperTranscript}"
-
-CRITICAL WORKING INSTRUCTIONS FOR FLAWLESS ALIGNMENT & STYLING:
-1. Since we have a high-precision Whisper voice transcript of the vocals, you MUST align these exact words into standard timestamped subtitles ('[mm:ss]') stretching logically across the total track duration of ${duration} seconds.
-2. Maintain the literal words from the Whisper transcript. Do not omit words, alter the message, or summarize. Keep it 100% true to the transcript.
-3. Distribute the timestamps sequentially and logically, starting at [00:00].
-4. If there are long musical intervals with no words, clearly label them as [mm:ss] (Instrumental Break).`;
-      } else {
-        prompt += `\n\nCRITICAL WORKING INSTRUCTIONS FOR FLAWLESS TRANSCRIPTION & ALIGNMENT:
-1. GENERAL VOCAL SPEECH-TO-TEXT EXTRACTION: Listen to the entire attached audio track with micro-precision.
-   - IF VOCALS, SPEECH, RAP, OR SINGING ARE DETECTED: You MUST perform an absolute, literal, word-for-word, verbatim transcription of those vocals. Do not leave out any words, do not summarize, do not correct grammatical slang (write exactly what they say), and do not paraphrase.
-   - The lyrics must match the exact spoken track identically. There must be zero mistakes, zero omissions, and zero embellishments.
-   - Match each literal transcribed line with its highly-accurate timestamp in '[mm:ss]' brackets matching the exact second the vocals for that line start.
-   - If there is background talking, intro speech, or vocal ad-libs, transcribe them too.
-   - IF NO VOCALS ARE HEARD OR THE AUDIO IS PURELY INSTRUMENTAL: Write beautiful, rich, styled lyrics matching the track's genre vibes, duration, and title. Start the response description with "Instrumental Track: Custom creative lyrics generated."
-
-2. TIMING AND SYNCING:
-   - Prepended timestamps must be formatted exactly like '[mm:ss]'. For example: '[00:15] Chorus lyrics...'
-   - Distribute logically and sequentially, scaling from '[00:00]' up to the end of vocal delivery, or around '${Math.floor(duration/60).toString().padStart(2, '0')}:${(duration%60).toString().padStart(2, '0')}'.
-   - If there is a long instrumental gap/break, mark it clearly like '[01:10] (Instrumental Solo)'.
-
-3. STYLISTIC VIBE:
-   - For instrumental generation, match the lyrics to the sub-genre/vibe (e.g., Lofi, Drill, R&B, Trap, Cinematic).`;
-      }
-
-      parts.push({ text: prompt });
-
-      const aiResponse = await generateContentWithFallback(ai, {
-        model: "gemini-3.5-flash",
-        contents: { parts },
-        config: {
-          systemInstruction: "You are a professional, world-class audio transcriber and Grammarian lyricist. Your primary directive is 100% word-for-word perfection during transcription of vocal audio files. Never make up, truncate, summarize, or alter vocal content. If no vocals are detected or no audio file is provided, compose gorgeous stylized lyrics fitting the track metadata. Always output valid JSON with 'lyrics' and 'description' keys.",
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              lyrics: {
-                type: Type.STRING,
-                description: "Verbatim timestamped lyrics using standard '[mm:ss] Text' format matching the vocal output exactly, with lines delimited by newlines."
-              },
-              description: {
-                type: Type.STRING,
-                description: "A short professional summary denoting whether transcription was successful or creative lyrics were composed."
-              }
-            },
-            required: ["lyrics", "description"]
-          }
-        }
-      });
-
-      const text = aiResponse.text;
-      if (text) {
-        res.json(JSON.parse(text.trim()));
-        return;
-      }
-      res.status(502).json({ error: "Lyric generation failed" });
-    } catch (err: any) {
-      console.warn("[A&R Guard] Lyrics generation unavailable. Activating high-fidelity local lyrics engine.");
-      
-      const perfectFallback = getPerfectLyricsForTrack(trackInfo.name || "");
-      if (perfectFallback) {
-        res.json({
-          lyrics: perfectFallback.lyrics,
-          description: `Gemini limits active. Verbatim track template loaded successfully: ${perfectFallback.description}`,
-          isFallback: true,
-          fallbackReason: err?.message || "Rate limit error."
-        });
-        return;
-      }
-
-      // Compile beautiful styled track fallback
-      const dynamicLyrics = generateDynamicFallbackLyrics(trackInfo);
-      res.json({
-        lyrics: dynamicLyrics,
-        description: `Gemini limits active. Custom high-fidelity loaded track fallback compiled successfully for "${trackInfo.name || 'Untitled'}".`,
-        isFallback: true,
-        fallbackReason: err?.message || "Rate limit or connection timeout."
-      });
-    }
-  });
-
-  // API - Transcribe Lyrics using strictly Pollinations Whisper (No Google Gemini)
-  app.post("/api/transcribe-lyrics-pollinations", async (req, res) => {
-    const { trackInfo, audioData, audioMimeType, pollinationsUserKey } = req.body;
-    if (!trackInfo) {
-      res.status(400).json({ error: "trackInfo is required" });
-      return;
-    }
-
-    let resolvedBuffer: Buffer | null = null;
-    let resolvedMimeType = audioMimeType || "audio/mpeg";
-
-    // 1. Resolve Audio Buffer
-    if (audioData) {
-      let cleanBase64 = audioData;
-      if (cleanBase64.includes(",")) {
-        cleanBase64 = cleanBase64.split(",")[1];
-      }
-      resolvedBuffer = Buffer.from(cleanBase64, "base64");
-    } else if (trackInfo.file_url) {
-      try {
-        console.log(`[Transcription] Downloading track from URL: ${trackInfo.file_url}`);
-        const fetchRes = await fetch(trackInfo.file_url);
-        if (fetchRes.ok) {
-          const arrayBuffer = await fetchRes.arrayBuffer();
-          resolvedBuffer = Buffer.from(arrayBuffer);
-          const contentType = fetchRes.headers.get("content-type");
-          if (contentType) {
-            resolvedMimeType = contentType;
-          }
-        }
-      } catch (fetchErr: any) {
-        console.warn("[Transcription] Failed to download track url:", fetchErr.message);
-      }
-    }
-
-    if (!resolvedBuffer) {
-      res.status(400).json({ error: "Unable to retrieve audio data for transcription" });
-      return;
-    }
-
-    const finalDuration = Math.min(Number(trackInfo.duration) || 120, 300);
-
-    // Helper key validation functions
-    const isValidPollinationsKey = (key: string | undefined): boolean => {
-      if (!key) return false;
-      const k = key.trim();
-      if (!k || k === "undefined" || k === "null" || k.startsWith("http://") || k.startsWith("https://") || k.includes("/")) return false;
-      if (k.includes("YOUR_") || k.includes("MOCK_") || k.includes("PLACEHOLDER")) return false;
-      return k.length > 5;
-    };
-
-    const rawPollinationsKey = pollinationsUserKey || process.env.POLLINATIONS_API_KEY || "";
-    const pKey = isValidPollinationsKey(rawPollinationsKey) ? rawPollinationsKey : "";
-
-    // PURE WHISPER AUDIO TRANSCRIPTION PIPELINE (Strictly NO Gemini)
-    let alignedLyrics = "";
-
-    try {
-      const formData = new globalThis.FormData();
-      const blob = new globalThis.Blob([resolvedBuffer], { type: resolvedMimeType });
-      formData.append("file", blob, `audio.${resolvedMimeType.split("/")[1] || "mp3"}`);
-      formData.append("model", "whisper");
-      formData.append("response_format", "verbose_json");
-
-      console.log("[Transcription] Initiating Whisper transcription via Pollinations...");
-      
-      const headers: Record<string, string> = {};
-      if (pKey) {
-        headers["Authorization"] = `Bearer ${pKey}`;
-      }
-
-      const pResponse = await fetch("https://gen.pollinations.ai/v1/audio/transcriptions", {
-        method: "POST",
-        headers: headers,
-        body: formData
-      });
-
-      if (!pResponse.ok) {
-        const errText = await pResponse.text();
-        console.error("[Transcription] Whisper API Error:", pResponse.status, errText);
-        throw new Error(`Whisper API returned status ${pResponse.status}: ${errText}`);
-      }
-
-      const result = await pResponse.json() as any;
-      const rawText = result.text || "";
-
-      if (!rawText.trim()) {
-        throw new Error("Transcribed text is empty");
-      }
-
-      console.log("[Transcription] Whisper transcription succeeded! Transcribed characters:", rawText.length);
-
-      // Extract Whisper's native segment timestamps if available
-      if (result.segments && Array.isArray(result.segments) && result.segments.length > 0) {
-        console.log(`[Transcription] Extracting native segment timestamps. Segment count: ${result.segments.length}`);
-        alignedLyrics = result.segments.map((seg: any) => {
-          const startSec = Math.floor(seg.start || 0);
-          const mins = Math.floor(startSec / 60).toString().padStart(2, "0");
-          const secs = (startSec % 60).toString().padStart(2, "0");
-          return `[${mins}:${secs}] ${seg.text.trim()}`;
-        }).join("\n");
-      }
-
-      // If segments were not returned or are empty, use the fast automatic distributor (Strictly non-AI)
-      if (!alignedLyrics) {
-        console.log("[Transcription] Whisper native segments not found. Applying fast automatic interval-based distributor...");
-        const lines = rawText.split(/[.\n;,]+/);
-        const outputLines: string[] = [];
-        const filteredLines = lines.map((l: string) => l.trim()).filter((l: string) => l.length > 2);
-        const interval = filteredLines.length > 0 ? Math.max(3, Math.floor(finalDuration / (filteredLines.length + 1))) : 5;
-        
-        filteredLines.forEach((line: string, idx: number) => {
-          const timeVal = (idx + 1) * interval;
-          const mins = Math.floor(timeVal / 60).toString().padStart(2, '0');
-          const secs = (timeVal % 60).toString().padStart(2, '0');
-          outputLines.push(`[${mins}:${secs}] ${line}`);
-        });
-        alignedLyrics = outputLines.join("\n");
-      }
-
-      res.json({
-        lyrics: alignedLyrics,
-        description: `Whisper AI transcribed vocals and aligned timeline subtitles successfully directly from audio timestamps.`
-      });
-      return;
-
-    } catch (whisperErr: any) {
-      console.warn("[Transcription] Whisper pipeline failed. Bypassing Gemini and triggering offline fallback...", whisperErr.message);
-    }
-
-    // Fallback: Offline dynamic custom-themed track template compiler (runs if Whisper is unconfigured or failed)
-    console.log("[Transcription] Whisper transcription failed. Bypassing Gemini; triggering high-fidelity dynamic offline fallback...");
-    try {
-      const perfectFallback = getPerfectLyricsForTrack(trackInfo.name || "");
-      if (perfectFallback) {
-        res.json({
-          lyrics: perfectFallback.lyrics,
-          description: `Whisper voice preamps offline/failed. Loaded track template successfully.`,
-          isFallback: true,
-          fallbackReason: "WHISPER_OFFLINE_OR_FAILED"
-        });
-        return;
-      }
-      
-      const dynamicLyrics = generateDynamicFallbackLyrics(trackInfo);
-      res.json({
-        lyrics: dynamicLyrics,
-        description: `Whisper voice preamps offline/failed. Custom high-fidelity loaded track fallback compiled successfully.`,
-        isFallback: true,
-        fallbackReason: "WHISPER_OFFLINE_OR_FAILED"
-      });
-    } catch (dynErr: any) {
-      console.error("[Transcription] Deep fail compiling offline fallback:", dynErr.message);
-      res.status(500).json({
-        error: `Whisper transcription and fallback failed: ${dynErr.message}`
-      });
-    }
-  });
-
-  // API - Timed Lyrics Aligner
-  app.post("/api/align-lyrics", async (req, res) => {
-    const { plainTextLyrics, duration } = req.body;
-    if (!plainTextLyrics) {
-      res.status(400).json({ error: "plainTextLyrics is required" });
-      return;
-    }
-
-    const finalDuration = Math.min(Number(duration) || 120, 300);
-
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey === "undefined" || !apiKey.trim()) {
-      console.warn("Gemini API key is not configured on the server. Performing offline lyric alignment.");
-      const lines = plainTextLyrics.split("\n").map((l: string) => l.trim()).filter(Boolean);
-      const outputLines: string[] = [];
-      const interval = lines.length > 0 ? Math.max(3, Math.floor(finalDuration / (lines.length + 1))) : 5;
-      lines.forEach((line: string, index: number) => {
-        const timeVal = (index + 1) * interval;
-        const mins = Math.floor(timeVal / 60).toString().padStart(2, '0');
-        const secs = (timeVal % 60).toString().padStart(2, '0');
-        outputLines.push(`[${mins}:${secs}] ${line}`);
-      });
-      res.json({
-        lyrics: outputLines.join("\n"),
-        alignedCount: lines.length,
-        isFallback: true,
-        fallbackReason: "API key is not configured."
-      });
-      return;
-    }
-
-    try {
-      const ai = new GoogleGenAI({
-        apiKey: apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build-server',
-          }
-        }
-      });
-
-      const prompt = `Take the following list of raw song lyrics (currently flat text/unstamped lines):
-"${plainTextLyrics}"
-
-And align them with pre-calculated '[mm:ss]' timestamps across the track's total duration of ${finalDuration} seconds.
-
-Rules:
-1. Parse the input lines. Filter out noise or empty lines.
-2. Distribute the timestamps chronologically from [00:00] up to around the end time of ${Math.floor(finalDuration/60).toString().padStart(2, '0')}:${(finalDuration%60).toString().padStart(2, '0')}.
-3. Space them realistically (e.g. 4 to 8 seconds per line) depending on standard musical timing.
-4. Prepend each line with the bracketed timestamp. Example output line: '[00:12] In this cosmic space of mine'
-5. Preserve the wording of the lyrics and structure (Intro, Verses, Chorus, Outro) if present.`;
-
-      const aiResponse = await generateContentWithFallback(ai, {
-        model: "gemini-3.5-flash",
-        contents: prompt,
-        config: {
-          systemInstruction: "You are an assistant that aligns plain text lyrics to standard bracketed timestamps. Always respond with valid JSON with 'lyrics' and 'alignedCount' fields.",
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              lyrics: {
-                type: Type.STRING,
-                description: "The newly timed lyrics starting with bracketed timestamps '[mm:ss]' on each line."
-              },
-              alignedCount: {
-                type: Type.INTEGER,
-                description: "The estimated number of lyric lines aligned."
-              }
-            },
-            required: ["lyrics", "alignedCount"]
-          }
-        }
-      });
-
-      const text = aiResponse.text;
-      if (text) {
-        res.json(JSON.parse(text.trim()));
-        return;
-      }
-      res.status(502).json({ error: "Lyric alignment failed" });
-    } catch (err: any) {
-      console.warn("[A&R Guard] Lyrics alignment unavailable. Carrying out standard offline alignment matrix.");
-      // Fallback aligner (spread lines evenly)
-      const lines = plainTextLyrics.split("\n").map((l: string) => l.trim()).filter(Boolean);
-      const outputLines: string[] = [];
-      const interval = lines.length > 0 ? Math.max(3, Math.floor(finalDuration / (lines.length + 1))) : 5;
-      lines.forEach((line: string, index: number) => {
-        const timeVal = (index + 1) * interval;
-        const mins = Math.floor(timeVal / 60).toString().padStart(2, '0');
-        const secs = (timeVal % 60).toString().padStart(2, '0');
-        outputLines.push(`[${mins}:${secs}] ${line}`);
-      });
-      res.json({
-        lyrics: outputLines.join("\n"),
-        alignedCount: lines.length
-      });
-    }
-  });
-
   // ==========================================
   // YOUTUBE HUB & GOOGLE API INTEGRATION PROXIES
   // ==========================================
   let googleAuthSession = {
     accessToken: null as string | null,
     refreshToken: null as string | null,
-    channelName: "OG BEATZ OFFICIAL",
-    subscribers: "124,500",
-    avatar: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=150&auto=format&fit=crop",
+    channelName: "",
+    subscribers: "0",
+    avatar: "",
     connected: false
   };
 
   let spotifyAuthSession = {
     accessToken: null as string | null,
     refreshToken: null as string | null,
-    profileName: "OG BEATZ MASTER",
-    followers: "84,200",
-    avatar: "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=150&auto=format&fit=crop",
-    spotifyUrl: "https://open.spotify.com/artist/4Y79uO67nZ08CFrUuGf3rU",
+    profileName: "",
+    followers: "0",
+    avatar: "",
+    spotifyUrl: "",
     connected: false
   };
 
@@ -1583,9 +907,8 @@ Rules:
     const callbackPath = isRenderCallback ? "/auth/callback" : "/api/youtube/callback";
     const redirectUri = `${origin}${callbackPath}`;
 
-    if (!oClientId) {
-      const mockAuthorizeUrl = `${origin}${callbackPath}?code=mock_google_oauth_code_ogbeatz&state=${encodeURIComponent(origin)}`;
-      res.json({ url: mockAuthorizeUrl });
+    if (!oClientId || !process.env.GOOGLE_CLIENT_SECRET) {
+      res.status(503).json({ error: "YouTube OAuth is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to the server environment." });
       return;
     }
 
@@ -1617,15 +940,9 @@ Rules:
     const callbackPath = isRenderCallback ? "/auth/callback" : "/api/youtube/callback";
     const redirectUri = `${origin}${callbackPath}`;
 
-    if (code === "mock_google_oauth_code_ogbeatz" || !process.env.GOOGLE_CLIENT_ID) {
-      googleAuthSession = {
-        accessToken: "simulated_access_token_beatz_master_101",
-        refreshToken: "simulated_refresh_token_beatz_master_101",
-        channelName: "OG BEATZ OFFICIAL",
-        subscribers: "128,400",
-        avatar: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=150&auto=format&fit=crop",
-        connected: true
-      };
+    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+      res.status(503).send("YouTube OAuth is not configured on this server.");
+      return;
     } else {
       try {
         const exchangeRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -1646,31 +963,37 @@ Rules:
             headers: { "Authorization": `Bearer ${authData.access_token}` }
           });
 
-          let cName = "OG BEATZ OFFICIAL";
-          let cSubs = "124,500";
-          let cAvatar = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=150&auto=format&fit=crop";
-
-          if (channelRes.ok) {
-            const channelData: any = await channelRes.json();
-            if (channelData.items && channelData.items[0]) {
-              const ch = channelData.items[0];
-              cName = ch.snippet.title || cName;
-              cSubs = parseInt(ch.statistics.subscriberCount || "0", 10).toLocaleString();
-              cAvatar = ch.snippet.thumbnails?.default?.url || cAvatar;
-            }
+          if (!channelRes.ok) {
+            const detail = await channelRes.text();
+            console.warn("YouTube profile lookup failed after authorization.", detail);
+            res.status(502).send("YouTube authorized, but the channel profile could not be verified. Please try again.");
+            return;
+          }
+          const channelData: any = await channelRes.json();
+          const channel = channelData.items?.[0];
+          if (!channel) {
+            res.status(502).send("YouTube authorized, but no channel was found for this account.");
+            return;
           }
 
           googleAuthSession = {
             accessToken: authData.access_token,
             refreshToken: authData.refresh_token || null,
-            channelName: cName,
-            subscribers: cSubs,
-            avatar: cAvatar,
+            channelName: channel.snippet?.title || "YouTube channel",
+            subscribers: parseInt(channel.statistics?.subscriberCount || "0", 10).toLocaleString(),
+            avatar: channel.snippet?.thumbnails?.default?.url || "",
             connected: true
           };
+        } else {
+          const detail = await exchangeRes.text();
+          console.warn("Failed to exchange live Google OAuth credentials.", detail);
+          res.status(502).send("YouTube authorization failed. Please try connecting again.");
+          return;
         }
       } catch (err) {
-        console.warn("Failed to exchange live Google OAuth credentials.");
+        console.warn("Failed to exchange live Google OAuth credentials.", err);
+        res.status(502).send("YouTube authorization failed. Please try connecting again.");
+        return;
       }
     }
 
@@ -1704,9 +1027,9 @@ Rules:
     googleAuthSession = {
       accessToken: null,
       refreshToken: null,
-      channelName: "OG BEATZ TV",
-      subscribers: "124,500",
-      avatar: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=150&auto=format&fit=crop",
+      channelName: "",
+      subscribers: "0",
+      avatar: "",
       connected: false
     };
     res.json({ status: "disconnected" });
@@ -1736,10 +1059,8 @@ Rules:
     const callbackPath = "/api/spotify/callback";
     const redirectUri = `${origin}${callbackPath}`;
 
-    if (!sClientId) {
-      // Simulate OAuth flow when local credentials aren't set yet
-      const mockAuthorizeUrl = `${origin}${callbackPath}?code=mock_spotify_oauth_code_ogbeatz&state=${encodeURIComponent(origin)}`;
-      res.json({ url: mockAuthorizeUrl });
+    if (!sClientId || !process.env.SPOTIFY_CLIENT_SECRET) {
+      res.status(503).json({ error: "Spotify OAuth is not configured. Add SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET to the server environment." });
       return;
     }
 
@@ -1773,16 +1094,9 @@ Rules:
     const callbackPath = "/api/spotify/callback";
     const redirectUri = `${origin}${callbackPath}`;
 
-    if (code === "mock_spotify_oauth_code_ogbeatz" || !process.env.SPOTIFY_CLIENT_ID) {
-      spotifyAuthSession = {
-        accessToken: "simulated_spotify_access_token_beatz_master_99",
-        refreshToken: "simulated_spotify_refresh_token_beatz_master_99",
-        profileName: "OG BEATZ MASTER",
-        followers: "84,200",
-        avatar: "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=150&auto=format&fit=crop",
-        spotifyUrl: "https://open.spotify.com/artist/4Y79uO67nZ08CFrUuGf3rU",
-        connected: true
-      };
+    if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_CLIENT_SECRET) {
+      res.status(503).send("Spotify OAuth is not configured on this server.");
+      return;
     } else {
       try {
         const basicAuth = Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString("base64");
@@ -1805,33 +1119,33 @@ Rules:
             headers: { "Authorization": `Bearer ${authData.access_token}` }
           });
 
-          let pName = "OG BEATZ MASTER";
-          let pFollowers = "84,200";
-          let pAvatar = "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=150&auto=format&fit=crop";
-          let sUrl = "https://open.spotify.com/artist/4Y79uO67nZ08CFrUuGf3rU";
-
-          if (meRes.ok) {
-            const meData: any = await meRes.json();
-            pName = meData.display_name || pName;
-            pFollowers = parseInt(meData.followers?.total || "0", 10).toLocaleString();
-            pAvatar = meData.images?.[0]?.url || pAvatar;
-            sUrl = meData.external_urls?.spotify || sUrl;
+          if (!meRes.ok) {
+            const detail = await meRes.text();
+            console.warn("Spotify profile lookup failed after authorization.", detail);
+            res.status(502).send("Spotify authorized, but the account profile could not be verified. Please try again.");
+            return;
           }
+          const profile: any = await meRes.json();
 
           spotifyAuthSession = {
             accessToken: authData.access_token,
             refreshToken: authData.refresh_token || null,
-            profileName: pName,
-            followers: pFollowers,
-            avatar: pAvatar,
-            spotifyUrl: sUrl,
+            profileName: profile.display_name || profile.id || "Spotify account",
+            followers: parseInt(profile.followers?.total || "0", 10).toLocaleString(),
+            avatar: profile.images?.[0]?.url || "",
+            spotifyUrl: profile.external_urls?.spotify || "",
             connected: true
           };
         } else {
-          console.error("Spotify token exchange returned error:", exchangeRes.statusText);
+          const detail = await exchangeRes.text();
+          console.error("Spotify token exchange returned error:", detail);
+          res.status(502).send("Spotify authorization failed. Please try connecting again.");
+          return;
         }
       } catch (err) {
-        console.warn("Failed to exchange live Spotify OAuth credentials.");
+        console.warn("Failed to exchange live Spotify OAuth credentials.", err);
+        res.status(502).send("Spotify authorization failed. Please try connecting again.");
+        return;
       }
     }
 
@@ -1865,10 +1179,10 @@ Rules:
     spotifyAuthSession = {
       accessToken: null,
       refreshToken: null,
-      profileName: "OG BEATZ MASTER",
-      followers: "84,200",
-      avatar: "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=150&auto=format&fit=crop",
-      spotifyUrl: "https://open.spotify.com/artist/4Y79uO67nZ08CFrUuGf3rU",
+      profileName: "",
+      followers: "0",
+      avatar: "",
+      spotifyUrl: "",
       connected: false
     };
     res.json({ status: "disconnected" });
@@ -2103,6 +1417,10 @@ Rules:
       }
 
       const finalVideoData = await uploadBytesRes.json() as any;
+      if (!finalVideoData?.id) {
+        res.status(502).json({ error: "YouTube accepted the upload but did not return a video ID, so publication could not be verified." });
+        return;
+      }
       console.log("[YouTube Upload] Video successfully uploaded to YouTube! Video ID:", finalVideoData?.id);
 
       res.json({

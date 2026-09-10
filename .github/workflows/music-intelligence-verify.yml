@@ -80,6 +80,9 @@ jobs:
       - name: Share and messaging action tests
         run: node --experimental-strip-types --test src/services/shareMessagingActions.test.ts
 
+      - name: Audited connection regression tests
+        run: node --experimental-strip-types --test src/services/auditedConnections.test.ts
+
       - name: Track analysis recovery tests
         run: node --experimental-strip-types --test src/services/trackAnalysisRecovery.test.ts
 

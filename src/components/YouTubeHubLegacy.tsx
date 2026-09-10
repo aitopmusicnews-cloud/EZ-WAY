@@ -277,7 +277,8 @@ export default function YouTubeHub({ addToast }: YouTubeHubProps) {
 
             const res = await fetch(`/api/youtube/auth-url?origin=${encodeURIComponent(window.location.origin)}`);
             if (!res.ok) {
-                throw new Error("Failed to compile authorization endpoints.");
+                const payload = await res.json().catch(() => ({}));
+                throw new Error(payload.error || "YouTube connection is not configured.");
             }
             const { url } = await res.json();
 
@@ -659,6 +660,9 @@ export default function YouTubeHub({ addToast }: YouTubeHubProps) {
                 }
 
                 const resData = await uploadRes.json();
+                if (!resData.videoId) {
+                    throw new Error("YouTube did not return a video ID, so the upload could not be verified.");
+                }
                 console.log("Upload resolved successfully:", resData);
 
                 setUploadProgress(100);
@@ -671,7 +675,7 @@ export default function YouTubeHub({ addToast }: YouTubeHubProps) {
 
                 const newLiveVideo = {
                     id: `yt_live_${Date.now()}`,
-                    youtubeId: resData.videoId || "dQw4w9WgXcQ",
+                    youtubeId: resData.videoId,
                     title: videoTitle,
                     style: uploadSource === "local" ? "Custom Video Upload" : "Cyber-Organic Visualizer",
                     views: 0,
@@ -695,49 +699,11 @@ export default function YouTubeHub({ addToast }: YouTubeHubProps) {
             }
 
         } else {
-            // Unconnected fallback or simulated dashboard mode
-            triggerToast("No connected active channel. Demonstrating simulated delivery...", "info");
-            
-            const stages = uploadSource === "local" ? [
-                { p: 12, msg: `Encoding local video stream "${localVideoFile?.name}"...`, log: `[Encoder] Optimizing local multi-pass H.264 wrapper speed. File size: ${Math.round((localVideoFile?.size || 0) / 1024 / 1024 * 105) / 100} MB` },
-                { p: 32, msg: "Re-indexing codec sound frequencies...", log: "[Packer] Checking high-fidelity AAC structural audio tracks" },
-                { p: 58, msg: "Uploading chunks to official Google servers...", log: "[API Ingest] Streaming video packets to secure YouTube Data API upload endpoint" },
-                { p: 82, msg: "Attaching tags, description chapters and keyword payloads...", log: `[Metadata Sync] Injecting title: "${videoTitle}" (Privacy: ${privacyStatus})` },
-                { p: 95, msg: "Compiling video index and high-contrast visuals...", log: "[Google API] Generating high-resolution default cover placeholder" },
-                { p: 100, msg: "Successfully hosted and available live!", log: "[Success] File successfully deployed to your YouTube video catalog!" }
-            ] : [
-                { p: 15, msg: "Compressing cyber-organic visual graphics...", log: "[Encoder] Direct rendering down-sampling to optimal web specs (1080p WebM stream)" },
-                { p: 35, msg: "Compiling audio track & dynamic master...", log: "[Transmuxer] Multiplexing high-definition PCM audio file with H.264 video wrapper" },
-                { p: 55, msg: "Uploading chunks to YouTube ingest servers...", log: "[API Ingest] Launching chunk upload at https://uploads.youtube.com/api/v3/" },
-                { p: 80, msg: "Attaching labels, SEO tags and description chapters...", log: `[Client API] Patching resource metadata properties (privacy: ${privacyStatus})` },
-                { p: 95, msg: "Verifying standard & high definition processing...", log: "[Google API] Releasing resource payload with security ID and tracking signature" },
-                { p: 100, msg: "Successfully published to YouTube channel!", log: "[Success] Resource successfully processed and online!" }
-            ];
-
-            for (let i = 0; i < stages.length; i++) {
-                await new Promise(resolve => setTimeout(resolve, i === 2 ? 2200 : 1000));
-                setUploadProgress(stages[i].p);
-                setUploadStatusText(stages[i].msg);
-                setPublishingLogs(prev => [...prev, stages[i].log]);
-            }
-
-            const fakeNewVideo = {
-                id: `yt_active_${Date.now()}`,
-                youtubeId: "dQw4w9WgXcQ",
-                title: videoTitle,
-                style: uploadSource === "local" ? "Custom Video Upload" : "Cyber-Organic Visualizer",
-                views: 0,
-                likes: 0,
-                commentsCount: 0,
-                visibility: privacyStatus,
-                publishedAt: "Just now",
-                thumbnailUrl: uploadSource === "local" 
-                    ? "https://images.unsplash.com/photo-1542204172-e7052809a1a4?q=80&w=250&auto=format&fit=crop"
-                    : "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=250&auto=format&fit=crop"
-            };
-
-            setPublishedVideos(prev => [fakeNewVideo, ...prev]);
-            triggerToast(`"${videoTitle}" was successfully hosted to your linked channel!`, "success");
+            setUploadProgress(null);
+            setUploadStatusText("YouTube channel connection required.");
+            setPublishingLogs(prev => [...prev, "[Blocked] Connect and verify a real YouTube channel before publishing."]);
+            triggerToast("Connect your YouTube channel before publishing.", "error");
+            return;
         }
 
         // Clear forms

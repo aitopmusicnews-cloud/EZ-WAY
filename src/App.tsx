@@ -171,34 +171,6 @@ export default function App() {
     link: ShareLink;
   } | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
-  // Handle Pollinations BYOP (Bring Your Own Pollen) OAuth redirect fragment on mount
-  useEffect(() => {
-    try {
-      const hash = window.location.hash;
-      if (hash && hash.includes("api_key=")) {
-        const params = new URLSearchParams(hash.slice(1));
-        const apiKey = params.get("api_key");
-        if (apiKey) {
-          localStorage.setItem("POLLINATIONS_USER_KEY", apiKey);
-          
-          if (window.opener) {
-            try {
-              window.opener.postMessage({ type: "POLLINATIONS_AUTH_SUCCESS", apiKey }, "*");
-            } catch (err) {
-              console.warn("window.opener message error:", err);
-            }
-            window.close();
-            return;
-          }
-          
-          addToast("Successfully linked your custom Pollinations account!", "success");
-          window.location.hash = "";
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to parse Pollinations OAuth fragment:", e);
-    }
-  }, []);
 
   useEffect(() => {
     const handleVoiceCommand = (e: Event) => {
