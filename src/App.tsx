@@ -88,6 +88,8 @@ import AudioAnalyzerStudio from "./components/AudioAnalyzerStudio";
 import MusicVideoMaker from "./components/MusicVideoMaker";
 import VoiceAssistant from "./components/VoiceAssistant";
 import { Track, ShareLink, Client, Playlist, AppView } from "./types";
+import { dataStore } from "./services/dataStore";
+import { resolveTrackBundleAsset } from "./services/trackBundleMedia";
 import { cn } from "./lib/utils";
 import JSZip from "jszip";
 import { runManualTrackAnalysis } from "./services/musicIntelligence";
@@ -446,28 +448,26 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
 
           // 3. Fetch and Append Audio file
           const sanitizedAudioName = `${(track.name || "Untitled").replace(/[/\\?%*:|"<>\s]/g, "_")}.${formatExt}`;
-          if (track.file_data) {
-            trackFolder.file(sanitizedAudioName, track.file_data);
-          } else if (track.file_url) {
-            try {
-              const audioBlob = await fetchWithProxyFallback(track.file_url);
-              trackFolder.file(sanitizedAudioName, audioBlob);
-            } catch (err) {
-              console.warn(`Could not bundle audio for track ${track.name}:`, err);
-            }
-          }
+          const audioBlob = await resolveTrackBundleAsset({
+            label: `audio for ${track.name || "Untitled"}`,
+            data: track.file_data,
+            objectKey: track.file_key,
+            url: track.file_url,
+            refreshMediaUrl: dataStore.refreshMediaUrl,
+            fetchBlob: fetchWithProxyFallback,
+          });
+          if (audioBlob) trackFolder.file(sanitizedAudioName, audioBlob);
 
-          // 4. Fetch Artwork and Append if Available
-          let artBlob: Blob | null = null;
-          if (track.image_data) {
-            artBlob = track.image_data;
-          } else if (track.image_url) {
-            try {
-              artBlob = await fetchWithProxyFallback(track.image_url);
-            } catch (err) {
-              console.warn(`Could not fetch artwork for track ${track.name}:`, err);
-            }
-          }
+          // 4. Fetch Artwork and Append if Available. Permanent object keys are
+          // refreshed at download time so old signed URLs never make artwork disappear.
+          const artBlob = await resolveTrackBundleAsset({
+            label: `artwork for ${track.name || "Untitled"}`,
+            data: track.image_data,
+            objectKey: track.image_key,
+            url: track.image_url,
+            refreshMediaUrl: dataStore.refreshMediaUrl,
+            fetchBlob: fetchWithProxyFallback,
+          });
 
           if (artBlob) {
             let artExt = "png";

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-const bucket = process.env.MEDIA_BUCKET || '';
+const initialBucket = process.env.MEDIA_BUCKET || '';
 const s3 = new S3Client({});
 export const READ_URL_EXPIRES_IN = 24 * 60 * 60;
 
@@ -18,6 +18,10 @@ const CATEGORY = {
   'audio-tools-bundle': { prefix: 'generated/bundle', family: null, contentTypes: ['application/zip'], max: 2 * 1024 * 1024 * 1024 },
 };
 
+const MEDIA_PREFIXES = Object.freeze([...new Set(Object.values(CATEGORY).map((config) => config.prefix))]);
+
+const configuredBucket = () => String(process.env.MEDIA_BUCKET || initialBucket || '').trim();
+
 const safeRelatedId = (value) => {
   const text = String(value || '').trim();
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(text)) throw new Error('relatedId is invalid.');
@@ -30,6 +34,21 @@ const safeFilename = (value) => {
     throw new Error('filename is invalid.');
   }
   return filename.replace(/[^A-Za-z0-9._ -]/g, '_').replace(/\s+/g, '-');
+};
+
+const safeExistingObjectKey = (value) => {
+  const objectKey = String(value || '').trim().replace(/^\/+/, '');
+  if (
+    !objectKey
+    || objectKey.includes('..')
+    || objectKey.includes('\\')
+    || objectKey.includes('?')
+    || objectKey.includes('#')
+    || !MEDIA_PREFIXES.some((prefix) => objectKey.startsWith(`${prefix}/`))
+  ) {
+    throw new Error('Media object key is invalid.');
+  }
+  return objectKey;
 };
 
 export function normalizeUploadRequest(body = {}) {
@@ -58,14 +77,59 @@ export function buildObjectKey(input) {
   return `${config.prefix}/${relatedId}/${randomUUID()}-${filename}`;
 }
 
-const ensureBucket = () => {
+const objectKeyFromMediaUrl = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) throw new Error('Media url is required.');
+
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error('Media url is invalid.');
+  }
+
+  const bucket = configuredBucket();
   if (!bucket) throw new Error('Media bucket is not configured.');
+
+  const host = parsed.hostname.toLowerCase();
+  const bucketLower = bucket.toLowerCase();
+  let objectKey = '';
+
+  if (host === `${bucketLower}.s3.amazonaws.com` || host.startsWith(`${bucketLower}.s3.`)) {
+    objectKey = parsed.pathname.replace(/^\/+/, '');
+  } else if (host === 's3.amazonaws.com' || host.startsWith('s3.')) {
+    const parts = parsed.pathname.replace(/^\/+/, '').split('/');
+    const urlBucket = decodeURIComponent(parts.shift() || '');
+    if (urlBucket !== bucket) throw new Error('Media url is invalid.');
+    objectKey = parts.join('/');
+  } else {
+    throw new Error('Media url is invalid.');
+  }
+
+  try {
+    return safeExistingObjectKey(decodeURIComponent(objectKey));
+  } catch (error) {
+    if (/object key/i.test(String(error?.message || ''))) throw error;
+    throw new Error('Media url is invalid.');
+  }
+};
+
+export function resolveMediaObjectKey(body = {}) {
+  const directKey = body.objectKey ?? body.object_key;
+  if (directKey) return safeExistingObjectKey(directKey);
+  if (body.url) return objectKeyFromMediaUrl(body.url);
+  throw new Error('Media object key is required.');
+}
+
+const ensureBucket = () => {
+  if (!configuredBucket()) throw new Error('Media bucket is not configured.');
 };
 
 export async function presignRead(objectKey) {
   if (!objectKey) return null;
   ensureBucket();
-  return getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: objectKey }), { expiresIn: READ_URL_EXPIRES_IN });
+  const key = safeExistingObjectKey(objectKey);
+  return getSignedUrl(s3, new GetObjectCommand({ Bucket: configuredBucket(), Key: key }), { expiresIn: READ_URL_EXPIRES_IN });
 }
 
 export async function presignUpload(body) {
@@ -73,7 +137,7 @@ export async function presignUpload(body) {
   const input = normalizeUploadRequest(body);
   const objectKey = buildObjectKey(input);
   const command = new PutObjectCommand({
-    Bucket: bucket,
+    Bucket: configuredBucket(),
     Key: objectKey,
     ContentType: input.contentType,
   });

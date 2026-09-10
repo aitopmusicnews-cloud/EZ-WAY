@@ -332,6 +332,12 @@ Resources:
             ApiId: !Ref EzwayHttpApi
             Path: /uploads/presign
             Method: POST
+        MediaReadUrl:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /media/read-url
+            Method: POST
         PublicShareGet:
           Type: HttpApi
           Properties:
