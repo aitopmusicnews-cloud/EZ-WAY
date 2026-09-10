@@ -10,6 +10,15 @@ MoodPath = Literal["auto", "blend", "audio", "lyrics"]
 StylePreset = Literal["auto", "photo", "cinematic", "illustration", "painting", "collage", "minimal"]
 CompositionPreset = Literal["auto", "close-up", "portrait", "wide", "centered", "off-center", "minimal"]
 CreativeStrength = Literal["loose", "balanced", "strict"]
+TextPosition = Literal[
+    "top-left", "top-center", "top-right",
+    "center-left", "center", "center-right",
+    "bottom-left", "bottom-center", "bottom-right",
+]
+TextFontStyle = Literal["editorial", "serif", "sans", "sans-bold", "script", "marker", "vintage"]
+TextCase = Literal["original", "upper", "lower"]
+TextTreatment = Literal["light", "dark", "outline"]
+ReferenceType = Literal["artist", "character", "style"]
 
 
 class CreativeControls(BaseModel):
@@ -27,15 +36,49 @@ class CreativeControls(BaseModel):
         return {key: str(value).strip() for key, value in values.items() if value is not None and str(value).strip()}
 
 
+class TextLayerStyle(BaseModel):
+    position: TextPosition = "top-center"
+    size: int = Field(default=104, ge=24, le=180)
+    font_style: TextFontStyle = "editorial"
+    case: TextCase = "original"
+    treatment: TextTreatment = "light"
+    color: str = Field(default="#F5F1E8", pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
+class AdvisoryStyle(BaseModel):
+    position: Literal["bottom-left", "bottom-right"] = "bottom-right"
+    size: Literal["small", "medium", "large"] = "small"
+
+
+class ReleaseTextSettings(BaseModel):
+    show_title: bool = True
+    show_artist: bool = True
+    parental_advisory: bool = False
+    title: TextLayerStyle = Field(default_factory=TextLayerStyle)
+    artist: TextLayerStyle = Field(
+        default_factory=lambda: TextLayerStyle(
+            position="bottom-center", size=42, font_style="serif"
+        )
+    )
+    advisory: AdvisoryStyle = Field(default_factory=AdvisoryStyle)
+
+
 class GenerateRequest(BaseModel):
     mood_path: MoodPath = "auto"
-    variation_count: int = Field(default=4, ge=3, le=8)
+    variation_count: int = Field(default=6, ge=3, le=8)
     run_async: bool = True
 
 
 class RegenerateRequest(CreativeControls):
     mood_path: Literal["blend", "audio", "lyrics"] = "blend"
-    variation_count: int = Field(default=4, ge=3, le=8)
+    variation_count: int = Field(default=6, ge=3, le=8)
+    run_async: bool = True
+
+
+class ImproveRequest(CreativeControls):
+    source_variation_id: str
+    mood_path: Literal["blend", "audio", "lyrics"] = "blend"
+    variation_count: int = Field(default=6, ge=3, le=8)
     run_async: bool = True
 
 
@@ -51,6 +94,18 @@ class ConceptResponse(BaseModel):
     palette: str
     typography_zone: str
     image_prompt: str
+    one_line_pitch: str | None = None
+    why_it_fits: str | None = None
+    artist_presence: str | None = None
+    wardrobe_or_material: str | None = None
+    composition: str | None = None
+    lighting: str | None = None
+    texture: str | None = None
+    dominant_shape: str | None = None
+    visual_metaphor: str | None = None
+    must_include: list[str] = Field(default_factory=list)
+    avoid: list[str] = Field(default_factory=list)
+    critique: dict[str, Any] | None = None
     scores: dict[str, Any] | None = None
     total_score: float | None = None
     rank: int | None = None
@@ -121,6 +176,10 @@ class GenerationResponse(BaseModel):
     title: str | None
     artist: str | None
     parental_advisory: bool
+    release_text: dict[str, Any] | None = None
+    song_thesis: dict[str, Any] | None = None
+    creative_direction_status: str | None = None
+    artist_reference: dict[str, Any] | None = None
     analysis: dict[str, Any] | None
     conflict: dict[str, Any] | None
     last_error: dict[str, Any] | None

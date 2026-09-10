@@ -69,6 +69,7 @@ class Settings:
         default_factory=lambda: _env_int("AUDIO_ANALYSIS_MAX_SECONDS", 180)
     )
 
+    # Legacy compatibility settings. Production Creative Direction no longer depends on them.
     gemini_api_key: str | None = field(default_factory=lambda: os.getenv("GEMINI_API_KEY"))
     gemini_image_model: str = field(
         default_factory=lambda: os.getenv("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
@@ -94,6 +95,19 @@ class Settings:
     cloudflare_api_token: str | None = field(
         default_factory=lambda: os.getenv("CLOUDFLARE_API_TOKEN")
     )
+    cloudflare_creative_director_model: str = field(
+        default_factory=lambda: os.getenv(
+            "CLOUDFLARE_CREATIVE_DIRECTOR_MODEL", "@cf/google/gemma-4-26b-a4b-it"
+        )
+    )
+    cloudflare_creative_director_timeout_seconds: float = field(
+        default_factory=lambda: float(
+            os.getenv("CLOUDFLARE_CREATIVE_DIRECTOR_TIMEOUT_SECONDS", "90")
+        )
+    )
+    enable_cloudflare_creative_director: bool = field(
+        default_factory=lambda: _env_bool("ENABLE_CLOUDFLARE_CREATIVE_DIRECTOR", True)
+    )
     cloudflare_flux_model: str = field(
         default_factory=lambda: os.getenv(
             "CLOUDFLARE_FLUX_MODEL", "@cf/black-forest-labs/flux-1-schnell"
@@ -108,7 +122,7 @@ class Settings:
 
     concept_count: int = field(default_factory=lambda: _env_int("CONCEPT_COUNT", 8))
     selected_concept_count: int = field(
-        default_factory=lambda: _env_int("SELECTED_CONCEPT_COUNT", 2)
+        default_factory=lambda: _env_int("SELECTED_CONCEPT_COUNT", 3)
     )
     renders_per_concept: int = field(
         default_factory=lambda: _env_int("RENDERS_PER_CONCEPT", 2)

@@ -1,8 +1,30 @@
 import type { AlbumCoverDraft } from './albumCoverCore';
 
 export type AlbumCoverMoodPath = 'auto' | 'blend' | 'audio' | 'lyrics';
-export type AlbumCoverVariationCount = 3 | 4 | 5;
+export type AlbumCoverVariationCount = 3 | 4 | 5 | 6;
 export type AlbumCoverCreativeStrength = 'loose' | 'balanced' | 'strict';
+export type AlbumCoverReferenceType = 'artist' | 'character' | 'style';
+export type AlbumCoverTextPosition = 'top-left' | 'top-center' | 'top-right' | 'center-left' | 'center' | 'center-right' | 'bottom-left' | 'bottom-center' | 'bottom-right';
+export type AlbumCoverFontStyle = 'editorial' | 'serif' | 'sans' | 'sans-bold' | 'script' | 'marker' | 'vintage';
+
+export interface AlbumCoverTextLayerStyle {
+  position: AlbumCoverTextPosition;
+  size: number;
+  fontStyle: AlbumCoverFontStyle;
+  case: 'original' | 'upper' | 'lower';
+  treatment: 'light' | 'dark' | 'outline';
+  color: string;
+}
+
+export interface AlbumCoverReleaseTextSettings {
+  showTitle: boolean;
+  showArtist: boolean;
+  parentalAdvisory: boolean;
+  title: AlbumCoverTextLayerStyle;
+  artist: AlbumCoverTextLayerStyle;
+  advisoryPosition: 'bottom-left' | 'bottom-right';
+  advisorySize: 'small' | 'medium' | 'large';
+}
 
 export interface AlbumCoverCreativeControls {
   subjectHint?: string;
@@ -24,6 +46,9 @@ export interface AlbumCoverSourceInput {
   parentalAdvisory?: boolean;
   variationCount?: AlbumCoverVariationCount;
   creativeControls?: AlbumCoverCreativeControls;
+  releaseText?: AlbumCoverReleaseTextSettings;
+  referenceImage?: File | null;
+  referenceType?: AlbumCoverReferenceType;
   collectionId: string;
 }
 
@@ -109,6 +134,10 @@ export interface AlbumCoverGeneration {
   title?: string | null;
   artist?: string | null;
   parental_advisory: boolean;
+  release_text?: Record<string, any> | null;
+  song_thesis?: Record<string, any> | null;
+  creative_direction_status?: string | null;
+  artist_reference?: Record<string, any> | null;
   analysis?: Record<string, any> | null;
   conflict?: Record<string, any> | null;
   selected_variation_id?: string | null;
@@ -236,7 +265,7 @@ const normalizeSourceInput = (
     title: input.title,
     artist: input.artist,
     parentalAdvisory,
-    variationCount: 3,
+    variationCount: 6,
   };
 };
 
@@ -251,11 +280,35 @@ export const createAlbumCoverGeneration = async (
   form.set('title', String(source.title || ''));
   form.set('artist', String(source.artist || ''));
   form.set('parental_advisory', String(Boolean(source.parentalAdvisory)));
-  form.set('variation_count', String(source.variationCount || 4));
+  form.set('variation_count', String(source.variationCount || 6));
   form.set('mood_path', 'auto');
   form.set('run_async', 'true');
   const controls = creativeControlPayload(source.creativeControls);
   Object.entries(controls).forEach(([key, value]) => form.set(key, value));
+  const release = source.releaseText;
+  if (release) {
+    form.set('show_title', String(release.showTitle));
+    form.set('show_artist', String(release.showArtist));
+    form.set('parental_advisory', String(release.parentalAdvisory));
+    form.set('title_position', release.title.position);
+    form.set('title_size', String(release.title.size));
+    form.set('title_font_style', release.title.fontStyle);
+    form.set('title_case', release.title.case);
+    form.set('title_treatment', release.title.treatment);
+    form.set('title_color', release.title.color);
+    form.set('artist_position', release.artist.position);
+    form.set('artist_size', String(release.artist.size));
+    form.set('artist_font_style', release.artist.fontStyle);
+    form.set('artist_case', release.artist.case);
+    form.set('artist_treatment', release.artist.treatment);
+    form.set('artist_color', release.artist.color);
+    form.set('advisory_position', release.advisoryPosition);
+    form.set('advisory_size', release.advisorySize);
+  }
+  if (source.referenceImage) {
+    form.set('reference_image', source.referenceImage);
+    form.set('reference_type', source.referenceType || 'artist');
+  }
   if (source.audio) {
     const file = source.audio instanceof File
       ? source.audio
@@ -351,6 +404,7 @@ export const regenerateAlbumCovers = async (
 
 export const generateBetterAlbumCovers = async (
   generationId: string,
+  sourceVariationId: string,
   moodPath: Exclude<AlbumCoverMoodPath, 'auto'>,
   variationCount: AlbumCoverVariationCount,
   creativeControls: AlbumCoverCreativeControls = {},
@@ -359,10 +413,43 @@ export const generateBetterAlbumCovers = async (
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({
+      source_variation_id: sourceVariationId,
       mood_path: moodPath,
       variation_count: variationCount,
       run_async: true,
       ...creativeControlPayload(creativeControls),
+    }),
+  }))
+);
+
+export const updateAlbumCoverReleaseText = async (
+  generationId: string,
+  settings: AlbumCoverReleaseTextSettings,
+): Promise<AlbumCoverGeneration> => (
+  parseJson<AlbumCoverGeneration>(await fetch(apiUrl(`/generations/${encodeURIComponent(generationId)}/release-text`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      show_title: settings.showTitle,
+      show_artist: settings.showArtist,
+      parental_advisory: settings.parentalAdvisory,
+      title: {
+        position: settings.title.position,
+        size: settings.title.size,
+        font_style: settings.title.fontStyle,
+        case: settings.title.case,
+        treatment: settings.title.treatment,
+        color: settings.title.color,
+      },
+      artist: {
+        position: settings.artist.position,
+        size: settings.artist.size,
+        font_style: settings.artist.fontStyle,
+        case: settings.artist.case,
+        treatment: settings.artist.treatment,
+        color: settings.artist.color,
+      },
+      advisory: { position: settings.advisoryPosition, size: settings.advisorySize },
     }),
   }))
 );

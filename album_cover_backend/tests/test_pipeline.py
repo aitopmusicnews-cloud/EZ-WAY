@@ -190,7 +190,7 @@ def test_modified_input_creates_new_version_and_history_preserves_old(app_factor
 
 
 def test_release_metadata_is_stored_and_composited(app_factory):
-    client, *_ = app_factory()
+    client, _, _, images = app_factory()
     body = create(
         client,
         lyrics="Night city lights and thunder",
@@ -202,9 +202,10 @@ def test_release_metadata_is_stored_and_composited(app_factory):
     assert body["title"] == "Midnight Drive"
     assert body["artist"] == "The Artist Cut"
     assert body["parental_advisory"] is True
-    prompt = body["variation_sets"][0]["prompt"]
-    assert "Do not draw words or lettering" in prompt
-    assert "lower corner" in prompt
+    production_prompt = images.prompts[0]
+    assert "NO TITLE" in production_prompt
+    assert "NO ARTIST LETTERING" in production_prompt
+    assert "NO PARENTAL ADVISORY" in production_prompt
     download = client.get(body["variation_sets"][0]["variations"][0]["download_url"])
     assert download.status_code == 200
     from io import BytesIO
@@ -318,19 +319,18 @@ def test_fresh_variations_tell_creative_director_about_previous_set(app_factory)
     assert set(first_batch).isdisjoint(set(second_batch))
 
 
-def test_settings_default_creative_director_is_gemini(monkeypatch, tmp_path):
+def test_settings_default_creative_director_is_cloudflare(tmp_path):
+    from app.cloudflare_creative_director import CloudflareGemmaCreativeDirector
     from app.config import Settings
-    from app.creative_director import GeminiCreativeDirector
     from app.main import AppDependencies, create_app
     from conftest import FakeAudioAnalyzer, FakeImageClient, FakeLyricsAnalyzer
 
-    monkeypatch.setenv("GEMINI_API_KEY", "gemini-test-key")
-    monkeypatch.setenv("GEMINI_CONCEPT_MODEL", "gemini-3.6-flash")
     settings = Settings(
-        database_url=f"sqlite:///{tmp_path / 'gemini-default.db'}",
-        storage_root=tmp_path / "gemini-default-storage",
+        database_url=f"sqlite:///{tmp_path / 'cloudflare-default.db'}",
+        storage_root=tmp_path / "cloudflare-default-storage",
         frontend_root=tmp_path / "missing-frontend",
-        gemini_api_key="gemini-test-key",
+        cloudflare_account_id="acct",
+        cloudflare_api_token="token",
     )
     app = create_app(
         settings,
@@ -340,9 +340,9 @@ def test_settings_default_creative_director_is_gemini(monkeypatch, tmp_path):
             image_client=FakeImageClient(),
         ),
     )
-    assert isinstance(app.state.generation_service.creative_director, GeminiCreativeDirector)
-    assert app.state.generation_service.creative_director.api_key == "gemini-test-key"
-    assert app.state.generation_service.creative_director.model == "gemini-3.6-flash"
+    assert isinstance(app.state.generation_service.creative_director, CloudflareGemmaCreativeDirector)
+    assert app.state.generation_service.creative_director.account_id == "acct"
+    assert app.state.generation_service.creative_director.model == "@cf/google/gemma-4-26b-a4b-it"
 
 
 def test_health_reports_provider_configuration_without_exposing_keys(app_factory):

@@ -5,6 +5,12 @@ from typing import Any
 from .style_presets import StylePreset
 
 
+_NO_TEXT_BLOCK = (
+    "NO TITLE. NO ARTIST LETTERING. NO TYPOGRAPHY. NO LOGOS. "
+    "NO PARENTAL ADVISORY. NO WATERMARKS."
+)
+
+
 def build_creative_control_prompt(
     base_prompt: str, controls: dict[str, Any] | None = None
 ) -> str:
@@ -41,10 +47,118 @@ def build_creative_control_prompt(
 
 
 _RENDER_VARIATIONS = {
-    1: "Use the strongest direct execution of the concept with disciplined commercial polish.",
-    2: "Preserve the exact concept and metaphor, but change camera distance, crop, and lighting execution.",
-    3: "Preserve the exact concept and metaphor, but explore a bolder material and color treatment.",
+    1: "Strongest direct execution; disciplined commercial polish.",
+    2: "Preserve the exact central concept and metaphor; vary crop, camera distance, and lighting only.",
+    3: "Preserve the exact concept; explore a bolder material or color execution only.",
 }
+
+
+def build_production_brief(
+    *,
+    concept: dict[str, Any],
+    creative_controls: dict[str, Any] | None,
+    visual_bible: dict[str, Any] | None = None,
+    render_index: int,
+) -> str:
+    """Build a priority-ordered FLUX brief that never exceeds Schnell's 2048-char cap."""
+    controls = creative_controls or {}
+    parts: list[str] = []
+    strength = str(controls.get("creative_strength") or "balanced").lower()
+    if strength == "strict":
+        parts.append(
+            "STRICT USER CONTROL: user subject, scene, must-include, avoid, style and composition outrank all automatic choices."
+        )
+    else:
+        parts.append("USER CONTROL: follow supplied creative controls closely.")
+
+    control_bits = []
+    for key, label in (
+        ("subject_hint", "subject"),
+        ("scene_hint", "scene"),
+        ("style_preset", "style"),
+        ("composition_preset", "composition"),
+        ("color_mood", "color/mood"),
+        ("must_include", "must include"),
+        ("avoid", "avoid"),
+    ):
+        value = str(controls.get(key) or "").strip()
+        if value and value.lower() != "auto":
+            control_bits.append(f"{label}: {value}")
+    if control_bits:
+        parts.append("CONTROLS: " + "; ".join(control_bits)[:520] + ".")
+
+    if visual_bible and str(concept.get("artist_presence") or "none").lower() != "none":
+        guide = _compact_reference_guide(visual_bible)
+        if guide:
+            parts.append("REFERENCE IDENTITY GUIDE: " + guide[:360] + ".")
+
+    parts.extend(
+        [
+            f"CONCEPT: {concept.get('name', 'Untitled')}.",
+            f"SUBJECT: {concept.get('subject', '')}. ACTION/SYMBOL: {concept.get('action_or_symbol', '')}.",
+            f"SETTING: {concept.get('setting', '')}.",
+            f"COMPOSITION/CAMERA: {concept.get('composition', '')}; {concept.get('camera', '')}.",
+            f"LIGHTING: {concept.get('lighting', '')}.",
+            f"MEDIUM/TEXTURE: {concept.get('medium', '')}; {concept.get('texture', '')}.",
+            f"PALETTE: {concept.get('palette', '')}.",
+        ]
+    )
+    must = concept.get("must_include") or []
+    avoid = concept.get("avoid") or []
+    if must:
+        parts.append("MUST INCLUDE: " + "; ".join(str(v) for v in must)[:280] + ".")
+
+    # The no-text block is intentionally before low-priority prompt-seed prose so
+    # it can never be lost to the provider limit.
+    parts.append(_NO_TEXT_BLOCK)
+    if avoid:
+        parts.append("AVOID: " + "; ".join(str(v) for v in avoid)[:280] + ".")
+    parts.append("EXECUTION VARIATION: " + _RENDER_VARIATIONS.get(render_index, _RENDER_VARIATIONS[2]))
+
+    seed = str(concept.get("image_prompt_seed") or concept.get("image_prompt") or "").strip()
+    if seed:
+        parts.append("DIRECTOR DETAIL: " + seed[:520] + ".")
+
+    prompt = " ".join(part.strip() for part in parts if part.strip())
+    if len(prompt) <= 2048:
+        return prompt
+
+    # Trim only lower-priority detail. Strict controls and no-text are never removed.
+    removable_prefixes = ("DIRECTOR DETAIL:", "PALETTE:", "MEDIUM/TEXTURE:", "LIGHTING:", "SETTING:")
+    trimmed = list(parts)
+    for prefix in removable_prefixes:
+        for index, part in enumerate(trimmed):
+            if part.startswith(prefix) and len(prompt) > 2048:
+                trimmed[index] = part[: max(60, len(part) // 2)]
+                prompt = " ".join(p.strip() for p in trimmed if p.strip())
+    if len(prompt) > 2048:
+        # Keep the opening priority instructions and the no-text sentence intact.
+        no_text_index = prompt.find(_NO_TEXT_BLOCK)
+        if no_text_index >= 0 and no_text_index + len(_NO_TEXT_BLOCK) > 2048:
+            essentials = " ".join(
+                p for p in trimmed if p.startswith(("STRICT USER CONTROL", "USER CONTROL", "CONTROLS:", "SUBJECT:", "MUST INCLUDE:"))
+            )
+            prompt = f"{essentials[:1750]} {_NO_TEXT_BLOCK}"
+        else:
+            prompt = prompt[:2048]
+    return prompt[:2048]
+
+
+def _compact_reference_guide(bible: dict[str, Any]) -> str:
+    appearance = bible.get("appearance") or {}
+    bits: list[str] = []
+    if isinstance(appearance, dict):
+        for key in ("hair", "facial_hair", "distinctive_features", "skin_tone"):
+            value = appearance.get(key)
+            if isinstance(value, list):
+                bits.extend(str(v) for v in value if str(v).strip())
+            elif value:
+                bits.append(str(value))
+    for key in ("do_not_change", "wardrobe_language", "accessories"):
+        value = bible.get(key) or []
+        if isinstance(value, list):
+            bits.extend(str(v) for v in value if str(v).strip())
+    return "; ".join(dict.fromkeys(bits))
 
 
 def build_render_prompt(
