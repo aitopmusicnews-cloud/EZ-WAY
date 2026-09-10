@@ -83,6 +83,9 @@ jobs:
       - name: Audited connection regression tests
         run: node --experimental-strip-types --test src/services/auditedConnections.test.ts
 
+      - name: Browser YouTube OAuth bridge tests
+        run: node --experimental-strip-types --test src/services/youtubeBrowser.test.ts
+
       - name: Track analysis recovery tests
         run: node --experimental-strip-types --test src/services/trackAnalysisRecovery.test.ts
 
