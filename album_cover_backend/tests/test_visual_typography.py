@@ -33,6 +33,7 @@ def test_release_text_rejects_unknown_fonts_and_out_of_bounds_anchors():
 
 def test_compositor_uses_normalized_anchor_when_present():
     from app.release_compositor import _position_from_anchor
+    from app.storage import WORKING_IMAGE_SIZE
 
     x, y, alignment = _position_from_anchor(
         width=200,
@@ -40,7 +41,8 @@ def test_compositor_uses_normalized_anchor_when_present():
         anchor_x=0.25,
         anchor_y=0.75,
     )
-    assert (x, y, alignment) == (156.0, 728.0, "center")
+    assert WORKING_IMAGE_SIZE == 1000
+    assert (x, y, alignment) == (150.0, 710.0, "center")
 
 
 def test_font_preview_uses_whitelisted_server_font_without_exposing_binary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
