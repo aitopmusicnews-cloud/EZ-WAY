@@ -69,3 +69,19 @@ test('Album Cover Studio exposes creative controls and sends them to the backend
   assert.match(renderPrompts, /build_creative_control_prompt/);
   assert.match(renderPrompts, /Follow the user creative controls strictly/);
 });
+
+
+test('Album Cover major-label director gives the user six equal covers and selected-cover refinement', () => {
+  const service = fs.readFileSync(servicePath, 'utf8');
+  const studio = fs.readFileSync(studioPath, 'utf8');
+  assert.match(service, /AlbumCoverVariationCount = 3 \| 4 \| 5 \| 6/);
+  assert.match(service, /reference_image/);
+  assert.match(service, /source_variation_id/);
+  assert.match(service, /release-text/);
+  assert.match(studio, /6 finished covers/);
+  assert.match(studio, /No AI winner/);
+  assert.match(studio, /Generate Better from Selected/);
+  assert.match(studio, /Artist \/ character reference/);
+  assert.doesNotMatch(studio, /AI winner/);
+  assert.doesNotMatch(studio, /AI runner-up/);
+});

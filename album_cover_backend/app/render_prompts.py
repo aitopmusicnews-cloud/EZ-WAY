@@ -94,6 +94,7 @@ def build_production_brief(
 
     parts.extend(
         [
+            f"CONCEPT: {concept.get('name', 'Untitled')}.",
             f"SUBJECT: {concept.get('subject', '')}. ACTION/SYMBOL: {concept.get('action_or_symbol', '')}.",
             f"SETTING: {concept.get('setting', '')}.",
             f"COMPOSITION/CAMERA: {concept.get('composition', '')}; {concept.get('camera', '')}.",

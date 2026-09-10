@@ -132,6 +132,7 @@ class CloudflareMajorLabelGenerationService(MajorLabelGenerationService):
                 "quality_floor": 70.0,
                 "selected_concept_ids": [item.id for item in selected],
                 "concept_scores": scores,
+                "creative_controls": controls,
                 "finished_cover_ranking": False,
                 "degraded": degraded,
             }
@@ -466,6 +467,7 @@ class CloudflareMajorLabelGenerationService(MajorLabelGenerationService):
             "mode": "legacy_test_compatibility",
             "selected_concept_ids": [item.id for item in selected],
             "finished_cover_ranking": False,
+            "creative_controls": {},
             "degraded": True,
         }
 

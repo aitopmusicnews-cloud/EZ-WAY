@@ -22,6 +22,7 @@ import {
   createAlbumCoverGeneration,
   downloadAlbumCover,
   generateBetterAlbumCovers,
+  updateAlbumCoverReleaseText,
   getAlbumCoverGeneration,
   getAlbumCoverHistory,
   getAlbumCoverMetrics,
@@ -35,6 +36,8 @@ import {
   type AlbumCoverCreativeControls,
   type AlbumCoverGeneration,
   type AlbumCoverMetrics,
+  type AlbumCoverReleaseTextSettings,
+  type AlbumCoverReferenceType,
   type AlbumCoverMoodPath,
   type AlbumCoverVariation,
   type AlbumCoverVariationCount,
@@ -110,7 +113,19 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
   const [lyricsFile, setLyricsFile] = useState<File | null>(null);
   const [autoLoadedLyrics, setAutoLoadedLyrics] = useState(false);
   const [parentalAdvisory, setParentalAdvisory] = useState(false);
-  const [variationCount, setVariationCount] = useState<AlbumCoverVariationCount>(4);
+  const [showTitle, setShowTitle] = useState(true);
+  const [showArtist, setShowArtist] = useState(true);
+  const [titlePosition, setTitlePosition] = useState<AlbumCoverReleaseTextSettings['title']['position']>('top-center');
+  const [titleSize, setTitleSize] = useState(104);
+  const [titleFontStyle, setTitleFontStyle] = useState<AlbumCoverReleaseTextSettings['title']['fontStyle']>('editorial');
+  const [titleColor, setTitleColor] = useState('#F5F1E8');
+  const [artistPosition, setArtistPosition] = useState<AlbumCoverReleaseTextSettings['artist']['position']>('bottom-center');
+  const [artistSize, setArtistSize] = useState(42);
+  const [artistFontStyle, setArtistFontStyle] = useState<AlbumCoverReleaseTextSettings['artist']['fontStyle']>('serif');
+  const [artistColor, setArtistColor] = useState('#F5F1E8');
+  const [referenceImage, setReferenceImage] = useState<File | null>(null);
+  const [referenceType, setReferenceType] = useState<AlbumCoverReferenceType>('artist');
+  const [variationCount] = useState<AlbumCoverVariationCount>(6);
   const [subjectHint, setSubjectHint] = useState('');
   const [sceneHint, setSceneHint] = useState('');
   const [stylePreset, setStylePreset] = useState<NonNullable<AlbumCoverCreativeControls['stylePreset']>>('auto');
@@ -149,6 +164,16 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
     [variations, selectedVariationId],
   );
   const titleDirty = Boolean(selectedTrack && titleInput.trim() && titleInput.trim() !== String(selectedTrack.name || '').trim());
+  const releaseText = useMemo<AlbumCoverReleaseTextSettings>(() => ({
+    showTitle,
+    showArtist,
+    parentalAdvisory,
+    title: { position: titlePosition, size: titleSize, fontStyle: titleFontStyle, case: 'original', treatment: 'light', color: titleColor },
+    artist: { position: artistPosition, size: artistSize, fontStyle: artistFontStyle, case: 'original', treatment: 'light', color: artistColor },
+    advisoryPosition: 'bottom-right',
+    advisorySize: 'small',
+  }), [showTitle, showArtist, parentalAdvisory, titlePosition, titleSize, titleFontStyle, titleColor, artistPosition, artistSize, artistFontStyle, artistColor]);
+
   const creativeControls = useMemo<AlbumCoverCreativeControls>(() => ({
     subjectHint: subjectHint.trim(),
     sceneHint: sceneHint.trim(),
@@ -306,6 +331,9 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
         parentalAdvisory,
         variationCount,
         creativeControls,
+        releaseText,
+        referenceImage,
+        referenceType,
       });
       const completed = await applyGeneration(queued);
       if (completed.status === 'needs_mood_choice') {
@@ -341,13 +369,14 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
   };
 
   const handleGenerateBetter = async () => {
-    if (!generation || !latestSet || busy) return;
+    if (!generation || !latestSet || !selectedVariation || busy) return;
     setBusy(true);
     setError('');
     const previousSetCount = generation.variation_sets.length;
     try {
       const queued = await generateBetterAlbumCovers(
         generation.id,
+        selectedVariation.id,
         moodPathFromSet(latestSet.mood_path),
         variationCount,
         creativeControls,
@@ -355,6 +384,24 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
       await applyGeneration(queued, previousSetCount);
     } catch (caught: any) {
       const message = caught?.message || 'Generate Better failed.';
+      setError(message);
+      addToast(message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleApplyTextChanges = async () => {
+    if (!generation || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const updated = await updateAlbumCoverReleaseText(generation.id, releaseText);
+      setGeneration(updated);
+      setStatusText('Title, artist, and advisory updated without rerunning FLUX.');
+      addToast('Release text updated without regenerating the artwork.', 'success');
+    } catch (caught: any) {
+      const message = caught?.message || 'Release text update failed.';
       setError(message);
       addToast(message, 'error');
     } finally {
@@ -492,9 +539,6 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
   const lyricAnalysis = analysis?.lyrics || null;
   const conflictData = generation?.conflict || null;
   const lastError = generation?.last_error || null;
-  const winnerId = latestSet?.winner_variation_id;
-  const runnerUpId = latestSet?.runner_up_variation_id;
-  const hasWinner = Boolean(winnerId || variations.some((item) => item.selection_tier === 'winner'));
 
   return (
     <div className="min-h-full bg-black text-white p-4 sm:p-6 lg:p-8">
@@ -508,7 +552,7 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
               </div>
               <h1 className="text-3xl sm:text-5xl font-black uppercase tracking-tight"><span className="text-orange-500">EZ AI</span> Album Cover Studio</h1>
               <p className="text-zinc-400 mt-3 max-w-3xl">Turn an MP3, lyrics, or both into versioned cover-art concepts. Every input version and variation set remains available.</p>
-              <p className="text-[11px] text-zinc-600 mt-2">Creative planning: song intelligence + your controls · Image rendering: Cloudflare FLUX.1 Schnell · Final export: 3000×3000</p>
+              <p className="text-[11px] text-zinc-600 mt-2">Creative Director: Cloudflare Gemma 4 · Artwork: FLUX.1 Schnell · Final cover choice: You · Export: 3000×3000</p>
             </div>
             <div className="rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-xs text-zinc-400">
               <span className="font-black text-zinc-200">Audit collection:</span> {collectionId.slice(0, 18)}…
@@ -572,11 +616,33 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
               </button>
             )}
 
-            <label className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-black p-4 cursor-pointer">
-              <input type="checkbox" checked={parentalAdvisory} onChange={(event) => setParentalAdvisory(event.target.checked)} className="w-5 h-5 accent-orange-500" />
-              <span className="text-sm font-bold">Add Parental Advisory — Explicit Content label</span>
+            <div className="rounded-3xl border border-zinc-800 bg-black p-4 space-y-4">
+              <div><p className="text-sm font-black">Title + Artist</p><p className="text-[10px] text-zinc-600 mt-1">FLUX creates artwork only. EZ-WAY adds these layers exactly once afterward.</p></div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={showTitle} onChange={(event) => setShowTitle(event.target.checked)} className="accent-orange-500" /> Show title</label>
+                <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={showArtist} onChange={(event) => setShowArtist(event.target.checked)} className="accent-orange-500" /> Show artist</label>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <label className="text-[10px] font-black uppercase text-zinc-500 space-y-1"><span>Title position</span><select value={titlePosition} onChange={(e) => setTitlePosition(e.target.value as typeof titlePosition)} className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs normal-case text-white"><option value="top-left">Top left</option><option value="top-center">Top center</option><option value="top-right">Top right</option><option value="center">Center</option><option value="bottom-left">Bottom left</option><option value="bottom-center">Bottom center</option><option value="bottom-right">Bottom right</option></select></label>
+                <label className="text-[10px] font-black uppercase text-zinc-500 space-y-1"><span>Title style</span><select value={titleFontStyle} onChange={(e) => setTitleFontStyle(e.target.value as typeof titleFontStyle)} className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs normal-case text-white"><option value="editorial">Editorial</option><option value="serif">Serif</option><option value="sans-bold">Bold Sans</option><option value="script">Script</option><option value="marker">Marker</option><option value="vintage">Vintage</option></select></label>
+                <label className="text-[10px] font-black uppercase text-zinc-500 space-y-1"><span>Artist position</span><select value={artistPosition} onChange={(e) => setArtistPosition(e.target.value as typeof artistPosition)} className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs normal-case text-white"><option value="top-left">Top left</option><option value="top-center">Top center</option><option value="top-right">Top right</option><option value="center">Center</option><option value="bottom-left">Bottom left</option><option value="bottom-center">Bottom center</option><option value="bottom-right">Bottom right</option></select></label>
+                <label className="text-[10px] font-black uppercase text-zinc-500 space-y-1"><span>Artist style</span><select value={artistFontStyle} onChange={(e) => setArtistFontStyle(e.target.value as typeof artistFontStyle)} className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs normal-case text-white"><option value="serif">Serif</option><option value="editorial">Editorial</option><option value="sans-bold">Bold Sans</option><option value="script">Script</option><option value="marker">Marker</option><option value="vintage">Vintage</option></select></label>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <label className="text-[10px] font-black uppercase text-zinc-500">Title size<input type="number" min={24} max={180} value={titleSize} onChange={(e) => setTitleSize(Number(e.target.value))} className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-white" /></label>
+                <label className="text-[10px] font-black uppercase text-zinc-500">Title color<input type="color" value={titleColor} onChange={(e) => setTitleColor(e.target.value)} className="mt-1 w-full h-10 rounded-xl border border-zinc-800 bg-zinc-950 p-1" /></label>
+                <label className="text-[10px] font-black uppercase text-zinc-500">Artist size<input type="number" min={24} max={180} value={artistSize} onChange={(e) => setArtistSize(Number(e.target.value))} className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-white" /></label>
+                <label className="text-[10px] font-black uppercase text-zinc-500">Artist color<input type="color" value={artistColor} onChange={(e) => setArtistColor(e.target.value)} className="mt-1 w-full h-10 rounded-xl border border-zinc-800 bg-zinc-950 p-1" /></label>
+              </div>
+              <label className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-3 cursor-pointer"><input type="checkbox" checked={parentalAdvisory} onChange={(event) => setParentalAdvisory(event.target.checked)} className="w-5 h-5 accent-orange-500" /><span className="text-sm font-bold">Parental Advisory (manual — default Off)</span></label>
+              {generation && <button type="button" onClick={handleApplyTextChanges} disabled={busy} className="w-full rounded-xl border border-orange-500/40 bg-orange-500/10 px-4 py-2.5 text-[10px] font-black uppercase text-orange-300 disabled:opacity-50">Apply text changes — no rerender</button>}
+            </div>
+
+            <label className="block rounded-2xl border border-dashed border-zinc-800 bg-black p-4 cursor-pointer hover:border-orange-500/40">
+              <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold">Artist / character reference</p><p className="text-[10px] text-zinc-600">Optional. Guides appearance and styling; exact facial identity may vary with FLUX.1 Schnell.</p></div><select value={referenceType} onChange={(e) => setReferenceType(e.target.value as AlbumCoverReferenceType)} onClick={(e) => e.stopPropagation()} className="rounded-xl border border-zinc-800 bg-zinc-950 px-2 py-2 text-[10px] text-white"><option value="artist">Artist</option><option value="character">Character</option><option value="style">Style</option></select></div>
+              <input type="file" accept="image/jpeg,image/png,image/webp" className="mt-3 block w-full text-xs text-zinc-500 file:mr-3 file:rounded-xl file:border-0 file:bg-zinc-900 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white" onChange={(e) => setReferenceImage(e.target.files?.[0] || null)} />
+              {referenceImage && <p className="text-[10px] text-orange-300 mt-2">Reference: {referenceImage.name}</p>}
             </label>
-            <p className="text-[10px] text-zinc-600 -mt-3">Title, artist, and advisory are added after AI generation so the final wording is exact rather than AI-garbled.</p>
 
             <label className="block rounded-2xl border border-dashed border-zinc-800 bg-black p-4 cursor-pointer hover:border-zinc-700">
               <div className="flex items-center gap-3">
@@ -629,14 +695,7 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
               </div>
             </div>
 
-            <label className="space-y-2 block text-xs font-bold text-zinc-400">
-              <span>Variations</span>
-              <select value={variationCount} onChange={(event) => setVariationCount(Number(event.target.value) as AlbumCoverVariationCount)} className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white outline-none focus:border-orange-500">
-                <option value={3}>3</option>
-                <option value={4}>4</option>
-                <option value={5}>5</option>
-              </select>
-            </label>
+            <div className="rounded-2xl border border-zinc-800 bg-black px-4 py-3"><p className="text-xs font-black">6 finished covers</p><p className="text-[10px] text-zinc-600 mt-1">3 distinct Creative Director concepts × 2 FLUX executions. No AI winner — you choose.</p></div>
 
             {!configured && <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-xs text-amber-100">Set <code>VITE_ALBUM_COVER_API_URL</code> to the deployed EZ AI Album Cover Studio backend before generating real covers.</div>}
             {error && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>}
@@ -709,7 +768,7 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
                     <div className="rounded-3xl border border-zinc-800 bg-black p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                       <div><p className="text-[10px] uppercase tracking-widest text-zinc-600">Variation set {latestSet.set_number}</p><p className="font-black mt-1 capitalize">{latestSet.mood_path}-driven</p></div>
                       <div className="flex flex-wrap gap-2">
-                        {hasWinner && latestSet.critic_status !== 'failed' && <button onClick={handleGenerateBetter} disabled={busy} className="rounded-xl bg-orange-500 px-4 py-2 text-[10px] font-black uppercase text-black disabled:opacity-50">Generate Better</button>}
+                        <button onClick={handleGenerateBetter} disabled={busy || !selectedVariation} className="rounded-xl bg-orange-500 px-4 py-2 text-[10px] font-black uppercase text-black disabled:opacity-50">{selectedVariation ? 'Generate Better from Selected' : 'Select a cover to improve'}</button>
                         {generation.has_audio && generation.has_lyrics && <button onClick={() => handlePath('blend')} disabled={busy} className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2 text-[10px] font-black disabled:opacity-50">Fresh blend</button>}
                         {generation.has_audio && <button onClick={() => handlePath('audio')} disabled={busy} className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2 text-[10px] font-black disabled:opacity-50">Fresh audio path</button>}
                         {generation.has_lyrics && <button onClick={() => handlePath('lyrics')} disabled={busy} className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2 text-[10px] font-black disabled:opacity-50">Fresh lyric path</button>}
@@ -718,20 +777,15 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
 
                     <div className="grid md:grid-cols-2 gap-4">
                       {variations.map((variation) => {
-                        const tier = variation.selection_tier || (variation.id === winnerId ? 'winner' : variation.id === runnerUpId ? 'runner_up' : '');
                         const isSelected = variation.id === selectedVariationId || variation.selected;
-                        const positioning = variation.market_positioning || {};
                         return (
                           <article key={variation.id} className={`rounded-3xl border overflow-hidden bg-black transition-all ${isSelected ? 'border-orange-500 shadow-lg shadow-orange-500/10' : 'border-zinc-800'}`}>
                             <div className="relative aspect-square bg-zinc-900">
                               <img src={absoluteAlbumCoverUrl(variation.image_url)} alt={`Album cover variation ${variation.position}`} className="w-full h-full object-cover" />
-                              {tier === 'winner' && <span className="absolute top-3 left-3 rounded-full bg-emerald-500 px-3 py-1.5 text-[10px] font-black text-black">AI winner</span>}
-                              {tier === 'runner_up' && <span className="absolute top-3 left-3 rounded-full bg-amber-400 px-3 py-1.5 text-[10px] font-black text-black">AI runner-up</span>}
                               {isSelected && <span className="absolute top-3 right-3 rounded-full bg-orange-500 px-3 py-1.5 text-[10px] font-black text-black flex items-center gap-1"><Check className="w-3 h-3" />Selected</span>}
                             </div>
                             <div className="p-4 space-y-3">
-                              <div className="flex items-start justify-between gap-3"><div><p className="font-black">{variation.concept_name || `Variation ${variation.position}`}</p><p className="text-[10px] text-zinc-600 mt-1">{variation.width}×{variation.height} · final download 3000×3000</p></div>{variation.cover_score != null && <span className="text-sm font-black text-orange-400">{asNumber(variation.cover_score, 1)}</span>}</div>
-                              {(positioning.lane || positioning.release_signal || positioning.target_audience) && <div className="rounded-2xl border border-zinc-900 bg-zinc-950 p-3"><p className="text-xs font-black">{displayValue(positioning.lane)}</p><p className="text-[10px] text-zinc-500 mt-1">{displayValue(positioning.release_signal)}</p><p className="text-[10px] text-zinc-600 mt-1">{displayValue(positioning.target_audience)}</p></div>}
+                              <div><p className="font-black">{variation.concept_name || `Cover ${variation.position}`}</p><p className="text-[10px] text-zinc-600 mt-1">Cover {variation.position} · {variation.width}×{variation.height} · equal choice</p></div>
                               <div className="grid grid-cols-2 gap-2">
                                 <button onClick={() => handleSelectVariation(variation)} className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-[10px] font-black">{isSelected ? 'Selected' : 'Select'}</button>
                                 <button onClick={() => handleDownload(variation)} className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-[10px] font-black flex items-center justify-center gap-1.5"><Download className="w-3.5 h-3.5" />Download</button>
