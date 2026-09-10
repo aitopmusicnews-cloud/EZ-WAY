@@ -72,8 +72,8 @@ test('Album Cover Studio exposes creative controls and sends them to the backend
 
 
 test('Album Cover major-label director gives the user six equal covers and selected-cover refinement', () => {
-  const service = fs.readFileSync(servicePath, 'utf8');
-  const studio = fs.readFileSync(studioPath, 'utf8');
+  const service = read('./albumCoverStudio.ts');
+  const studio = read('../components/AlbumCoverStudio.tsx');
   assert.match(service, /AlbumCoverVariationCount = 3 \| 4 \| 5 \| 6/);
   assert.match(service, /reference_image/);
   assert.match(service, /source_variation_id/);
