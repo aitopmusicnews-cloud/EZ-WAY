@@ -32,6 +32,11 @@ class FailingDirector:
         raise CloudflareServiceError("capacity")
 
 
+class BuggyDirector:
+    async def build_song_thesis(self, *, context):
+        raise TypeError("programming defect")
+
+
 @pytest.mark.asyncio
 async def test_song_intelligence_combines_baseline_analysis_with_thesis():
     from app.song_intelligence import SongIntelligenceEngine
@@ -70,3 +75,14 @@ async def test_song_intelligence_marks_degraded_fallback_after_retry_exhaustion(
     assert report["status"] == "creative_direction_degraded"
     assert report["song_thesis"]["campaign_thesis"]
     assert "ghost" in report["song_thesis"]["visual_permissions"]
+
+
+@pytest.mark.asyncio
+async def test_song_intelligence_does_not_hide_programming_errors():
+    from app.song_intelligence import SongIntelligenceEngine
+
+    engine = SongIntelligenceEngine(creative_director=BuggyDirector(), max_attempts=1)
+    with pytest.raises(TypeError, match="programming defect"):
+        await engine.synthesize(
+            audio={}, lyrics={}, lyrics_text="", creative_controls={}
+        )
