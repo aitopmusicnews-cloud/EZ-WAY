@@ -82,6 +82,6 @@ test('Album Cover major-label director gives the user six equal covers and selec
   assert.match(studio, /No AI winner/);
   assert.match(studio, /Generate Better from Selected/);
   assert.match(studio, /Artist \/ character reference/);
-  assert.doesNotMatch(studio, /AI winner/);
-  assert.doesNotMatch(studio, /AI runner-up/);
+  assert.doesNotMatch(studio, />AI winner</);
+  assert.doesNotMatch(studio, />AI runner-up</);
 });
