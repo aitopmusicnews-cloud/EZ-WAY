@@ -5,7 +5,7 @@ import {
   resolveMediaUrls, rowToActivity, rowToClient, rowToMessage, rowToPlaylist,
   rowToProfile, rowToPromoVideo, rowToShareLink, rowToTrack,
 } from './rows.mjs';
-import { presignRead, presignUpload } from './storage.mjs';
+import { presignRead, presignUpload, resolveMediaObjectKey } from './storage.mjs';
 
 const ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || 'https://ezwaypro.theartistcut.com')
   .split(',').map((value) => value.trim()).filter(Boolean);
@@ -406,6 +406,10 @@ export const handler = async (event) => {
     }
     if (method === 'PUT' && rawPath === '/profile') return response(event, 200, await putProfile(parseBody(event)));
     if (method === 'POST' && rawPath === '/uploads/presign') return response(event, 200, await presignUpload(parseBody(event)));
+    if (method === 'POST' && rawPath === '/media/read-url') {
+      const objectKey = resolveMediaObjectKey(parseBody(event));
+      return response(event, 200, { url: await presignRead(objectKey), object_key: objectKey });
+    }
     const patchMatch = rawPath.match(/^\/(tracks|playlists|clients)\/([^/]+)$/);
     if (method === 'PATCH' && patchMatch) {
       const [, entity, pathId] = patchMatch;

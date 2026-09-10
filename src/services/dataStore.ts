@@ -148,7 +148,7 @@ export function createDataStoreClient(options: ClientOptions) {
       createClient: configurationError, updateClient: configurationError, deleteClient: configurationError,
       createShareLink: configurationError, deleteShareLink: configurationError, createActivity: configurationError,
       createMessage: configurationError, putProfile: configurationError, createPromoVideo: configurationError,
-      deletePromoVideo: configurationError, uploadFile: configurationError, getPublicShare: configurationError,
+      deletePromoVideo: configurationError, uploadFile: configurationError, refreshMediaUrl: configurationError, getPublicShare: configurationError,
       getPublicShareMessages: configurationError, uploadPublicShareAttachment: configurationError,
       postPublicShareEvent: configurationError,
     } as any;
@@ -284,6 +284,14 @@ export function createDataStoreClient(options: ClientOptions) {
         size: file.size,
       }));
       return putPresignedFile(presign, file);
+    },
+
+    async refreshMediaUrl(input: { objectKey?: string | null; url?: string | null }): Promise<{ url: string; objectKey: string | null }> {
+      const refreshed = await request<{ url: string; object_key?: string | null }>('/media/read-url', jsonInit('POST', {
+        objectKey: input.objectKey || null,
+        url: input.url || null,
+      }));
+      return { url: refreshed.url, objectKey: refreshed.object_key || input.objectKey || null };
     },
 
     async uploadPublicShareAttachment(token: string, file: File): Promise<{ url: string; objectKey: string }> {
