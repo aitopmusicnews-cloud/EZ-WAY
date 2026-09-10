@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: ${{ !contains(github.event.head_commit.message, '[track-media-patch-complete]') }}
+    if: ${{ ! contains(github.event.head_commit.message, '[track-media-patch-complete]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
