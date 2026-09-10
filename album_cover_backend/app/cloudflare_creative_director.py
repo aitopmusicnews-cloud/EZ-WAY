@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import base64
 import json
 from typing import Any
 
 import httpx
 
+from .artist_visual_bible import ArtistVisualBible
 from .creative_direction import ConceptCritique, ConceptDraft, SongThesis
 from .errors import (
     CloudflareAuthenticationError,
@@ -16,7 +18,7 @@ from .errors import (
 
 
 class CloudflareGemmaCreativeDirector:
-    """Major-label creative direction through Cloudflare Workers AI Gemma."""
+    """Major-label creative direction and visual-reference analysis through Workers AI Gemma."""
 
     endpoint_root = "https://api.cloudflare.com/client/v4/accounts"
 
@@ -67,6 +69,8 @@ Every concept must be specifically justified by the supplied Song Thesis and mus
 Do not substitute genre cliches for lyric or musical evidence. Include at least one viable no-person direction unless
 Strict user controls require a person. Typography is added later: never ask the image model to render title, artist,
 logos, fake lettering, watermarks, or a Parental Advisory label.
+If improvement_source is present, preserve that selected cover's central story/metaphor by default and create stronger
+executions of that direction; only change the central direction when the user's current controls explicitly demand it.
 Each concept requires: id, name, one_line_pitch, why_it_fits, subject, artist_presence, setting, action_or_symbol,
 wardrobe_or_material, camera, composition, lighting, medium, palette, texture, dominant_shape, visual_metaphor,
 typography_zone, must_include, avoid, image_prompt_seed.
@@ -152,6 +156,41 @@ concept ids so revisions remain auditable.
                 f"Cloudflare Gemma returned an invalid revised concept batch: {exc}"
             ) from exc
 
+    async def analyze_reference(
+        self,
+        *,
+        image_bytes: bytes,
+        mime_type: str,
+        reference_type: str,
+    ) -> ArtistVisualBible:
+        system = """
+You are an album-campaign visual continuity director. Analyze only visible creative characteristics useful for
+consistent artwork. Return JSON only. Never identify the person or guess a name. Never infer ethnicity, nationality,
+religion, sexual orientation, health/disability, political affiliation, socioeconomic status, criminal history, or
+other sensitive traits. You may neutrally describe visible skin tone, hair, facial hair, clothing, accessories,
+posture, expression/attitude, and distinctive visible styling. Do not claim exact identity locking.
+Required keys: reference_type, appearance, wardrobe_language, accessories, attitude, visual_identity,
+do_not_change, uncertainties.
+""".strip()
+        user_text = (
+            f"Reference type: {reference_type}. Build a concise Artist/Character Visual Bible from this image. "
+            "Focus on reusable visible appearance and styling cues for album-cover art direction."
+        )
+        payload = await self._run_image_json(
+            system=system,
+            user_text=user_text,
+            image_bytes=image_bytes,
+            mime_type=mime_type,
+            max_tokens=1800,
+        )
+        try:
+            payload["reference_type"] = reference_type
+            return ArtistVisualBible.from_mapping(payload)
+        except Exception as exc:
+            raise CloudflareServiceError(
+                f"Cloudflare Gemma returned an invalid visual bible: {exc}"
+            ) from exc
+
     async def _run_json(
         self,
         *,
@@ -159,6 +198,44 @@ concept ids so revisions remain auditable.
         user: dict[str, Any],
         max_completion_tokens: int,
     ) -> dict[str, Any]:
+        payload = {
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+            ],
+            "temperature": 0.7,
+            "max_completion_tokens": max_completion_tokens,
+        }
+        return await self._post_and_parse(payload)
+
+    async def _run_image_json(
+        self,
+        *,
+        system: str,
+        user_text: str,
+        image_bytes: bytes,
+        mime_type: str,
+        max_tokens: int,
+    ) -> dict[str, Any]:
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+        image_url = f"data:{mime_type};base64,{encoded}"
+        payload = {
+            "messages": [
+                {"role": "system", "content": system},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_text},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
+                },
+            ],
+            "temperature": 0.2,
+            "max_tokens": max_tokens,
+        }
+        return await self._post_and_parse(payload)
+
+    async def _post_and_parse(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.enabled:
             raise CloudflareRequestError("Cloudflare Creative Director is disabled.")
         if not self.account_id or not self.api_token:
@@ -171,14 +248,6 @@ concept ids so revisions remain auditable.
         headers = {
             "Authorization": f"Bearer {self.api_token}",
             "Content-Type": "application/json",
-        }
-        payload = {
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
-            ],
-            "temperature": 0.7,
-            "max_completion_tokens": max_completion_tokens,
         }
         try:
             async with httpx.AsyncClient(
@@ -230,6 +299,12 @@ concept ids so revisions remain auditable.
             raw = result.get("response")
             if isinstance(raw, dict):
                 return raw
+            if not isinstance(raw, str) or not raw.strip():
+                # OpenAI-compatible shaped output can appear for some Workers AI
+                # model/runtime versions; accept it without changing endpoints.
+                choices = result.get("choices") or []
+                if choices:
+                    raw = ((choices[0] or {}).get("message") or {}).get("content")
             if not isinstance(raw, str) or not raw.strip():
                 raise ValueError("missing response text")
             return self._parse_json_text(raw)
