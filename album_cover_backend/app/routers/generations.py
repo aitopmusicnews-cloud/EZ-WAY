@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from ..font_preview import render_font_preview
 from ..metrics import collection_metrics
 from ..presentation import generation_response
 from ..reference_upload import read_validated_reference_image
@@ -86,6 +87,19 @@ def _release_settings(
         ).model_dump()
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail="Invalid title/artist layout settings.") from exc
+
+
+@router.get("/fonts/{font_style}/preview")
+def font_preview(font_style: str, text: str = "Album Title", size: int = 64, color: str = "#F5F1E8"):
+    try:
+        preview = render_font_preview(font_style, text=text, size=size, color=color)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=404, detail="Unknown font style.")
+    return Response(
+        content=preview.content,
+        media_type=preview.mime_type,
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 @router.post("/generations", response_model=GenerationResponse)
@@ -173,8 +187,6 @@ async def create_generation(
     if not audio_bytes and not combined_lyrics:
         raise HTTPException(status_code=422, detail="Upload an MP3, provide lyrics, or provide both.")
 
-    # Release layout and reference identity are part of cache identity, but these
-    # internal markers are never forwarded to the creative prompt.
     cache_controls = {
         **controls,
         "_release_text": json.dumps(release, sort_keys=True, separators=(",", ":")),
