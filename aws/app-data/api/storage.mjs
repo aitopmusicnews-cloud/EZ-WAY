@@ -4,6 +4,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const bucket = process.env.MEDIA_BUCKET || '';
 const s3 = new S3Client({});
+export const READ_URL_EXPIRES_IN = 24 * 60 * 60;
 
 const CATEGORY = {
   tracks: { prefix: 'tracks/audio', family: 'audio/', max: 500 * 1024 * 1024 },
@@ -64,7 +65,7 @@ const ensureBucket = () => {
 export async function presignRead(objectKey) {
   if (!objectKey) return null;
   ensureBucket();
-  return getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: objectKey }), { expiresIn: 30 * 60 });
+  return getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: objectKey }), { expiresIn: READ_URL_EXPIRES_IN });
 }
 
 export async function presignUpload(body) {
