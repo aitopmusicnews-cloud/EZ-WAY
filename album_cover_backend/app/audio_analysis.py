@@ -15,12 +15,13 @@ _NOTES = ["C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", 
 
 
 class AudioAnalyzer:
-    """Lightweight music feature analyzer.
+    """Deterministic music feature analyzer with a neutral section timeline.
 
-    Technical values are deterministic measurements. Genre and mood are heuristic
-    estimates and therefore include confidence values rather than pretending to be
-    definitive labels.
+    Technical values are measurements. Genre and mood are heuristic estimates and
+    include confidence values rather than pretending to be definitive labels.
     """
+
+    section_seconds = 20
 
     def __init__(self, max_seconds: int = 180):
         self.max_seconds = max_seconds
@@ -31,15 +32,14 @@ class AudioAnalyzer:
             if raw.size < sr:
                 raise AnalysisError("MP3 is too short to analyze reliably.")
 
-            # Remove long digital-silence edges, but retain the original amplitude.
-            # The previous implementation normalized before measuring RMS, which
-            # made quiet and loud masters look misleadingly similar.
             trimmed, _ = librosa.effects.trim(raw, top_db=45)
             if trimmed.size >= sr:
                 raw = trimmed
 
             peak = float(np.max(np.abs(raw)))
             analysis_y = librosa.util.normalize(raw) if peak > 1e-9 else raw.copy()
+            sections = self._section_features(raw, sr)
+            section_summary = self.summarize_sections(sections)
 
             rms_frames = librosa.feature.rms(y=raw, frame_length=2048, hop_length=512)[0]
             nonzero_rms = rms_frames[rms_frames > 1e-8]
@@ -100,8 +100,6 @@ class AudioAnalyzer:
             percussive_rms = float(np.mean(librosa.feature.rms(y=percussive)[0]))
             harmonic_ratio = harmonic_rms / max(harmonic_rms + percussive_rms, 1e-9)
 
-            # Chroma CENS is more resistant to dynamics/timbre than direct STFT
-            # chroma and produces better key estimates on mastered mixes.
             chroma = librosa.feature.chroma_cens(y=harmonic, sr=sr)
             chroma_mean = np.median(chroma, axis=1)
             key, scale, key_confidence = self._detect_key(chroma_mean)
@@ -160,10 +158,12 @@ class AudioAnalyzer:
                 "genre_candidates": genre_candidates,
                 "style_tags": style_tags,
                 "mood": mood,
+                "sections": sections,
+                "section_summary": section_summary,
                 "duration_seconds_analyzed": round(duration, 2),
                 "sample_rate": sr,
                 "analysis_note": (
-                    "BPM, loudness and spectral values are measured from the audio. "
+                    "BPM, loudness, spectral values and neutral 20-second section features are measured from the audio. "
                     "Genre and mood are heuristic estimates and include confidence scores."
                 ),
             }
@@ -171,6 +171,85 @@ class AudioAnalyzer:
             raise
         except Exception as exc:
             raise AnalysisError(f"Audio analysis failed: {exc}") from exc
+
+    def _section_features(self, raw: np.ndarray, sr: int) -> list[dict[str, float | str]]:
+        window = max(sr, int(self.section_seconds * sr))
+        measured: list[dict[str, float | str]] = []
+        raw_energy: list[float] = []
+        raw_density: list[float] = []
+
+        for index, start_sample in enumerate(range(0, raw.size, window), start=1):
+            segment = raw[start_sample : min(start_sample + window, raw.size)]
+            if segment.size < sr:
+                continue
+            seconds = segment.size / sr
+            peak = float(np.max(np.abs(segment)))
+            normalized = librosa.util.normalize(segment) if peak > 1e-9 else segment.copy()
+            rms = float(np.mean(librosa.feature.rms(y=segment)[0]))
+            centroid = float(np.mean(librosa.feature.spectral_centroid(y=normalized, sr=sr)))
+            onset = librosa.onset.onset_strength(y=normalized, sr=sr)
+            events = librosa.onset.onset_detect(onset_envelope=onset, sr=sr, units="frames")
+            density = float(np.size(events) / max(seconds, 1e-6))
+            raw_energy.append(rms)
+            raw_density.append(density)
+            measured.append(
+                {
+                    "name": f"region_{index}",
+                    "start": round(start_sample / sr, 3),
+                    "end": round((start_sample + segment.size) / sr, 3),
+                    "energy": rms,
+                    "brightness": float(np.clip(centroid / max(sr / 2.0, 1.0), 0.0, 1.0)),
+                    "beat_density": density,
+                }
+            )
+
+        if not measured:
+            return []
+        energy_peak = max(max(raw_energy), 1e-9)
+        density_peak = max(max(raw_density), 1e-9)
+        for item in measured:
+            item["energy"] = round(float(item["energy"]) / energy_peak, 4)
+            item["brightness"] = round(float(item["brightness"]), 4)
+            item["beat_density"] = round(float(item["beat_density"]) / density_peak, 4)
+        return measured
+
+    @staticmethod
+    def summarize_sections(features: list[dict[str, Any]]) -> dict[str, Any]:
+        if not features:
+            return {
+                "highest_intensity_region": None,
+                "lowest_intensity_region": None,
+                "major_energy_transitions": [],
+                "trajectory": {},
+            }
+        ordered = sorted(features, key=lambda item: float(item.get("start", 0.0)))
+        lowest = min(ordered, key=lambda item: float(item.get("energy", 0.0)))
+        highest = max(ordered, key=lambda item: float(item.get("energy", 0.0)))
+        transitions: list[dict[str, Any]] = []
+        for left, right in zip(ordered, ordered[1:]):
+            delta = float(right.get("energy", 0.0)) - float(left.get("energy", 0.0))
+            if abs(delta) < 0.20:
+                continue
+            transitions.append(
+                {
+                    "from": left.get("name"),
+                    "to": right.get("name"),
+                    "direction": "up" if delta > 0 else "down",
+                    "delta": round(abs(delta), 4),
+                }
+            )
+        middle = ordered[len(ordered) // 2]
+        return {
+            "highest_intensity_region": dict(highest),
+            "lowest_intensity_region": dict(lowest),
+            "major_energy_transitions": transitions,
+            "trajectory": {
+                "opening": dict(ordered[0]),
+                "middle": dict(middle),
+                "peak": dict(highest),
+                "ending": dict(ordered[-1]),
+            },
+        }
 
     @staticmethod
     def _detect_key(chroma: np.ndarray) -> tuple[str, str, float]:
@@ -196,7 +275,6 @@ class AudioAnalyzer:
     def _dominant_frequencies(frequencies: np.ndarray, spectrum: np.ndarray) -> list[float]:
         if not np.any(spectrum):
             return []
-        # Local spectral peaks are more meaningful than simply taking adjacent FFT bins.
         interior = spectrum[1:-1]
         peak_indices = np.where((interior > spectrum[:-2]) & (interior >= spectrum[2:]))[0] + 1
         if peak_indices.size == 0:
@@ -219,8 +297,6 @@ class AudioAnalyzer:
     def _normalize_tempo(tempo: float) -> float:
         if not np.isfinite(tempo) or tempo <= 0:
             return 0.0
-        # Beat trackers often return a musically equivalent half/double tempo.
-        # Keep the value in a useful broad listening range without forcing genres.
         while tempo < 55:
             tempo *= 2.0
         while tempo > 210:
