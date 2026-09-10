@@ -193,7 +193,7 @@ test('upload requests a presign then PUTs the original file', async () => {
   assert.equal(calls.length, 2);
   assert.equal(calls[1].url, 'https://s3.example.com/signed-put');
   assert.equal(calls[1].init?.method, 'PUT');
-  assert.equal(result.objectKey, 'tracks/audio/track-1/song.wav'.replace('track-1/song.wav', 't1/file.wav'));
+  assert.equal(result.objectKey, 'tracks/audio/t1/file.wav');
   assert.equal(result.url, 'https://s3.example.com/signed-get');
 });
 
