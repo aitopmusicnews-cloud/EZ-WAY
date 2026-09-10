@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   patch:
-    if: ${{ ! contains(github.event.head_commit.message, '[track-media-patch-complete]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,6 +18,10 @@ jobs:
       - name: Patch stable media refresh into exporter
         shell: bash
         run: |
+          if git log -1 --pretty=%B | grep -Fq '[track-media-patch-complete]'; then
+            echo 'Patch already applied.'
+            exit 0
+          fi
           python - <<'PY'
           from pathlib import Path
 
@@ -29,37 +32,13 @@ jobs:
                   raise SystemExit(f'Expected patch anchor not found in {path}: {old[:120]!r}')
               p.write_text(text.replace(old, new, 1))
 
-          replace_once(
-              'aws/app-data/api/handler.mjs',
-              "import { presignRead, presignUpload } from './storage.mjs';",
-              "import { presignRead, presignUpload, resolveMediaObjectKey } from './storage.mjs';",
-          )
-          replace_once(
-              'aws/app-data/api/handler.mjs',
-              "    if (method === 'POST' && rawPath === '/uploads/presign') return response(event, 200, await presignUpload(parseBody(event)));",
-              "    if (method === 'POST' && rawPath === '/uploads/presign') return response(event, 200, await presignUpload(parseBody(event)));\n    if (method === 'POST' && rawPath === '/media/read-url') {\n      const objectKey = resolveMediaObjectKey(parseBody(event));\n      return response(event, 200, { url: await presignRead(objectKey), object_key: objectKey });\n    }",
-          )
-          replace_once(
-              'aws/app-data/template.yaml',
-              "        PublicShareGet:\n          Type: HttpApi",
-              "        MediaReadUrl:\n          Type: HttpApi\n          Properties:\n            ApiId: !Ref EzwayHttpApi\n            Path: /media/read-url\n            Method: POST\n        PublicShareGet:\n          Type: HttpApi",
-          )
-          replace_once(
-              'src/services/dataStore.ts',
-              "      deletePromoVideo: configurationError, uploadFile: configurationError, getPublicShare: configurationError,",
-              "      deletePromoVideo: configurationError, uploadFile: configurationError, refreshMediaUrl: configurationError, getPublicShare: configurationError,",
-          )
-          replace_once(
-              'src/services/dataStore.ts',
-              "    async uploadPublicShareAttachment(token: string, file: File): Promise<{ url: string; objectKey: string }> {",
-              "    async refreshMediaUrl(input: { objectKey?: string | null; url?: string | null }): Promise<{ url: string; objectKey: string | null }> {\n      const refreshed = await request<{ url: string; object_key?: string | null }>('/media/read-url', jsonInit('POST', {\n        objectKey: input.objectKey || null,\n        url: input.url || null,\n      }));\n      return { url: refreshed.url, objectKey: refreshed.object_key || input.objectKey || null };\n    },\n\n    async uploadPublicShareAttachment(token: string, file: File): Promise<{ url: string; objectKey: string }> {",
-          )
-          replace_once(
-              'src/App.tsx',
-              'import { Track, ShareLink, Client, Playlist, AppView } from "./types";',
-              'import { Track, ShareLink, Client, Playlist, AppView } from "./types";\nimport { dataStore } from "./services/dataStore";\nimport { resolveTrackBundleAsset } from "./services/trackBundleMedia";',
-          )
-          old_audio = '''          if (track.file_data) {
+          replace_once('aws/app-data/api/handler.mjs', "import { presignRead, presignUpload } from './storage.mjs';", "import { presignRead, presignUpload, resolveMediaObjectKey } from './storage.mjs';")
+          replace_once('aws/app-data/api/handler.mjs', "    if (method === 'POST' && rawPath === '/uploads/presign') return response(event, 200, await presignUpload(parseBody(event)));", "    if (method === 'POST' && rawPath === '/uploads/presign') return response(event, 200, await presignUpload(parseBody(event)));\n    if (method === 'POST' && rawPath === '/media/read-url') {\n      const objectKey = resolveMediaObjectKey(parseBody(event));\n      return response(event, 200, { url: await presignRead(objectKey), object_key: objectKey });\n    }")
+          replace_once('aws/app-data/template.yaml', "        PublicShareGet:\n          Type: HttpApi", "        MediaReadUrl:\n          Type: HttpApi\n          Properties:\n            ApiId: !Ref EzwayHttpApi\n            Path: /media/read-url\n            Method: POST\n        PublicShareGet:\n          Type: HttpApi")
+          replace_once('src/services/dataStore.ts', "      deletePromoVideo: configurationError, uploadFile: configurationError, getPublicShare: configurationError,", "      deletePromoVideo: configurationError, uploadFile: configurationError, refreshMediaUrl: configurationError, getPublicShare: configurationError,")
+          replace_once('src/services/dataStore.ts', "    async uploadPublicShareAttachment(token: string, file: File): Promise<{ url: string; objectKey: string }> {", "    async refreshMediaUrl(input: { objectKey?: string | null; url?: string | null }): Promise<{ url: string; objectKey: string | null }> {\n      const refreshed = await request<{ url: string; object_key?: string | null }>('/media/read-url', jsonInit('POST', {\n        objectKey: input.objectKey || null,\n        url: input.url || null,\n      }));\n      return { url: refreshed.url, objectKey: refreshed.object_key || input.objectKey || null };\n    },\n\n    async uploadPublicShareAttachment(token: string, file: File): Promise<{ url: string; objectKey: string }> {")
+          replace_once('src/App.tsx', 'import { Track, ShareLink, Client, Playlist, AppView } from "./types";', 'import { Track, ShareLink, Client, Playlist, AppView } from "./types";\nimport { dataStore } from "./services/dataStore";\nimport { resolveTrackBundleAsset } from "./services/trackBundleMedia";')
+          old = '''          if (track.file_data) {
             trackFolder.file(sanitizedAudioName, track.file_data);
           } else if (track.file_url) {
             try {
@@ -82,7 +61,7 @@ jobs:
             }
           }
 '''
-          new_audio = '''          const audioBlob = await resolveTrackBundleAsset({
+          new = '''          const audioBlob = await resolveTrackBundleAsset({
             label: `audio for ${track.name || "Untitled"}`,
             data: track.file_data,
             objectKey: track.file_key,
@@ -103,10 +82,14 @@ jobs:
             fetchBlob: fetchWithProxyFallback,
           });
 '''
-          replace_once('src/App.tsx', old_audio, new_audio)
+          replace_once('src/App.tsx', old, new)
           PY
       - name: Commit patch
         run: |
+          if git diff --quiet; then
+            echo 'No patch changes to commit.'
+            exit 0
+          fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add aws/app-data/api/handler.mjs aws/app-data/template.yaml src/services/dataStore.ts src/App.tsx
