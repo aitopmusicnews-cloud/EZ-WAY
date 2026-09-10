@@ -86,8 +86,18 @@ def _draw_text_layer(image: Image.Image, text: str, style: dict[str, Any], *, ro
     total_h = sum(heights) + line_gap * max(0, len(lines) - 1)
     widths = [draw.textbbox((0, 0), line, font=font, stroke_width=2)[2] for line in lines]
     block_w = max(widths or [1])
-    position = str(style.get("position") or ("top-center" if role == "title" else "bottom-center"))
-    x, y, alignment = _position(block_w, total_h, position)
+    anchor_x = style.get("x")
+    anchor_y = style.get("y")
+    if anchor_x is not None and anchor_y is not None:
+        x, y, alignment = _position_from_anchor(
+            width=block_w,
+            height=total_h,
+            anchor_x=float(anchor_x),
+            anchor_y=float(anchor_y),
+        )
+    else:
+        position = str(style.get("position") or ("top-center" if role == "title" else "bottom-center"))
+        x, y, alignment = _position(block_w, total_h, position)
     fill, stroke_fill, stroke_width = _treatment(style)
 
     for line, line_h, line_w in zip(lines, heights, widths):
@@ -96,7 +106,6 @@ def _draw_text_layer(image: Image.Image, text: str, style: dict[str, Any], *, ro
             line_x = x + (block_w - line_w) / 2
         elif alignment == "right":
             line_x = x + block_w - line_w
-        # A tiny shadow keeps release text readable without a banner.
         draw.text((line_x + 3, y + 4), line, font=font, fill=(0, 0, 0, 150), stroke_width=max(0, stroke_width - 1), stroke_fill=(0, 0, 0, 155))
         draw.text((line_x, y), line, font=font, fill=fill, stroke_width=stroke_width, stroke_fill=stroke_fill)
         y += line_h + line_gap
@@ -111,7 +120,6 @@ def _font(style: Any, size: int) -> ImageFont.ImageFont:
         try:
             return ImageFont.truetype(str(custom_path), size=size)
         except OSError:
-            # Missing/corrupt server asset must not break a cover; use the built-in fallback.
             pass
     if name == "script":
         return LocalStorage._font_from_candidates(size, LocalStorage._script_font_candidates("luxury_script"))
@@ -151,6 +159,16 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, *, ma
     kept = lines[:max_lines]
     kept[-1] = " ".join(lines[max_lines - 1 :])
     return kept
+
+
+def _position_from_anchor(*, width: int, height: int, anchor_x: float, anchor_y: float) -> tuple[float, float, str]:
+    normalized_x = max(0.0, min(1.0, float(anchor_x)))
+    normalized_y = max(0.0, min(1.0, float(anchor_y)))
+    x = normalized_x * WORKING_IMAGE_SIZE - width / 2
+    y = normalized_y * WORKING_IMAGE_SIZE - height / 2
+    x = max(0.0, min(float(WORKING_IMAGE_SIZE - width), x))
+    y = max(0.0, min(float(WORKING_IMAGE_SIZE - height), y))
+    return float(x), float(y), "center"
 
 
 def _position(width: int, height: int, position: str) -> tuple[float, float, str]:
