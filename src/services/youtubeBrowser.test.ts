@@ -41,7 +41,7 @@ test('connected YouTube state comes from the authenticated channel API', async (
     fetchImpl: async (input, init) => {
       calls.push({
         url: String(input),
-        authorization: String((init?.headers as Record<string, string>)?.Authorization || ''),
+        authorization: new Headers(init?.headers || {}).get('authorization') || '',
       });
       return jsonResponse({
         items: [{
