@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildObjectKey, normalizeUploadRequest, READ_URL_EXPIRES_IN } from './storage.mjs';
+import { buildObjectKey, normalizeUploadRequest, READ_URL_EXPIRES_IN, resolveMediaObjectKey } from './storage.mjs';
 
 test('audio upload gets a server-owned key', () => {
   const key = buildObjectKey({ category: 'tracks', relatedId: 't1', filename: 'master.wav' });
@@ -25,6 +25,47 @@ test('category content family and size limits are enforced', () => {
 
 test('media read links remain valid for 24 hours', () => {
   assert.equal(READ_URL_EXPIRES_IN, 24 * 60 * 60);
+});
+
+test('media read refresh accepts only server-owned object keys', () => {
+  assert.equal(
+    resolveMediaObjectKey({ objectKey: 'tracks/artwork/t1/cover.png' }),
+    'tracks/artwork/t1/cover.png',
+  );
+  assert.equal(
+    resolveMediaObjectKey({ objectKey: 'tracks/audio/t1/master.wav' }),
+    'tracks/audio/t1/master.wav',
+  );
+  assert.throws(
+    () => resolveMediaObjectKey({ objectKey: '../private/secret.txt' }),
+    /media object key/i,
+  );
+  assert.throws(
+    () => resolveMediaObjectKey({ objectKey: 'unowned/path/file.png' }),
+    /media object key/i,
+  );
+});
+
+test('media read refresh can recover an object key from an old signed media URL', () => {
+  const previousBucket = process.env.MEDIA_BUCKET;
+  process.env.MEDIA_BUCKET = 'ezway-media-test';
+  try {
+    assert.equal(
+      resolveMediaObjectKey({
+        url: 'https://ezway-media-test.s3.us-west-2.amazonaws.com/tracks/artwork/t1/cover.png?X-Amz-Expires=60&X-Amz-Signature=expired',
+      }),
+      'tracks/artwork/t1/cover.png',
+    );
+    assert.throws(
+      () => resolveMediaObjectKey({
+        url: 'https://other-bucket.s3.us-west-2.amazonaws.com/tracks/artwork/t1/cover.png?X-Amz-Signature=expired',
+      }),
+      /media url/i,
+    );
+  } finally {
+    if (previousBucket == null) delete process.env.MEDIA_BUCKET;
+    else process.env.MEDIA_BUCKET = previousBucket;
+  }
 });
 
 test('message attachments accept arbitrary file types up to 100 MB', () => {
