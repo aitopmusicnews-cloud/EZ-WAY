@@ -34,7 +34,10 @@ for (const [value, label] of expected) {
     throw new Error(`Missing custom font option: ${label} (${value})`);
   }
 }
-if (!component.includes('ALBUM_COVER_FONT_OPTIONS.map')) {
+if (!component.includes('<optgroup label="Custom Fonts">')) {
+  throw new Error('Album Cover Studio must group uploaded families under Custom Fonts.');
+}
+if (!component.includes('ALBUM_COVER_FONT_OPTIONS.filter') || !component.includes('.map((font)')) {
   throw new Error('Album Cover Studio must render font selectors from ALBUM_COVER_FONT_OPTIONS.');
 }
 if (component.includes('<option value="editorial">Editorial</option>')) {
