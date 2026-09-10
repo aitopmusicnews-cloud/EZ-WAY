@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   BarChart3,
@@ -17,6 +17,7 @@ import {
 import { useMediaStore } from '../context/MediaStoreContext';
 import { canUsePremiumFeature } from '../services/premiumFeatures';
 import { loadTrackAudioFile } from '../services/albumCoverCore';
+import { albumCoverAnchorStyle, albumCoverFontPreviewUrl, albumCoverPointerAnchor, defaultAlbumCoverAnchor, type AlbumCoverAnchor } from '../services/albumCoverTextEditor';
 import {
   ALBUM_COVER_FONT_OPTIONS,
   absoluteAlbumCoverUrl,
@@ -120,10 +121,14 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
   const [titleSize, setTitleSize] = useState(104);
   const [titleFontStyle, setTitleFontStyle] = useState<AlbumCoverReleaseTextSettings['title']['fontStyle']>('editorial');
   const [titleColor, setTitleColor] = useState('#F5F1E8');
+  const [titleAnchor, setTitleAnchor] = useState<AlbumCoverAnchor>(() => defaultAlbumCoverAnchor('top-center'));
   const [artistPosition, setArtistPosition] = useState<AlbumCoverReleaseTextSettings['artist']['position']>('bottom-center');
   const [artistSize, setArtistSize] = useState(42);
   const [artistFontStyle, setArtistFontStyle] = useState<AlbumCoverReleaseTextSettings['artist']['fontStyle']>('serif');
   const [artistColor, setArtistColor] = useState('#F5F1E8');
+  const [artistAnchor, setArtistAnchor] = useState<AlbumCoverAnchor>(() => defaultAlbumCoverAnchor('bottom-center'));
+  const [fontPickerRole, setFontPickerRole] = useState<'title' | 'artist'>('title');
+  const coverEditorRef = useRef<HTMLDivElement | null>(null);
   const [referenceImage, setReferenceImage] = useState<File | null>(null);
   const [referenceType, setReferenceType] = useState<AlbumCoverReferenceType>('artist');
   const [variationCount] = useState<AlbumCoverVariationCount>(6);
@@ -169,11 +174,51 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
     showTitle,
     showArtist,
     parentalAdvisory,
-    title: { position: titlePosition, size: titleSize, fontStyle: titleFontStyle, case: 'original', treatment: 'light', color: titleColor },
-    artist: { position: artistPosition, size: artistSize, fontStyle: artistFontStyle, case: 'original', treatment: 'light', color: artistColor },
+    title: { position: titlePosition, size: titleSize, fontStyle: titleFontStyle, case: 'original', treatment: 'light', color: titleColor, x: titleAnchor.x, y: titleAnchor.y },
+    artist: { position: artistPosition, size: artistSize, fontStyle: artistFontStyle, case: 'original', treatment: 'light', color: artistColor, x: artistAnchor.x, y: artistAnchor.y },
     advisoryPosition: 'bottom-right',
     advisorySize: 'small',
-  }), [showTitle, showArtist, parentalAdvisory, titlePosition, titleSize, titleFontStyle, titleColor, artistPosition, artistSize, artistFontStyle, artistColor]);
+  }), [showTitle, showArtist, parentalAdvisory, titlePosition, titleSize, titleFontStyle, titleColor, titleAnchor, artistPosition, artistSize, artistFontStyle, artistColor, artistAnchor]);
+
+  const updateAnchorFromPointer = (role: 'title' | 'artist', event: React.PointerEvent<HTMLElement>) => {
+    const rect = coverEditorRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const anchor = albumCoverPointerAnchor(event, rect);
+    if (role === 'title') setTitleAnchor(anchor);
+    else setArtistAnchor(anchor);
+  };
+
+  const startTextDrag = (role: 'title' | 'artist', event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    updateAnchorFromPointer(role, event);
+  };
+
+  const moveTextDrag = (role: 'title' | 'artist', event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    updateAnchorFromPointer(role, event);
+  };
+
+  useEffect(() => {
+    const saved = generation?.release_text as any;
+    if (!saved) return;
+    const title = saved.title || {};
+    const artist = saved.artist || {};
+    const savedTitlePosition = title.position || titlePosition;
+    const savedArtistPosition = artist.position || artistPosition;
+    if (title.position) setTitlePosition(title.position);
+    if (artist.position) setArtistPosition(artist.position);
+    if (title.font_style) setTitleFontStyle(title.font_style);
+    if (artist.font_style) setArtistFontStyle(artist.font_style);
+    if (Number.isFinite(Number(title.size))) setTitleSize(Number(title.size));
+    if (Number.isFinite(Number(artist.size))) setArtistSize(Number(artist.size));
+    if (/^#[0-9A-Fa-f]{6}$/.test(String(title.color || ''))) setTitleColor(title.color);
+    if (/^#[0-9A-Fa-f]{6}$/.test(String(artist.color || ''))) setArtistColor(artist.color);
+    setTitleAnchor(Number.isFinite(Number(title.x)) && Number.isFinite(Number(title.y)) ? { x: Number(title.x), y: Number(title.y) } : defaultAlbumCoverAnchor(savedTitlePosition));
+    setArtistAnchor(Number.isFinite(Number(artist.x)) && Number.isFinite(Number(artist.y)) ? { x: Number(artist.x), y: Number(artist.y) } : defaultAlbumCoverAnchor(savedArtistPosition));
+  // Sync controls when a saved/recomposited generation is loaded.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generation?.id, generation?.updated_at]);
 
   const creativeControls = useMemo<AlbumCoverCreativeControls>(() => ({
     subjectHint: subjectHint.trim(),
@@ -624,17 +669,37 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
                 <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={showArtist} onChange={(event) => setShowArtist(event.target.checked)} className="accent-orange-500" /> Show artist</label>
               </div>
               <div className="grid sm:grid-cols-2 gap-3">
-                <label className="text-[10px] font-black uppercase text-zinc-500 space-y-1"><span>Title position</span><select value={titlePosition} onChange={(e) => setTitlePosition(e.target.value as typeof titlePosition)} className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs normal-case text-white"><option value="top-left">Top left</option><option value="top-center">Top center</option><option value="top-right">Top right</option><option value="center">Center</option><option value="bottom-left">Bottom left</option><option value="bottom-center">Bottom center</option><option value="bottom-right">Bottom right</option></select></label>
-                <label className="text-[10px] font-black uppercase text-zinc-500 space-y-1"><span>Title style</span><select value={titleFontStyle} onChange={(e) => setTitleFontStyle(e.target.value as typeof titleFontStyle)} className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs normal-case text-white"><optgroup label="Built-in">{ALBUM_COVER_FONT_OPTIONS.filter((font) => font.group === 'Built-in').map((font) => <option key={`title-${font.value}`} value={font.value}>{font.label}</option>)}</optgroup><optgroup label="Custom Fonts">{ALBUM_COVER_FONT_OPTIONS.filter((font) => font.group === 'Custom').map((font) => <option key={`title-${font.value}`} value={font.value}>{font.label}</option>)}</optgroup></select></label>
-                <label className="text-[10px] font-black uppercase text-zinc-500 space-y-1"><span>Artist position</span><select value={artistPosition} onChange={(e) => setArtistPosition(e.target.value as typeof artistPosition)} className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs normal-case text-white"><option value="top-left">Top left</option><option value="top-center">Top center</option><option value="top-right">Top right</option><option value="center">Center</option><option value="bottom-left">Bottom left</option><option value="bottom-center">Bottom center</option><option value="bottom-right">Bottom right</option></select></label>
-                <label className="text-[10px] font-black uppercase text-zinc-500 space-y-1"><span>Artist style</span><select value={artistFontStyle} onChange={(e) => setArtistFontStyle(e.target.value as typeof artistFontStyle)} className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs normal-case text-white"><optgroup label="Built-in">{ALBUM_COVER_FONT_OPTIONS.filter((font) => font.group === 'Built-in').map((font) => <option key={`artist-${font.value}`} value={font.value}>{font.label}</option>)}</optgroup><optgroup label="Custom Fonts">{ALBUM_COVER_FONT_OPTIONS.filter((font) => font.group === 'Custom').map((font) => <option key={`artist-${font.value}`} value={font.value}>{font.label}</option>)}</optgroup></select></label>
+                <label className="text-[10px] font-black uppercase text-zinc-500 space-y-1"><span>Title position preset</span><select value={titlePosition} onChange={(e) => { const next = e.target.value as typeof titlePosition; setTitlePosition(next); setTitleAnchor(defaultAlbumCoverAnchor(next)); }} className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs normal-case text-white"><option value="top-left">Top left</option><option value="top-center">Top center</option><option value="top-right">Top right</option><option value="center">Center</option><option value="bottom-left">Bottom left</option><option value="bottom-center">Bottom center</option><option value="bottom-right">Bottom right</option></select></label>
+                <button type="button" onClick={() => setFontPickerRole('title')} className={`text-left rounded-xl border px-3 py-2 ${fontPickerRole === 'title' ? 'border-orange-500 bg-orange-500/10' : 'border-zinc-800 bg-zinc-950'}`}><span className="block text-[10px] font-black uppercase text-zinc-500">Title font</span><span className="block mt-1 text-xs font-bold">{ALBUM_COVER_FONT_OPTIONS.find((font) => font.value === titleFontStyle)?.label || titleFontStyle}</span></button>
+                <label className="text-[10px] font-black uppercase text-zinc-500 space-y-1"><span>Artist position preset</span><select value={artistPosition} onChange={(e) => { const next = e.target.value as typeof artistPosition; setArtistPosition(next); setArtistAnchor(defaultAlbumCoverAnchor(next)); }} className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs normal-case text-white"><option value="top-left">Top left</option><option value="top-center">Top center</option><option value="top-right">Top right</option><option value="center">Center</option><option value="bottom-left">Bottom left</option><option value="bottom-center">Bottom center</option><option value="bottom-right">Bottom right</option></select></label>
+                <button type="button" onClick={() => setFontPickerRole('artist')} className={`text-left rounded-xl border px-3 py-2 ${fontPickerRole === 'artist' ? 'border-orange-500 bg-orange-500/10' : 'border-zinc-800 bg-zinc-950'}`}><span className="block text-[10px] font-black uppercase text-zinc-500">Artist font</span><span className="block mt-1 text-xs font-bold">{ALBUM_COVER_FONT_OPTIONS.find((font) => font.value === artistFontStyle)?.label || artistFontStyle}</span></button>
               </div>
+              <FontPicker
+                role={fontPickerRole}
+                value={fontPickerRole === 'title' ? titleFontStyle : artistFontStyle}
+                text={fontPickerRole === 'title' ? (titleInput || 'Album Title') : (artistInput || 'Artist Name')}
+                size={fontPickerRole === 'title' ? titleSize : artistSize}
+                color={fontPickerRole === 'title' ? titleColor : artistColor}
+                onChange={(font) => fontPickerRole === 'title' ? setTitleFontStyle(font as typeof titleFontStyle) : setArtistFontStyle(font as typeof artistFontStyle)}
+              />
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <label className="text-[10px] font-black uppercase text-zinc-500">Title size<input type="number" min={24} max={180} value={titleSize} onChange={(e) => setTitleSize(Number(e.target.value))} className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-white" /></label>
                 <label className="text-[10px] font-black uppercase text-zinc-500">Title color<input type="color" value={titleColor} onChange={(e) => setTitleColor(e.target.value)} className="mt-1 w-full h-10 rounded-xl border border-zinc-800 bg-zinc-950 p-1" /></label>
                 <label className="text-[10px] font-black uppercase text-zinc-500">Artist size<input type="number" min={24} max={180} value={artistSize} onChange={(e) => setArtistSize(Number(e.target.value))} className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-white" /></label>
                 <label className="text-[10px] font-black uppercase text-zinc-500">Artist color<input type="color" value={artistColor} onChange={(e) => setArtistColor(e.target.value)} className="mt-1 w-full h-10 rounded-xl border border-zinc-800 bg-zinc-950 p-1" /></label>
               </div>
+              {generation && selectedVariation && (
+                <div className="rounded-2xl border border-orange-500/20 bg-zinc-950 p-3 space-y-3">
+                  <div><p className="text-xs font-black">Drag typography on cover</p><p className="text-[10px] text-zinc-500 mt-1">Drag title or artist with mouse, touch, or pen. Apply saves exact normalized X/Y positions without rerunning FLUX.</p></div>
+                  <div ref={coverEditorRef} className="relative aspect-square overflow-hidden rounded-xl bg-zinc-900 touch-none select-none">
+                    <img src={absoluteAlbumCoverUrl(selectedVariation.image_url)} alt="Typography positioning preview" draggable={false} className="absolute inset-0 h-full w-full object-cover pointer-events-none" />
+                    {showTitle && titleInput.trim() && <button type="button" onPointerDown={(event) => startTextDrag('title', event)} onPointerMove={(event) => moveTextDrag('title', event)} onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)} style={{ ...albumCoverAnchorStyle(titleAnchor), transform: 'translate(-50%, -50%)', color: titleColor, fontSize: `${Math.max(16, titleSize * 0.22)}px`, lineHeight: 1.05 }} className="absolute max-w-[88%] cursor-move rounded-md border border-orange-400/70 bg-black/25 px-2 py-1 text-center font-black shadow-lg backdrop-blur-[1px]">{titleInput}</button>}
+                    {showArtist && artistInput.trim() && <button type="button" onPointerDown={(event) => startTextDrag('artist', event)} onPointerMove={(event) => moveTextDrag('artist', event)} onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)} style={{ ...albumCoverAnchorStyle(artistAnchor), transform: 'translate(-50%, -50%)', color: artistColor, fontSize: `${Math.max(13, artistSize * 0.22)}px`, lineHeight: 1.05 }} className="absolute max-w-[88%] cursor-move rounded-md border border-white/60 bg-black/25 px-2 py-1 text-center font-bold shadow-lg backdrop-blur-[1px]">{artistInput}</button>}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[9px] text-zinc-500"><span>Title: {Math.round(titleAnchor.x * 100)}%, {Math.round(titleAnchor.y * 100)}%</span><span>Artist: {Math.round(artistAnchor.x * 100)}%, {Math.round(artistAnchor.y * 100)}%</span></div>
+                </div>
+              )}
+
               <label className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-3 cursor-pointer"><input type="checkbox" checked={parentalAdvisory} onChange={(event) => setParentalAdvisory(event.target.checked)} className="w-5 h-5 accent-orange-500" /><span className="text-sm font-bold">Parental Advisory (manual — default Off)</span></label>
               {generation && <button type="button" onClick={handleApplyTextChanges} disabled={busy} className="w-full rounded-xl border border-orange-500/40 bg-orange-500/10 px-4 py-2.5 text-[10px] font-black uppercase text-orange-300 disabled:opacity-50">Apply text changes — no rerender</button>}
             </div>
@@ -827,6 +892,22 @@ export default function AlbumCoverStudio({ initialTrackId, onClearInitialTrackId
             return <button key={version.id} onClick={() => openHistoryVersion(version.id)} disabled={busy} className="text-left rounded-2xl border border-zinc-800 bg-black p-4 hover:border-orange-500/50 disabled:opacity-50"><div className="flex items-center justify-between gap-3"><span className="text-[10px] font-black text-orange-400">v{version.version}</span><span className={`rounded-full border px-2 py-1 text-[8px] font-black uppercase ${statusClass(version.status)}`}>{version.status.replaceAll('_', ' ')}</span></div><p className="font-black mt-2 truncate">{release}</p><p className="text-[10px] text-zinc-600 mt-1">{version.variation_sets.length} variation set(s) · {source}</p></button>;
           })}</div>}
         </section>
+      </div>
+    </div>
+  );
+}
+
+
+function FontPicker({ role, value, text, size, color, onChange }: { role: 'title' | 'artist'; value: string; text: string; size: number; color: string; onChange: (font: string) => void }) {
+  return (
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-3">
+      <div className="flex items-center justify-between gap-3 mb-3"><div><p className="text-[10px] font-black uppercase tracking-wider text-zinc-400">{role} font previews</p><p className="text-[9px] text-zinc-600 mt-1">Previewing your actual {role} text. Click a tile to choose.</p></div><span className="text-[9px] text-orange-300">{ALBUM_COVER_FONT_OPTIONS.length} fonts</span></div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-1">
+        {ALBUM_COVER_FONT_OPTIONS.map((font) => {
+          const active = font.value === value;
+          const previewUrl = albumCoverFontPreviewUrl(absoluteAlbumCoverUrl('/'), { fontStyle: font.value, text, size: Math.max(36, Math.min(88, size)), color });
+          return <button key={`${role}-${font.value}`} type="button" onClick={() => onChange(font.value)} className={`overflow-hidden rounded-xl border text-left transition ${active ? 'border-orange-500 bg-orange-500/10' : 'border-zinc-800 bg-black hover:border-zinc-600'}`}><div className="h-16 flex items-center justify-center bg-zinc-900/80 p-1">{previewUrl ? <img src={previewUrl} alt={`${font.label} preview`} loading="lazy" className="max-h-full max-w-full object-contain" /> : <span className="text-xs">{text}</span>}</div><div className="px-2 py-1.5"><span className="block truncate text-[9px] font-black">{font.label}</span><span className="text-[8px] text-zinc-600">{font.group === 'Custom' ? 'Custom Font' : 'Built-in'}</span></div></button>;
+        })}
       </div>
     </div>
   );

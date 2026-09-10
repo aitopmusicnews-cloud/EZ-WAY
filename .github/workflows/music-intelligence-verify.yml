@@ -104,6 +104,9 @@ jobs:
       - name: Albumcover title and font tests
         run: node --experimental-strip-types --test src/services/albumCoverTitleFont.test.ts
 
+      - name: Album Cover visual typography tests
+        run: node --experimental-strip-types --test src/services/albumCoverTextEditor.test.ts
+
       - name: Album Cover integration workflow tests
         run: node --experimental-strip-types --test src/services/albumCoverIntegration.test.ts
 

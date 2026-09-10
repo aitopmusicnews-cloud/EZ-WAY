@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from .custom_fonts import CUSTOM_FONTS
 
 
 MoodPath = Literal["auto", "blend", "audio", "lyrics"]
@@ -15,10 +17,15 @@ TextPosition = Literal[
     "center-left", "center", "center-right",
     "bottom-left", "bottom-center", "bottom-right",
 ]
-TextFontStyle = Literal["editorial", "serif", "sans", "sans-bold", "script", "marker", "vintage"]
+TextFontStyle = str
 TextCase = Literal["original", "upper", "lower"]
 TextTreatment = Literal["light", "dark", "outline"]
 ReferenceType = Literal["artist", "character", "style"]
+
+BUILTIN_TEXT_FONT_STYLES = frozenset(
+    {"editorial", "serif", "sans", "sans-bold", "script", "marker", "vintage"}
+)
+ALLOWED_TEXT_FONT_STYLES = BUILTIN_TEXT_FONT_STYLES | frozenset(CUSTOM_FONTS.keys())
 
 
 class CreativeControls(BaseModel):
@@ -43,6 +50,16 @@ class TextLayerStyle(BaseModel):
     case: TextCase = "original"
     treatment: TextTreatment = "light"
     color: str = Field(default="#F5F1E8", pattern=r"^#[0-9A-Fa-f]{6}$")
+    x: float | None = Field(default=None, ge=0.0, le=1.0)
+    y: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    @field_validator("font_style")
+    @classmethod
+    def validate_font_style(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized not in ALLOWED_TEXT_FONT_STYLES:
+            raise ValueError("Unknown font style.")
+        return normalized
 
 
 class AdvisoryStyle(BaseModel):

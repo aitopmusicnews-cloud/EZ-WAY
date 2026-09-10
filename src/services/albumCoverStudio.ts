@@ -43,6 +43,8 @@ export interface AlbumCoverTextLayerStyle {
   case: 'original' | 'upper' | 'lower';
   treatment: 'light' | 'dark' | 'outline';
   color: string;
+  x?: number;
+  y?: number;
 }
 
 export interface AlbumCoverReleaseTextSettings {
@@ -325,12 +327,16 @@ export const createAlbumCoverGeneration = async (
     form.set('title_case', release.title.case);
     form.set('title_treatment', release.title.treatment);
     form.set('title_color', release.title.color);
+    if (release.title.x != null) form.set('title_x', String(release.title.x));
+    if (release.title.y != null) form.set('title_y', String(release.title.y));
     form.set('artist_position', release.artist.position);
     form.set('artist_size', String(release.artist.size));
     form.set('artist_font_style', release.artist.fontStyle);
     form.set('artist_case', release.artist.case);
     form.set('artist_treatment', release.artist.treatment);
     form.set('artist_color', release.artist.color);
+    if (release.artist.x != null) form.set('artist_x', String(release.artist.x));
+    if (release.artist.y != null) form.set('artist_y', String(release.artist.y));
     form.set('advisory_position', release.advisoryPosition);
     form.set('advisory_size', release.advisorySize);
   }
@@ -469,6 +475,8 @@ export const updateAlbumCoverReleaseText = async (
         case: settings.title.case,
         treatment: settings.title.treatment,
         color: settings.title.color,
+        x: settings.title.x,
+        y: settings.title.y,
       },
       artist: {
         position: settings.artist.position,
@@ -477,6 +485,8 @@ export const updateAlbumCoverReleaseText = async (
         case: settings.artist.case,
         treatment: settings.artist.treatment,
         color: settings.artist.color,
+        x: settings.artist.x,
+        y: settings.artist.y,
       },
       advisory: { position: settings.advisoryPosition, size: settings.advisorySize },
     }),

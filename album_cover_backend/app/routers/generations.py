@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from ..font_preview import render_font_preview
 from ..metrics import collection_metrics
 from ..presentation import generation_response
 from ..reference_upload import read_validated_reference_image
@@ -50,12 +51,16 @@ def _release_settings(
     title_case: str,
     title_treatment: str,
     title_color: str,
+    title_x: float | None,
+    title_y: float | None,
     artist_position: str,
     artist_size: int,
     artist_font_style: str,
     artist_case: str,
     artist_treatment: str,
     artist_color: str,
+    artist_x: float | None,
+    artist_y: float | None,
     advisory_position: str,
     advisory_size: str,
 ) -> dict:
@@ -72,6 +77,8 @@ def _release_settings(
                     "case": title_case,
                     "treatment": title_treatment,
                     "color": title_color,
+                    "x": title_x,
+                    "y": title_y,
                 },
                 "artist": {
                     "position": artist_position,
@@ -80,12 +87,27 @@ def _release_settings(
                     "case": artist_case,
                     "treatment": artist_treatment,
                     "color": artist_color,
+                    "x": artist_x,
+                    "y": artist_y,
                 },
                 "advisory": {"position": advisory_position, "size": advisory_size},
             }
         ).model_dump()
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail="Invalid title/artist layout settings.") from exc
+
+
+@router.get("/fonts/{font_style}/preview")
+def font_preview(font_style: str, text: str = "Album Title", size: int = 64, color: str = "#F5F1E8"):
+    try:
+        preview = render_font_preview(font_style, text=text, size=size, color=color)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=404, detail="Unknown font style.")
+    return Response(
+        content=preview.content,
+        media_type=preview.mime_type,
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 @router.post("/generations", response_model=GenerationResponse)
@@ -110,12 +132,16 @@ async def create_generation(
     title_case: str = Form(default="original"),
     title_treatment: str = Form(default="light"),
     title_color: str = Form(default="#F5F1E8"),
+    title_x: float | None = Form(default=None, ge=0.0, le=1.0),
+    title_y: float | None = Form(default=None, ge=0.0, le=1.0),
     artist_position: str = Form(default="bottom-center"),
     artist_size: int = Form(default=42, ge=24, le=180),
     artist_font_style: str = Form(default="serif"),
     artist_case: str = Form(default="original"),
     artist_treatment: str = Form(default="light"),
     artist_color: str = Form(default="#F5F1E8"),
+    artist_x: float | None = Form(default=None, ge=0.0, le=1.0),
+    artist_y: float | None = Form(default=None, ge=0.0, le=1.0),
     advisory_position: str = Form(default="bottom-right"),
     advisory_size: str = Form(default="small"),
     collection_id: str | None = Form(default=None),
@@ -158,12 +184,16 @@ async def create_generation(
         title_case=title_case,
         title_treatment=title_treatment,
         title_color=title_color,
+        title_x=title_x,
+        title_y=title_y,
         artist_position=artist_position,
         artist_size=artist_size,
         artist_font_style=artist_font_style,
         artist_case=artist_case,
         artist_treatment=artist_treatment,
         artist_color=artist_color,
+        artist_x=artist_x,
+        artist_y=artist_y,
         advisory_position=advisory_position,
         advisory_size=advisory_size,
     )
@@ -173,8 +203,6 @@ async def create_generation(
     if not audio_bytes and not combined_lyrics:
         raise HTTPException(status_code=422, detail="Upload an MP3, provide lyrics, or provide both.")
 
-    # Release layout and reference identity are part of cache identity, but these
-    # internal markers are never forwarded to the creative prompt.
     cache_controls = {
         **controls,
         "_release_text": json.dumps(release, sort_keys=True, separators=(",", ":")),
