@@ -299,7 +299,7 @@ export function createDataStoreClient(options: ClientOptions) {
     },
 
     async refreshMediaUrl(input: { objectKey?: string | null; url?: string | null }): Promise<{ url: string; objectKey: string | null }> {
-      const refreshed = await request<{ url: string; object_key?: string | null }>(`/media/read-url`, jsonInit('POST', {
+      const refreshed = await request<{ url: string; object_key?: string | null }>('/media/read-url', jsonInit('POST', {
         objectKey: input.objectKey || null,
         url: input.url || null,
       }));
