@@ -51,7 +51,7 @@ def test_release_text_defaults_keep_advisory_off():
     assert settings.artist.position == "bottom"
 ```
 
-- [ ] **Step 2: Verify RED**
+- [ ] **Step 2: Run test and verify RED**
 
 Run: `cd album_cover_backend && python -m pytest -q tests/test_release_text_controls.py::test_release_text_defaults_keep_advisory_off`
 
@@ -99,7 +99,7 @@ Keep the existing `parental_advisory` boolean but redefine its product meaning a
 
 - [ ] **Step 5: Extend POST `/api/generations` form fields**
 
-Accept `show_title`, `show_artist`, and JSON strings for style objects. Validate them through `ReleaseTextSettings`. Never derive `parental_advisory=True` from lyrics or analysis.
+Accept `show_title`, `show_artist`, `title_style_json`, `artist_style_json`, and `advisory_style_json`. Parse each style JSON string, validate through `ReleaseTextSettings`, and return HTTP 422 for malformed values. Never derive `parental_advisory=True` from lyrics or analysis.
 
 - [ ] **Step 6: Add migration and run test**
 
@@ -127,13 +127,20 @@ git commit -m "feat: add independent release text controls"
 - Test: `album_cover_backend/tests/test_pipeline.py`
 
 **Interfaces:**
-- Variation fields: `raw_image_path`, existing `image_path` remains final composited cover.
+- Variation field: `raw_image_path`; existing `image_path` remains the final composited cover.
 - Produces: `compose_release_layers(raw: bytes, generation, concept, position) -> bytes`.
 
-- [ ] **Step 1: Write failing exactly-once test**
+- [ ] **Step 1: Write failing exactly-once test using a valid PNG stream**
 
 ```python
+from io import BytesIO
 from PIL import Image
+
+
+def png_bytes():
+    buffer = BytesIO()
+    Image.new("RGB", (1000, 1000), (40, 40, 40)).save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 def test_compositor_invokes_each_enabled_layer_once(monkeypatch, service, generation, concept):
@@ -144,23 +151,19 @@ def test_compositor_invokes_each_enabled_layer_once(monkeypatch, service, genera
     generation.show_title = True
     generation.show_artist = True
     generation.parental_advisory = True
-    service.compose_release_layers(Image.new("RGB", (1000, 1000)).tobytes(), generation, concept, 1)
-    assert calls.count("title") == 1
-    assert calls.count("artist") == 1
-    assert calls.count("advisory") == 1
+    service.compose_release_layers(png_bytes(), generation, concept, 1)
+    assert calls == ["title", "artist", "advisory"]
 ```
 
-Use the project's existing image-byte fixture helper if raw `Image.tobytes()` is not accepted by the current compositor.
+- [ ] **Step 2: Run test and verify RED**
 
-- [ ] **Step 2: Verify RED**
-
-Run: `cd album_cover_backend && python -m pytest -q tests/test_typography.py -k exactly_once`
+Run: `cd album_cover_backend && python -m pytest -q tests/test_typography.py -k compositor_invokes_each_enabled_layer_once`
 
 Expected: FAIL until layer responsibilities are isolated.
 
 - [ ] **Step 3: Save raw FLUX bytes before compositing**
 
-Add `LocalStorage.save_raw_image(generation_id, set_id, position, content)` using a distinct `raw/` subpath. `_fill_set()` must save the FLUX response there before any title/artist/advisory drawing.
+Add `LocalStorage.save_raw_image(generation_id, set_id, position, content)` using a distinct `raw/` subpath. `_fill_set()` must save the FLUX response there before any title/artist/advisory drawing and persist the relative path on `Variation.raw_image_path`.
 
 - [ ] **Step 4: Refactor compositor into independent layers**
 
@@ -175,11 +178,11 @@ if generation.parental_advisory:
     self._draw_advisory(image, generation)
 ```
 
-No prompt or analysis field may add those layers elsewhere.
+No prompt, lyrics analysis, critic result, or Creative Director result may invoke those layers elsewhere.
 
 - [ ] **Step 5: Write regression for advisory default Off**
 
-Create a generation with explicit lyrics containing profanity and `parental_advisory=False`; process with mocked FLUX; assert `_draw_advisory` is never called and response remains `parental_advisory=False`.
+Create a generation with lyrics containing explicit language and `parental_advisory=False`; process with mocked FLUX; assert `_draw_advisory` is never called and the response remains `parental_advisory=False`.
 
 - [ ] **Step 6: Run typography/pipeline tests**
 
@@ -208,7 +211,7 @@ git commit -m "fix: composite release text exactly once"
 **Interfaces:**
 - New route: `PATCH /api/generations/{generation_id}/release-text`.
 - Input: `ReleaseTextSettings`.
-- No call to `image_client.generate()`.
+- Invariant: no call to `image_client.generate()` or `generate_exact()`.
 
 - [ ] **Step 1: Write failing no-rerender test**
 
@@ -230,7 +233,7 @@ def test_release_text_patch_recomposes_from_raw_without_flux(client, generated_c
     assert image_client.call_count == before
 ```
 
-- [ ] **Step 2: Verify RED**
+- [ ] **Step 2: Run test and verify RED**
 
 Run: `cd album_cover_backend && python -m pytest -q tests/test_recompose.py::test_release_text_patch_recomposes_from_raw_without_flux`
 
@@ -238,7 +241,7 @@ Expected: FAIL with route not found.
 
 - [ ] **Step 3: Implement `recompose_release_text()`**
 
-Load each variation's `raw_image_path`, apply the updated settings, overwrite only the final `image_path`, update generation settings, commit, and return the refreshed generation.
+Load each variation's `raw_image_path`, apply the updated generation-level release text settings, overwrite only the final `image_path`, update generation settings, commit, and return the refreshed generation. Return HTTP 409 if a legacy variation lacks raw artwork instead of paying for a new render silently.
 
 - [ ] **Step 4: Run recomposition tests**
 
@@ -266,7 +269,7 @@ git commit -m "feat: recompose cover typography without rerendering"
 - Test: `album_cover_backend/tests/test_presentation.py`
 
 **Interfaces:**
-- Variation responses remain position-ordered.
+- Variation responses remain `position` ordered.
 - Internal critic scores may remain in persistence/audit, but no winner/runner-up field drives user display.
 
 - [ ] **Step 1: Write failing neutral-presentation test**
@@ -280,19 +283,19 @@ def test_variation_set_response_has_no_ai_winner_contract(completed_generation):
     assert [item["position"] for item in latest["variations"]] == [1, 2, 3, 4, 5, 6]
 ```
 
-- [ ] **Step 2: Verify RED**
+- [ ] **Step 2: Run test and verify RED**
 
 Run: `cd album_cover_backend && python -m pytest -q tests/test_presentation.py::test_variation_set_response_has_no_ai_winner_contract`
 
-Expected: FAIL because response currently exposes winner fields.
+Expected: FAIL because the response currently exposes winner fields.
 
 - [ ] **Step 3: Remove user-facing winner fields**
 
-Delete `winner_variation_id` and `runner_up_variation_id` from `VariationSetResponse`. Stop assigning user-facing `selection_tier='winner'` / `'runner_up'`; use neutral diagnostic values or `unranked` for UI-facing data.
+Delete `winner_variation_id` and `runner_up_variation_id` from `VariationSetResponse`. Stop assigning user-facing `selection_tier="winner"` or `"runner_up"`; retain numeric diagnostic scores only where they are needed internally.
 
 - [ ] **Step 4: Database migration**
 
-Drop `ai_winner_variation_id` and `ai_runner_up_variation_id` only after confirming no production code path reads them. Preserve critic scores and ranking metadata for diagnostics.
+Drop `ai_winner_variation_id` and `ai_runner_up_variation_id` after code search proves no production path reads them. Preserve critic scores and concept-ranking metadata for diagnostics.
 
 - [ ] **Step 5: Run presentation/API tests**
 
@@ -317,28 +320,25 @@ git commit -m "refactor: make final cover choice user-only"
 - Modify: `src/services/albumCoverIntegration.test.ts`
 
 **Interfaces:**
-- `AlbumCoverVariationCount` becomes fixed major-label `6` for the primary flow.
-- Produces `AlbumCoverReleaseTextSettings` matching backend schema.
-- Produces `updateAlbumCoverReleaseText(generationId, settings)`.
+- `AlbumCoverVariationCount` becomes literal `6` for major-label mode.
+- Produces: `AlbumCoverReleaseTextSettings` matching the backend schema.
+- Produces: `updateAlbumCoverReleaseText(generationId, settings)`.
 
 - [ ] **Step 1: Write failing integration assertions**
-
-Add assertions that source contains:
 
 ```ts
 assert.match(studioSource, /Show title/);
 assert.match(studioSource, /Show artist/);
 assert.match(studioSource, /Parental Advisory/);
-assert.match(studioSource, /default.*Off|checked=\{parentalAdvisory\}/s);
 assert.doesNotMatch(studioSource, /AI Winner|Recommended Cover|Best Cover/);
 assert.match(serviceSource, /AlbumCoverVariationCount = 6/);
 ```
 
-- [ ] **Step 2: Verify RED**
+- [ ] **Step 2: Run test and verify RED**
 
 Run: `node --experimental-strip-types --test src/services/albumCoverIntegration.test.ts`
 
-Expected: FAIL because variation type is currently `3 | 4 | 5` and the independent controls are incomplete.
+Expected: FAIL because variation type is currently `3 | 4 | 5` and independent controls are incomplete.
 
 - [ ] **Step 3: Add frontend release-text types**
 
@@ -366,15 +366,13 @@ export interface AlbumCoverReleaseTextSettings {
 
 - [ ] **Step 4: Update generation transport**
 
-Initial generation sends `variation_count=6`, explicit show-title/show-artist values, and explicit advisory boolean. Add `updateAlbumCoverReleaseText()` to call the PATCH recomposition route.
+Initial generation sends `variation_count=6`, explicit show-title/show-artist values, style JSON, and explicit advisory boolean. Add `updateAlbumCoverReleaseText()` to call the PATCH recomposition route.
 
 - [ ] **Step 5: Add compact UI controls**
 
-Keep title and artist text fields. Add separate Show title and Show artist toggles; font/style/size/position controls for each; advisory toggle default Off with size/position shown only when enabled. On typography change after generation, call recomposition instead of Generate.
+Keep title and artist text fields. Add separate Show title and Show artist toggles; font, size, position, alignment, case, and treatment controls for each; advisory toggle default Off with size/position controls shown only when enabled. After a generation exists, changing typography calls recomposition rather than Generate.
 
 - [ ] **Step 6: Run integration test, lint, and build**
-
-Run:
 
 ```bash
 node --experimental-strip-types --test src/services/albumCoverIntegration.test.ts
@@ -402,13 +400,13 @@ git commit -m "feat: add independent album cover text controls"
 
 **Interfaces:**
 - Results ordering is `position` ascending only.
-- `selectedVariationId` starts empty for every newly completed set.
+- `selectedVariationId` starts empty for every newly completed variation set.
 
 - [ ] **Step 1: Write failing neutral-choice assertions**
 
-Add test assertions that `latestAlbumCoverVariations()` sorts only on `position`, the component does not compute `winnerId`, `runnerUpId`, or `hasWinner`, and newly completed results do not copy an AI selection into local state.
+Add assertions that `latestAlbumCoverVariations()` sorts only on `position`; the component source contains none of `winnerId`, `runnerUpId`, `hasWinner`, or `selection_tier === 'winner'`; and a newly completed set does not copy an AI selection into local state.
 
-- [ ] **Step 2: Verify RED**
+- [ ] **Step 2: Run test and verify RED**
 
 Run: `node --experimental-strip-types --test src/services/albumCoverIntegration.test.ts`
 
@@ -416,19 +414,17 @@ Expected: FAIL because the current component reads winner fields and automatical
 
 - [ ] **Step 3: Remove winner logic**
 
-Delete frontend references to `winner_variation_id`, `runner_up_variation_id`, `selection_tier === 'winner'`, winner/runner-up badges, and any AI-based sorting.
+Delete frontend references to `winner_variation_id`, `runner_up_variation_id`, winner/runner-up selection tiers, winner/runner-up badges, and AI score-based ordering.
 
 - [ ] **Step 4: Require explicit click selection**
 
-When a new variation set completes, leave `selectedVariationId=''`. Only `handleSelectVariation()` may set a selected cover for that new set. Historical user selections may still display as selected when reopening a version.
+When a new variation set completes, leave `selectedVariationId=""`. Only `handleSelectVariation()` may set a selected cover for that new set. Historical user selections may still display as selected when reopening a version.
 
 - [ ] **Step 5: Render six equal cards**
 
-Use the same card dimensions, border weight, image aspect ratio, and button hierarchy for every successful variation. Show concept name neutrally if desired; do not show quality score as a visual recommendation.
+Use identical card dimensions, border weight, image aspect ratio, and action hierarchy for every successful variation. Concept names may be shown as neutral provenance; critic scores must not be rendered as recommendation badges.
 
 - [ ] **Step 6: Run frontend gates**
-
-Run:
 
 ```bash
 node --experimental-strip-types --test src/services/albumCoverIntegration.test.ts
@@ -472,8 +468,6 @@ Expected: PASS.
 
 - [ ] **Step 4: Run lint/build**
 
-Run:
-
 ```bash
 npm run lint
 npm run build
@@ -483,15 +477,13 @@ Expected: both exit 0.
 
 - [ ] **Step 5: Search for prohibited user-facing winner behavior**
 
-Run:
-
 ```bash
 ! grep -R "winner_variation_id\|runner_up_variation_id\|AI Winner\|Recommended Cover" src/components/AlbumCoverStudio.tsx src/services/albumCoverStudio.ts album_cover_backend/app/schemas.py album_cover_backend/app/presentation.py
 ```
 
 Expected: exit 0.
 
-- [ ] **Step 6: Review diff**
+- [ ] **Step 6: Diff sanity**
 
 Run: `git diff --check && git status --short`
 
