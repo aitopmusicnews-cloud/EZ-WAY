@@ -103,3 +103,15 @@ test('lyrics worker uses non-quantized fp32 Whisper sessions on the WASM fallbac
   assert.match(wasmFallback, /decoder_model_merged:\s*'fp32'/, 'WASM decoder should avoid quantized ONNX weights');
   assert.doesNotMatch(wasmFallback, /dtype:\s*'q4'/, 'WASM fallback must not force a global quantized dtype');
 });
+
+test('lyrics worker transcribes isolated vocals in explicit bounded chunks and offsets timestamps', () => {
+  const workerSource = readFileSync(new URL('../workers/lyrics.worker.ts', import.meta.url), 'utf8');
+
+  assert.match(workerSource, /WHISPER_CHUNK_SECONDS\s*=\s*30/);
+  assert.match(workerSource, /WHISPER_OVERLAP_SECONDS\s*=\s*5/);
+  assert.match(workerSource, /pcm\.slice\(startSample,\s*endSample\)/);
+  assert.match(workerSource, /Transcribing vocals locally….*\$\{chunkIndex \+ 1\}\/\$\{chunkStarts\.length\}/s);
+  assert.match(workerSource, /timestampOffsetSeconds/);
+  assert.match(workerSource, /chunkStartSeconds/);
+  assert.doesNotMatch(workerSource, /chunk_length_s:\s*30/);
+});

@@ -14,40 +14,31 @@ The model/runtime is loaded from Hugging Face only when Synced Lyrics is invoked
 
 Before changing the model ID or mirroring model files, review the license metadata and notices published with the selected Hugging Face model and its upstream Whisper source.
 
-## Spleeter 4-stem ONNX
+## HTDemucs 4-stem ONNX
 
-EZ-WAY Stem Separation uses the fp16 files from:
+EZ-WAY Stem Separation and the vocal-isolation stage of Synced Lyrics use:
 
-- Hugging Face model: `Best-Practice/spleeter-4stems-onnx`
-- conversion source: `madewith-bestpractice/spleeter-4stems-onnx`
-- original source-separation project/model family: Deezer Spleeter
-- conversion lineage also derives from `k2-fsa/sherpa-onnx`
+- Hugging Face model: `StemSplitio/htdemucs-onnx`
+- artifact: `htdemucs_fp16weights.onnx`
+- original source-separation project/model family: Meta HTDemucs / Demucs v4
+- browser runtime: ONNX Runtime Web
 
-The upstream conversion repository/model card identifies the conversion artifacts as Apache-2.0 and documents the model-weight provenance as Deezer Spleeter weights. It also records the licensing ambiguity around wording in the Spleeter README versus the Spleeter JOSS paper. That upstream notice must be reviewed before mirroring, redistributing, or changing the model files.
+The selected Hugging Face model card identifies the repository and its HTDemucs provenance as MIT-licensed and documents a single-file four-stem output in this order: drums, bass, other, vocals. The original `facebookresearch/demucs` code repository is also published under the MIT license.
 
-EZ-WAY currently fetches these self-contained model files at runtime:
+EZ-WAY fetches the model at runtime from Hugging Face when Synced Lyrics or Stem Separation is invoked. The approximately 166 MB model binary is not committed to this Git repository. Separation inference runs in the user's browser. Long audio is processed as overlapping 7.8-second, 44.1 kHz stereo segments.
 
-```text
-vocals.fp16.onnx
-drums.fp16.onnx
-bass.fp16.onnx
-other.fp16.onnx
-```
+The current application is not being distributed as a commercial hosted inference product. If the distribution or commercial status changes, re-review the selected model artifact's then-current model card, upstream model-weight provenance, and any applicable third-party terms before release.
 
-from the `Best-Practice/spleeter-4stems-onnx` Hugging Face repository.
+## Local lyrics pipeline
 
-EZ-WAY does not copy those ~20 MB-per-stem model binaries into this Git repository.
-
-## Why HTDemucs browser weights are not used
-
-A browser HTDemucs port was evaluated, but its included HTDemucs weights were marked for personal/research use. EZ-WAY therefore does not bundle or use those weights in the production commercial browser path.
+Synced Lyrics first runs the same HTDemucs model locally and selects the isolated vocal stem. The vocal stem is downmixed/resampled to 16 kHz and then transcribed locally with Whisper in bounded chunks. This path does not silently fall back to Render, AWS Audio Tools compute, or another hosted inference provider.
 
 ## Runtime libraries
 
-The stem worker also uses:
+The browser audio workers use:
 
 - `onnxruntime-web@1.29.0`
-- `fourier-transform@2.4.1`
+- `@huggingface/transformers@4.2.0`
 
 The application package lock records the exact dependency graph shipped by the web build.
 

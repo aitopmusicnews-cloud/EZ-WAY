@@ -87,7 +87,7 @@ export default function TrackOptionsMenu({
     setProcessing(true);
     setAudioError('');
     setAudioResult(null);
-    setProgressText('Preparing local transcription…');
+    setProgressText('Preparing HTDemucs vocal isolation…');
     try {
       const result = await runLocalAudioTool(track, 'lyrics', undefined, setProgressText);
       if (!result.lyrics?.trim()) {
@@ -108,7 +108,7 @@ export default function TrackOptionsMenu({
     setProcessing(true);
     setAudioError('');
     setAudioResult(null);
-    setProgressText('Preparing local stem separation…');
+    setProgressText('Preparing HTDemucs stem separation…');
     try {
       const result = await runLocalAudioTool(track, 'stems', stemMode, setProgressText);
       setAudioResult(result);
@@ -213,8 +213,8 @@ export default function TrackOptionsMenu({
                 <p className="text-xs font-black text-white truncate">{track.name}</p>
                 <p className="text-[10px] text-zinc-500 mt-1">
                   {audioDialog === 'lyrics'
-                    ? 'Transcribes the source track locally in your browser and builds timestamped LRC lyrics. If no reliable transcript is detected, nothing is invented.'
-                    : 'Separates the source locally in your browser. Choose a karaoke split or full production stems before processing starts.'}
+                    ? 'Isolates vocals locally with HTDemucs, then transcribes the vocal stem in your browser and builds timestamped LRC lyrics. If no reliable transcript is detected, nothing is invented.'
+                    : 'Separates the source locally with HTDemucs. Choose a karaoke split or full production stems before processing starts.'}
                 </p>
               </div>
 

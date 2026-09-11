@@ -3,7 +3,7 @@ import type { Track } from '../types.ts';
 import type { AudioToolAction, AudioToolJobResult, StemMode } from './audioToolTypes.ts';
 import { buildLyricsFiles } from './lyricsCore.ts';
 import { encodeStereoWav } from './wav.ts';
-import { sumStereoStems } from './spleeterCore.ts';
+import { sumStereoStems } from './demucsCore.ts';
 import {
   loadTrackAudioFile,
   refreshTrackAudioSource,
@@ -35,7 +35,6 @@ export interface LocalStemResult {
 export interface BrowserAudioToolsDependencies {
   refreshSource?: (track: Track) => Promise<Track>;
   loadSourceFile?: (track: Track) => Promise<File>;
-  decodeLyrics?: (file: File) => Promise<{ pcm: Float32Array; sampleRate: number }>;
   transcribe?: (
     pcm: Float32Array,
     sampleRate: number,
@@ -46,6 +45,7 @@ export interface BrowserAudioToolsDependencies {
     stereo: StereoPcm,
     onProgress?: (status: string) => void,
   ) => Promise<LocalStemResult>;
+  prepareLyricsPcm?: (vocals: StereoPcm) => Promise<{ pcm: Float32Array; sampleRate: number }>;
   createObjectUrl?: (file: File) => string;
   uploadFile?: (
     category: string,
@@ -114,16 +114,6 @@ const decodeFile = async (file: File) => {
   }
 };
 
-const defaultDecodeLyrics = async (file: File) => {
-  const decoded = await decodeFile(file);
-  const mono = new Float32Array(decoded.channels[0].length);
-  for (const channel of decoded.channels) {
-    for (let index = 0; index < mono.length; index += 1) mono[index] += channel[index] / decoded.channels.length;
-  }
-  const [pcm] = await resampleBuffer([mono], decoded.sampleRate, 16000);
-  return { pcm, sampleRate: 16000 };
-};
-
 const defaultDecodeStems = async (file: File): Promise<StereoPcm> => {
   const decoded = await decodeFile(file);
   const left = decoded.channels[0];
@@ -134,6 +124,20 @@ const defaultDecodeStems = async (file: File): Promise<StereoPcm> => {
     44100,
   );
   return { left: resampledLeft, right: resampledRight, sampleRate: 44100 };
+};
+
+const defaultPrepareLyricsPcm = async (
+  vocals: StereoPcm,
+): Promise<{ pcm: Float32Array; sampleRate: number }> => {
+  if (!vocals.left.length || vocals.left.length !== vocals.right.length) {
+    throw new Error('Demucs returned an invalid vocal stem for transcription.');
+  }
+  const mono = new Float32Array(vocals.left.length);
+  for (let index = 0; index < mono.length; index += 1) {
+    mono[index] = (vocals.left[index] + vocals.right[index]) * 0.5;
+  }
+  const [pcm] = await resampleBuffer([mono], vocals.sampleRate, 16000);
+  return { pcm, sampleRate: 16000 };
 };
 
 const defaultTranscribe = async (
@@ -221,10 +225,16 @@ export async function runLocalAudioTool(
   const baseName = cleanFilename(sourceTrack.name);
 
   if (action === 'lyrics') {
-    onProgress?.('Decoding audio for local transcription…');
-    const decodeLyrics = dependencies.decodeLyrics || defaultDecodeLyrics;
-    const { pcm, sampleRate } = await decodeLyrics(sourceFile);
-    onProgress?.('Transcribing locally…');
+    onProgress?.('Decoding audio for local Demucs vocal isolation…');
+    const decodeStems = dependencies.decodeStems || defaultDecodeStems;
+    const stereo = await decodeStems(sourceFile);
+    onProgress?.('Isolating vocals with HTDemucs locally…');
+    const separate = dependencies.separate || defaultSeparate;
+    const separated = await separate(stereo, onProgress);
+    onProgress?.('Preparing isolated vocals for transcription…');
+    const prepareLyricsPcm = dependencies.prepareLyricsPcm || defaultPrepareLyricsPcm;
+    const { pcm, sampleRate } = await prepareLyricsPcm(separated.vocals);
+    onProgress?.('Transcribing isolated vocals locally…');
     const transcribe = dependencies.transcribe || defaultTranscribe;
     const transcript = await transcribe(pcm, sampleRate, onProgress);
     onProgress?.('Building synced lyrics…');
@@ -254,10 +264,10 @@ export async function runLocalAudioTool(
 
   if (action !== 'stems') throw new Error(`Unsupported local Audio Tools action: ${action}`);
   const selectedMode: StemMode = mode || 'vocals_instrumental';
-  onProgress?.('Decoding audio for local stem separation…');
+  onProgress?.('Decoding audio for local HTDemucs separation…');
   const decodeStems = dependencies.decodeStems || defaultDecodeStems;
   const stereo = await decodeStems(sourceFile);
-  onProgress?.('Separating stems locally…');
+  onProgress?.('Separating stems with HTDemucs locally…');
   const separate = dependencies.separate || defaultSeparate;
   const separated = await separate(stereo, onProgress);
 

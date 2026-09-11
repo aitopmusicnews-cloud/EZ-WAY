@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { Track } from '../types.ts';
-import { runLocalAudioTool } from './browserAudioTools.ts';
+import {
+  runLocalAudioTool,
+  type BrowserAudioToolsDependencies,
+} from './browserAudioTools.ts';
 import { trackHasUsableAudioSource } from './trackAudioSource.ts';
 
 const baseTrack: Track = {
@@ -23,16 +26,15 @@ const baseTrack: Track = {
   created_at: '2026-09-08T00:00:00.000Z',
 };
 
-const fakeStereo = () => ({
-  left: new Float32Array([0, 0.1, -0.1, 0]),
-  right: new Float32Array([0, 0.1, -0.1, 0]),
+const fakeStereo = (value = 0.1) => ({
+  left: new Float32Array([0, value, -value, 0]),
+  right: new Float32Array([0, value, -value, 0]),
   sampleRate: 44100,
 });
 
-const baseDeps = () => ({
+const baseDeps = (): BrowserAudioToolsDependencies => ({
   refreshSource: async (track: Track) => track,
   loadSourceFile: async () => new File(['song'], 'Local-Song.wav', { type: 'audio/wav' }),
-  decodeLyrics: async () => ({ pcm: new Float32Array([0, 0.1, 0]), sampleRate: 16000 }),
   transcribe: async () => ({
     language: 'en',
     language_probability: 0.99,
@@ -40,11 +42,12 @@ const baseDeps = () => ({
   }),
   decodeStems: async () => fakeStereo(),
   separate: async () => ({
-    vocals: fakeStereo(),
-    drums: fakeStereo(),
-    bass: fakeStereo(),
-    other: fakeStereo(),
+    vocals: fakeStereo(0.9),
+    drums: fakeStereo(0.2),
+    bass: fakeStereo(0.3),
+    other: fakeStereo(0.4),
   }),
+  prepareLyricsPcm: async () => ({ pcm: new Float32Array([0, 0.9, 0]), sampleRate: 16000 }),
   createObjectUrl: (file: File) => `blob:local/${file.name}`,
   uploadFile: undefined,
 });
@@ -69,7 +72,44 @@ test('browser lyrics returns timestamped lyrics and local LRC/plain downloads', 
   assert.equal(result.lyrics, '[00:00.00] Hello world');
   assert.match(result.files?.lrc || '', /^blob:local\//);
   assert.match(result.files?.plain || '', /^blob:local\//);
+  assert.ok(progress.some((message) => /demucs|vocal/i.test(message)));
   assert.ok(progress.some((message) => /transcrib/i.test(message)));
+});
+
+test('browser lyrics isolates Demucs vocals before sending PCM to Whisper', async () => {
+  const calls: string[] = [];
+  const deps = baseDeps();
+  deps.decodeStems = async () => {
+    calls.push('decode');
+    return fakeStereo(0.1);
+  };
+  deps.separate = async () => {
+    calls.push('separate');
+    return {
+      vocals: fakeStereo(0.9),
+      drums: fakeStereo(0.2),
+      bass: fakeStereo(0.3),
+      other: fakeStereo(0.4),
+    };
+  };
+  deps.prepareLyricsPcm = async (vocals) => {
+    calls.push('prepare-vocals');
+    assert.ok(Math.abs(vocals.left[1] - 0.9) < 1e-6, 'lyrics should prepare the isolated vocal stem');
+    return { pcm: new Float32Array([0, 0.77, 0]), sampleRate: 16000 };
+  };
+  deps.transcribe = async (pcm) => {
+    calls.push('transcribe');
+    assert.ok(Math.abs(pcm[1] - 0.77) < 1e-6, 'Whisper should receive PCM derived from isolated vocals');
+    return {
+      language: 'en',
+      language_probability: 0.99,
+      chunks: [{ text: 'Vocal line', timestamp: [0, 1] as [number, number] }],
+    };
+  };
+
+  const result = await runLocalAudioTool(baseTrack, 'lyrics', undefined, undefined, deps);
+  assert.equal(result.lyrics, '[00:00.00] Vocal line');
+  assert.deepEqual(calls, ['decode', 'separate', 'prepare-vocals', 'transcribe']);
 });
 
 test('browser lyrics rejects an empty transcript instead of replacing lyrics with invented text', async () => {

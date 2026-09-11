@@ -23,10 +23,11 @@ test('Lyrics and Stems consumers use the browser-local Audio Tools facade instea
   assert.doesNotMatch(studio, /needs a cloud audio source before synced lyrics/i);
 });
 
-test('Synced Lyrics UI describes local source transcription rather than vocal isolation first', () => {
+test('Synced Lyrics UI describes HTDemucs vocal isolation before local Whisper transcription', () => {
   const menu = read('../components/TrackOptionsMenu.tsx');
-  assert.doesNotMatch(menu, /Isolates the vocal first/i);
-  assert.match(menu, /locally/i);
+  assert.match(menu, /HTDemucs/i);
+  assert.match(menu, /isolates vocals locally/i);
+  assert.match(menu, /transcribes the vocal stem/i);
 });
 
 test('analyzer screen Analyze button stays wired to shared Music Intelligence', () => {
