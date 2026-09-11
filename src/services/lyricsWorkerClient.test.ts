@@ -92,3 +92,16 @@ test('lyrics worker verifies a real WebGPU adapter before selecting the WebGPU b
     'navigator.gpu presence alone is not proof that WebGPU is usable',
   );
 });
+
+test('lyrics worker pins the WASM Whisper fallback to q4 instead of the broken q8 default', () => {
+  const workerSource = readFileSync(new URL('../workers/lyrics.worker.ts', import.meta.url), 'utf8');
+  const wasmStatusIndex = workerSource.indexOf('Loading transcription model with WASM');
+  assert.ok(wasmStatusIndex >= 0, 'WASM fallback block should exist');
+
+  const wasmFallback = workerSource.slice(wasmStatusIndex, workerSource.indexOf('})().catch', wasmStatusIndex));
+  assert.match(
+    wasmFallback,
+    /pipeline\('automatic-speech-recognition', MODEL_ID, \{[^}]*dtype:\s*'q4'/s,
+    'WASM fallback must explicitly use q4 so Transformers.js does not default to the incompatible q8 model',
+  );
+});
