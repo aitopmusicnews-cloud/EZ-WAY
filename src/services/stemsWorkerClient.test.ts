@@ -80,15 +80,16 @@ test('separatePcmLocally rejects worker errors and terminates the worker', async
   assert.equal(worker.terminated, true);
 });
 
-test('stem worker uses HTDemucs single-file ONNX with adapter-probed WebGPU and WASM fallback', () => {
+test('stem worker uses the HTDemucs model publisher supported WASM browser runtime', () => {
   const workerSource = readFileSync(new URL('../workers/stems.worker.ts', import.meta.url), 'utf8');
 
-  assert.match(workerSource, /from ['"]onnxruntime-web\/webgpu['"]/);
+  assert.match(workerSource, /from ['"]onnxruntime-web['"]/);
+  assert.doesNotMatch(workerSource, /onnxruntime-web\/webgpu/);
   assert.match(workerSource, /StemSplitio\/htdemucs-onnx/);
   assert.match(workerSource, /htdemucs_fp16weights\.onnx/);
-  assert.match(workerSource, /requestAdapter\(\)/, 'worker should verify a real WebGPU adapter');
-  assert.match(workerSource, /executionProviders:\s*\[['"]webgpu['"]\]/);
   assert.match(workerSource, /executionProviders:\s*\[['"]wasm['"]\]/);
+  assert.doesNotMatch(workerSource, /executionProviders:\s*\[['"]webgpu['"]\]/);
+  assert.doesNotMatch(workerSource, /requestAdapter\(\)/);
   assert.match(workerSource, /run\(\{\s*mix:/);
   assert.match(workerSource, /result\.stems/);
   assert.doesNotMatch(workerSource, /spleeter-4stems-onnx/);
