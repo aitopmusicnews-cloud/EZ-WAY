@@ -14,6 +14,17 @@ const post = (message: Record<string, unknown>) => {
   self.postMessage(message);
 };
 
+const canUseWebGpu = async (): Promise<boolean> => {
+  const gpu = (self.navigator as any)?.gpu;
+  if (!gpu || typeof gpu.requestAdapter !== 'function') return false;
+
+  try {
+    return Boolean(await gpu.requestAdapter());
+  } catch {
+    return false;
+  }
+};
+
 const loadTranscriber = async (id: string): Promise<AsrPipeline> => {
   if (!transcriberPromise) {
     transcriberPromise = (async () => {
@@ -27,8 +38,7 @@ const loadTranscriber = async (id: string): Promise<AsrPipeline> => {
         }
       };
 
-      const hasWebGpu = Boolean((self.navigator as any)?.gpu);
-      if (hasWebGpu) {
+      if (await canUseWebGpu()) {
         try {
           post({ id, type: 'progress', status: 'Loading transcription model with WebGPU…' });
           return await pipeline('automatic-speech-recognition', MODEL_ID, {
