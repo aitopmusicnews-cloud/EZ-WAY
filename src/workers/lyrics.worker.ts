@@ -5,6 +5,8 @@ import { env, pipeline } from '@huggingface/transformers';
 env.backends.onnx.wasm.wasmPaths = '/transformers-wasm/';
 
 const MODEL_ID = 'onnx-community/whisper-tiny';
+const WHISPER_CHUNK_SECONDS = 30;
+const WHISPER_OVERLAP_SECONDS = 5;
 
 type AsrPipeline = Awaited<ReturnType<typeof pipeline>>;
 
@@ -67,6 +69,106 @@ const loadTranscriber = async (id: string): Promise<AsrPipeline> => {
   return transcriberPromise;
 };
 
+const createChunkStarts = (sampleCount: number, sampleRate: number): number[] => {
+  const chunkSamples = Math.max(1, Math.round(WHISPER_CHUNK_SECONDS * sampleRate));
+  const overlapSamples = Math.max(0, Math.round(WHISPER_OVERLAP_SECONDS * sampleRate));
+  const strideSamples = Math.max(1, chunkSamples - overlapSamples);
+  if (sampleCount <= chunkSamples) return [0];
+
+  const starts = [0];
+  let next = strideSamples;
+  while (next + chunkSamples < sampleCount) {
+    starts.push(next);
+    next += strideSamples;
+  }
+  starts.push(Math.max(0, sampleCount - chunkSamples));
+  return Array.from(new Set(starts));
+};
+
+const transcribeInChunks = async (
+  id: string,
+  transcriber: AsrPipeline,
+  pcm: Float32Array,
+  sampleRate: number,
+) => {
+  const chunkSamples = Math.max(1, Math.round(WHISPER_CHUNK_SECONDS * sampleRate));
+  const halfOverlapSeconds = WHISPER_OVERLAP_SECONDS / 2;
+  const chunkStarts = createChunkStarts(pcm.length, sampleRate);
+  const chunks: Array<{
+    text: string;
+    timestamp: [number | null, number | null];
+  }> = [];
+  let language: string | null = null;
+  let languageProbability: number | null = null;
+  let previousFallbackText = '';
+
+  for (let chunkIndex = 0; chunkIndex < chunkStarts.length; chunkIndex += 1) {
+    const startSample = chunkStarts[chunkIndex];
+    const endSample = Math.min(startSample + chunkSamples, pcm.length);
+    const audioChunk = pcm.slice(startSample, endSample);
+    const chunkStartSeconds = startSample / sampleRate;
+    const chunkEndSeconds = endSample / sampleRate;
+    const timestampOffsetSeconds = chunkStartSeconds;
+    const acceptFrom = chunkIndex === 0 ? Number.NEGATIVE_INFINITY : chunkStartSeconds + halfOverlapSeconds;
+    const acceptUntil = chunkIndex === chunkStarts.length - 1
+      ? Number.POSITIVE_INFINITY
+      : chunkEndSeconds - halfOverlapSeconds;
+
+    post({
+      id,
+      type: 'progress',
+      status: `Transcribing vocals locally… ${chunkIndex + 1}/${chunkStarts.length}`,
+    });
+
+    const output: any = await (transcriber as any)(audioChunk, {
+      return_timestamps: true,
+    });
+
+    if (!language && output?.language) language = String(output.language);
+    if (languageProbability === null && Number.isFinite(output?.language_probability)) {
+      languageProbability = Number(output.language_probability);
+    }
+
+    const rawChunks = Array.isArray(output?.chunks) ? output.chunks : [];
+    let acceptedTimestamped = 0;
+    for (const rawChunk of rawChunks) {
+      const text = String(rawChunk?.text || '').trim();
+      if (!text) continue;
+      const localStart = Array.isArray(rawChunk?.timestamp) && Number.isFinite(rawChunk.timestamp[0])
+        ? Number(rawChunk.timestamp[0])
+        : 0;
+      const localEnd = Array.isArray(rawChunk?.timestamp) && Number.isFinite(rawChunk.timestamp[1])
+        ? Number(rawChunk.timestamp[1])
+        : localStart;
+      const absoluteStart = Math.max(chunkStartSeconds, timestampOffsetSeconds + localStart);
+      const absoluteEnd = Math.min(chunkEndSeconds, timestampOffsetSeconds + localEnd);
+      const midpoint = (absoluteStart + absoluteEnd) / 2;
+      if (midpoint < acceptFrom || midpoint >= acceptUntil) continue;
+      chunks.push({ text, timestamp: [absoluteStart, absoluteEnd] });
+      acceptedTimestamped += 1;
+    }
+
+    if (!acceptedTimestamped) {
+      const fallbackText = String(output?.text || '').trim();
+      if (fallbackText && fallbackText !== previousFallbackText) {
+        const fallbackStart = Math.max(chunkStartSeconds, Number.isFinite(acceptFrom) ? acceptFrom : chunkStartSeconds);
+        const fallbackEnd = Math.min(chunkEndSeconds, Number.isFinite(acceptUntil) ? acceptUntil : chunkEndSeconds);
+        chunks.push({ text: fallbackText, timestamp: [fallbackStart, Math.max(fallbackStart, fallbackEnd)] });
+        previousFallbackText = fallbackText;
+      }
+    }
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+
+  chunks.sort((a, b) => Number(a.timestamp[0] || 0) - Number(b.timestamp[0] || 0));
+  return {
+    language,
+    language_probability: languageProbability,
+    chunks,
+  };
+};
+
 self.onmessage = async (event: MessageEvent) => {
   const message = event.data || {};
   if (message.type !== 'transcribe') return;
@@ -83,43 +185,8 @@ self.onmessage = async (event: MessageEvent) => {
     }
 
     const transcriber = await loadTranscriber(id);
-    post({ id, type: 'progress', status: 'Transcribing locally…' });
-
-    const output: any = await (transcriber as any)(pcm, {
-      return_timestamps: true,
-      chunk_length_s: 30,
-      stride_length_s: 5,
-    });
-
-    const rawChunks = Array.isArray(output?.chunks) ? output.chunks : [];
-    const chunks = rawChunks
-      .map((chunk: any) => ({
-        text: String(chunk?.text || '').trim(),
-        timestamp: Array.isArray(chunk?.timestamp)
-          ? [
-              Number.isFinite(chunk.timestamp[0]) ? Number(chunk.timestamp[0]) : null,
-              Number.isFinite(chunk.timestamp[1]) ? Number(chunk.timestamp[1]) : null,
-            ]
-          : null,
-      }))
-      .filter((chunk: any) => chunk.text);
-
-    if (!chunks.length && String(output?.text || '').trim()) {
-      chunks.push({
-        text: String(output.text).trim(),
-        timestamp: [0, pcm.length / sampleRate],
-      });
-    }
-
-    post({
-      id,
-      type: 'result',
-      result: {
-        language: output?.language ?? null,
-        language_probability: output?.language_probability ?? null,
-        chunks,
-      },
-    });
+    const result = await transcribeInChunks(id, transcriber, pcm, sampleRate);
+    post({ id, type: 'result', result });
   } catch (error) {
     post({
       id,
