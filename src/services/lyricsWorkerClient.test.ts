@@ -78,3 +78,17 @@ test('lyrics worker self-hosts the Transformers ONNX runtime instead of fetching
   assert.equal(packageJson.scripts?.prebuild, 'node scripts/copy-transformers-wasm.mjs');
   assert.equal(packageJson.scripts?.predev, 'node scripts/copy-transformers-wasm.mjs');
 });
+
+test('lyrics worker verifies a real WebGPU adapter before selecting the WebGPU backend', () => {
+  const workerSource = readFileSync(new URL('../workers/lyrics.worker.ts', import.meta.url), 'utf8');
+  const adapterProbeIndex = workerSource.indexOf('requestAdapter()');
+  const webGpuDeviceIndex = workerSource.indexOf("device: 'webgpu'");
+
+  assert.ok(adapterProbeIndex >= 0, 'worker should probe navigator.gpu.requestAdapter()');
+  assert.ok(webGpuDeviceIndex > adapterProbeIndex, 'WebGPU should only be selected after adapter probing');
+  assert.doesNotMatch(
+    workerSource,
+    /const hasWebGpu = Boolean\(\(self\.navigator as any\)\?\.gpu\)/,
+    'navigator.gpu presence alone is not proof that WebGPU is usable',
+  );
+});
