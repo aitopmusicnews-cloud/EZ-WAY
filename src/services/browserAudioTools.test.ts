@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { Track } from '../types.ts';
-import { runLocalAudioTool } from './browserAudioTools.ts';
+import {
+  runLocalAudioTool,
+  type BrowserAudioToolsDependencies,
+} from './browserAudioTools.ts';
 import { trackHasUsableAudioSource } from './trackAudioSource.ts';
 
 const baseTrack: Track = {
@@ -29,10 +32,9 @@ const fakeStereo = (value = 0.1) => ({
   sampleRate: 44100,
 });
 
-const baseDeps = () => ({
+const baseDeps = (): BrowserAudioToolsDependencies => ({
   refreshSource: async (track: Track) => track,
   loadSourceFile: async () => new File(['song'], 'Local-Song.wav', { type: 'audio/wav' }),
-  decodeLyrics: async () => ({ pcm: new Float32Array([0, 0.1, 0]), sampleRate: 16000 }),
   transcribe: async () => ({
     language: 'en',
     language_probability: 0.99,
@@ -90,12 +92,12 @@ test('browser lyrics isolates Demucs vocals before sending PCM to Whisper', asyn
       other: fakeStereo(0.4),
     };
   };
-  deps.prepareLyricsPcm = async (vocals: any) => {
+  deps.prepareLyricsPcm = async (vocals) => {
     calls.push('prepare-vocals');
     assert.ok(Math.abs(vocals.left[1] - 0.9) < 1e-6, 'lyrics should prepare the isolated vocal stem');
     return { pcm: new Float32Array([0, 0.77, 0]), sampleRate: 16000 };
   };
-  deps.transcribe = async (pcm: Float32Array) => {
+  deps.transcribe = async (pcm) => {
     calls.push('transcribe');
     assert.ok(Math.abs(pcm[1] - 0.77) < 1e-6, 'Whisper should receive PCM derived from isolated vocals');
     return {
@@ -105,7 +107,7 @@ test('browser lyrics isolates Demucs vocals before sending PCM to Whisper', asyn
     };
   };
 
-  const result = await runLocalAudioTool(baseTrack, 'lyrics', undefined, undefined, deps as any);
+  const result = await runLocalAudioTool(baseTrack, 'lyrics', undefined, undefined, deps);
   assert.equal(result.lyrics, '[00:00.00] Vocal line');
   assert.deepEqual(calls, ['decode', 'separate', 'prepare-vocals', 'transcribe']);
 });
@@ -114,13 +116,13 @@ test('browser lyrics rejects an empty transcript instead of replacing lyrics wit
   const deps = baseDeps();
   deps.transcribe = async () => ({ language: null, language_probability: null, chunks: [] });
   await assert.rejects(
-    () => runLocalAudioTool(baseTrack, 'lyrics', undefined, undefined, deps as any),
+    () => runLocalAudioTool(baseTrack, 'lyrics', undefined, undefined, deps),
     /no reliable lyrics/i,
   );
 });
 
 test('vocals_instrumental derives the no-vocal mix and returns a ZIP bundle', async () => {
-  const result = await runLocalAudioTool(baseTrack, 'stems', 'vocals_instrumental', undefined, baseDeps() as any);
+  const result = await runLocalAudioTool(baseTrack, 'stems', 'vocals_instrumental', undefined, baseDeps());
   assert.equal(result.status, 'completed');
   assert.equal(result.mode, 'vocals_instrumental');
   assert.deepEqual(Object.keys(result.files || {}).sort(), ['instrumental', 'vocals']);
@@ -128,7 +130,7 @@ test('vocals_instrumental derives the no-vocal mix and returns a ZIP bundle', as
 });
 
 test('full separation returns vocals, drums, bass, other and a ZIP bundle', async () => {
-  const result = await runLocalAudioTool(baseTrack, 'stems', 'full', undefined, baseDeps() as any);
+  const result = await runLocalAudioTool(baseTrack, 'stems', 'full', undefined, baseDeps());
   assert.deepEqual(Object.keys(result.files || {}).sort(), ['bass', 'drums', 'other', 'vocals']);
   assert.match(result.bundle_url || '', /^blob:local\//);
 });
@@ -136,7 +138,7 @@ test('full separation returns vocals, drums, bass, other and a ZIP bundle', asyn
 test('successful local processing survives an AWS output upload failure with a warning', async () => {
   const deps = baseDeps();
   deps.uploadFile = async () => { throw new Error('cloud save unavailable'); };
-  const result = await runLocalAudioTool(baseTrack, 'lyrics', undefined, undefined, deps as any);
+  const result = await runLocalAudioTool(baseTrack, 'lyrics', undefined, undefined, deps);
   assert.match(result.files?.lrc || '', /^blob:local\//);
   assert.match(result.warning || '', /cloud save/i);
 });
