@@ -86,6 +86,9 @@ jobs:
       - name: Browser YouTube OAuth bridge tests
         run: node --experimental-strip-types --test src/services/youtubeBrowser.test.ts
 
+      - name: Video Maker notification loop regression
+        run: node --experimental-strip-types --test src/services/videoNotificationLoop.test.ts
+
       - name: Track analysis recovery tests
         run: node --experimental-strip-types --test src/services/trackAnalysisRecovery.test.ts
 
