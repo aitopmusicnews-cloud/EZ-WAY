@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { Track, Playlist, Client, Activity, ShareLink, UserProfile, Message, MessageAttachment, PromoVideo } from '@/src/types';
 import { dataStore, uploadMediaForWorkspace } from '@/src/services/dataStore';
@@ -121,13 +121,13 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
   const [enableMockData, setEnableMockData] = useState(() => readJson('ogbeatz_enable_mock_data', false));
   const pendingMediaKeys = useRef(new Map<string, string>());
 
-  const addToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+  const addToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
     const id = uuidv4();
     setToasts((prev) => [...prev, { id, message, type }].slice(-6));
     setTimeout(() => {
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
     }, 4500);
-  };
+  }, []);
   const removeToast = (id: string) => setToasts((prev) => prev.filter((toast) => toast.id !== id));
 
   const withPendingKeys = <T extends Record<string, any>>(input: T): T & Record<string, any> => {
