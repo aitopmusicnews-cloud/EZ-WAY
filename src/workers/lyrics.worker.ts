@@ -52,7 +52,11 @@ const loadTranscriber = async (id: string): Promise<AsrPipeline> => {
 
       post({ id, type: 'progress', status: 'Loading transcription model with WASM…' });
       return pipeline('automatic-speech-recognition', MODEL_ID, {
-        dtype: 'q4',
+        device: 'wasm',
+        dtype: {
+          encoder_model: 'fp32',
+          decoder_model_merged: 'fp32',
+        },
         progress_callback,
       });
     })().catch((error) => {
