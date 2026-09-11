@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-import * as ort from 'onnxruntime-web/webgpu';
+import * as ort from 'onnxruntime-web';
 import {
   DEMUCS_OVERLAP_SAMPLES,
   DEMUCS_SAMPLE_RATE,
@@ -25,31 +25,12 @@ const post = (message: Record<string, unknown>, transfer?: Transferable[]) => {
   }
 };
 
-const canUseWebGpu = async (): Promise<boolean> => {
-  const gpu = (self.navigator as any)?.gpu;
-  if (!gpu || typeof gpu.requestAdapter !== 'function') return false;
-  try {
-    return Boolean(await gpu.requestAdapter());
-  } catch {
-    return false;
-  }
-};
-
 const createSession = async (id: string): Promise<ort.InferenceSession> => {
-  if (await canUseWebGpu()) {
-    try {
-      post({ id, type: 'progress', status: 'Loading HTDemucs with WebGPU…' });
-      return await ort.InferenceSession.create(MODEL_URL, {
-        executionProviders: ['webgpu'] as any,
-        graphOptimizationLevel: 'all',
-      });
-    } catch (error) {
-      console.warn('[StemsWorker] HTDemucs WebGPU session failed; falling back to WASM.', error);
-    }
-  }
-
   post({ id, type: 'progress', status: 'Loading HTDemucs with WASM…' });
-  ort.env.wasm.numThreads = Math.min(Number((self.navigator as any)?.hardwareConcurrency) || 2, 4);
+  const isolated = Boolean((self as any).crossOriginIsolated);
+  ort.env.wasm.numThreads = isolated
+    ? Math.min(Number((self.navigator as any)?.hardwareConcurrency) || 2, 4)
+    : 1;
   return ort.InferenceSession.create(MODEL_URL, {
     executionProviders: ['wasm'] as any,
     graphOptimizationLevel: 'all',
