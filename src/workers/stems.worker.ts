@@ -1,23 +1,21 @@
 /// <reference lib="webworker" />
 
 import * as ort from 'onnxruntime-web/webgpu';
-import { fft, ifft } from 'fourier-transform';
+import {
+  DEMUCS_OVERLAP_SAMPLES,
+  DEMUCS_SAMPLE_RATE,
+  DEMUCS_SEGMENT_SAMPLES,
+  DEMUCS_STEMS,
+  DEMUCS_STRIDE_SAMPLES,
+  createDemucsWindow,
+  extractDemucsStemRows,
+  type DemucsStemName,
+} from '../services/demucsCore.ts';
 
-const SAMPLE_RATE = 44100;
-const FFT_SIZE = 4096;
-const HOP = 1024;
-const MODEL_BINS = 1024;
-const FULL_BINS = FFT_SIZE / 2 + 1;
-const FRAMES_PER_SPLIT = 512;
-const PAD = FFT_SIZE - HOP;
-const EPSILON = 1e-10;
-const STEMS = ['vocals', 'drums', 'bass', 'other'] as const;
-const MODEL_ROOT = 'https://huggingface.co/Best-Practice/spleeter-4stems-onnx/resolve/main';
+const MODEL_URL = 'https://huggingface.co/StemSplitio/htdemucs-onnx/resolve/main/htdemucs_fp16weights.onnx';
+const CHANNELS = 2;
 
-type StemName = typeof STEMS[number];
-type SessionMap = Record<StemName, ort.InferenceSession>;
-
-let sessionsPromise: Promise<SessionMap> | null = null;
+let sessionPromise: Promise<ort.InferenceSession> | null = null;
 
 const post = (message: Record<string, unknown>, transfer?: Transferable[]) => {
   if (transfer?.length) {
@@ -27,185 +25,71 @@ const post = (message: Record<string, unknown>, transfer?: Transferable[]) => {
   }
 };
 
-const makeWindow = (): Float32Array => {
-  const window = new Float32Array(FFT_SIZE);
-  for (let i = 0; i < FFT_SIZE; i += 1) {
-    window[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / FFT_SIZE);
+const canUseWebGpu = async (): Promise<boolean> => {
+  const gpu = (self.navigator as any)?.gpu;
+  if (!gpu || typeof gpu.requestAdapter !== 'function') return false;
+  try {
+    return Boolean(await gpu.requestAdapter());
+  } catch {
+    return false;
   }
-  return window;
 };
 
-const WINDOW = makeWindow();
-
-const createSession = async (url: string): Promise<ort.InferenceSession> => {
-  const hasWebGpu = Boolean((self.navigator as any)?.gpu);
-  if (hasWebGpu) {
+const createSession = async (id: string): Promise<ort.InferenceSession> => {
+  if (await canUseWebGpu()) {
     try {
-      return await ort.InferenceSession.create(url, { executionProviders: ['webgpu'] as any });
+      post({ id, type: 'progress', status: 'Loading HTDemucs with WebGPU…' });
+      return await ort.InferenceSession.create(MODEL_URL, {
+        executionProviders: ['webgpu'] as any,
+        graphOptimizationLevel: 'all',
+      });
     } catch (error) {
-      console.warn('[StemsWorker] WebGPU session failed; falling back to WASM.', error);
+      console.warn('[StemsWorker] HTDemucs WebGPU session failed; falling back to WASM.', error);
     }
   }
-  return ort.InferenceSession.create(url, { executionProviders: ['wasm'] as any });
+
+  post({ id, type: 'progress', status: 'Loading HTDemucs with WASM…' });
+  ort.env.wasm.numThreads = Math.min(Number((self.navigator as any)?.hardwareConcurrency) || 2, 4);
+  return ort.InferenceSession.create(MODEL_URL, {
+    executionProviders: ['wasm'] as any,
+    graphOptimizationLevel: 'all',
+  });
 };
 
-const loadSessions = async (id: string): Promise<SessionMap> => {
-  if (!sessionsPromise) {
-    sessionsPromise = (async () => {
-      const loaded = {} as SessionMap;
-      for (let index = 0; index < STEMS.length; index += 1) {
-        const stem = STEMS[index];
-        post({
-          id,
-          type: 'progress',
-          status: `Loading separation model… ${index + 1}/${STEMS.length}`,
-        });
-        loaded[stem] = await createSession(`${MODEL_ROOT}/${stem}.fp16.onnx`);
-      }
-      return loaded;
-    })().catch((error) => {
-      sessionsPromise = null;
+const loadSession = async (id: string): Promise<ort.InferenceSession> => {
+  if (!sessionPromise) {
+    sessionPromise = createSession(id).catch((error) => {
+      sessionPromise = null;
       throw error;
     });
   }
-  return sessionsPromise;
+  return sessionPromise;
 };
 
-interface FrameSpectrum {
-  re: Float64Array;
-  im: Float64Array;
-}
-
-const makeFrameSpectrum = (
-  channel: Float32Array,
-  frameIndex: number,
-): FrameSpectrum => {
-  const frame = new Float64Array(FFT_SIZE);
-  const sourceStart = frameIndex * HOP - PAD;
-  for (let i = 0; i < FFT_SIZE; i += 1) {
-    const sourceIndex = sourceStart + i;
-    const sample = sourceIndex >= 0 && sourceIndex < channel.length ? channel[sourceIndex] : 0;
-    frame[i] = sample * WINDOW[i];
-  }
-  const [re, im] = fft(frame);
-  return { re, im };
-};
-
-const buildChunkInput = (
+const buildChunk = (
   left: Float32Array,
   right: Float32Array,
-  frameStart: number,
-  frameCount: number,
-): { tensor: ort.Tensor; spectra: FrameSpectrum[][] } => {
-  const channels = [left, right];
-  const input = new Float32Array(2 * FRAMES_PER_SPLIT * MODEL_BINS);
-  const spectra: FrameSpectrum[][] = [[], []];
-
-  for (let channelIndex = 0; channelIndex < 2; channelIndex += 1) {
-    for (let localFrame = 0; localFrame < frameCount; localFrame += 1) {
-      const spectrum = makeFrameSpectrum(channels[channelIndex], frameStart + localFrame);
-      spectra[channelIndex].push(spectrum);
-      const base = (channelIndex * FRAMES_PER_SPLIT + localFrame) * MODEL_BINS;
-      for (let bin = 0; bin < MODEL_BINS; bin += 1) {
-        input[base + bin] = Math.hypot(spectrum.re[bin], spectrum.im[bin]);
-      }
-    }
-  }
-
-  return {
-    tensor: new ort.Tensor('float32', input, [2, 1, FRAMES_PER_SPLIT, MODEL_BINS]),
-    spectra,
-  };
-};
-
-const runStemModels = async (
-  sessions: SessionMap,
-  tensor: ort.Tensor,
-): Promise<Record<StemName, Float32Array>> => {
-  const estimates = {} as Record<StemName, Float32Array>;
-  for (const stem of STEMS) {
-    const output = await sessions[stem].run({ x: tensor });
-    const value = output.y || output[sessions[stem].outputNames[0]];
-    if (!value) throw new Error(`The ${stem} separation model returned no output.`);
-    estimates[stem] = value.data instanceof Float32Array
-      ? value.data
-      : Float32Array.from(value.data as any);
-  }
-  return estimates;
-};
-
-const addChunkToOutputs = (
-  estimates: Record<StemName, Float32Array>,
-  spectra: FrameSpectrum[][],
-  frameStart: number,
-  frameCount: number,
-  outputs: Record<StemName, [Float32Array, Float32Array]>,
-  weights: Float32Array,
-) => {
-  for (let channelIndex = 0; channelIndex < 2; channelIndex += 1) {
-    for (let localFrame = 0; localFrame < frameCount; localFrame += 1) {
-      const spectrum = spectra[channelIndex][localFrame];
-      const modeledMasks = STEMS.map(() => new Float32Array(MODEL_BINS));
-      const averageByStem = new Float64Array(STEMS.length);
-
-      for (let bin = 0; bin < MODEL_BINS; bin += 1) {
-        let denominator = EPSILON;
-        const squared = new Float64Array(STEMS.length);
-        for (let stemIndex = 0; stemIndex < STEMS.length; stemIndex += 1) {
-          const index = (channelIndex * FRAMES_PER_SPLIT + localFrame) * MODEL_BINS + bin;
-          const estimate = Math.max(0, Number(estimates[STEMS[stemIndex]][index]) || 0);
-          squared[stemIndex] = estimate * estimate;
-          denominator += squared[stemIndex];
-        }
-        for (let stemIndex = 0; stemIndex < STEMS.length; stemIndex += 1) {
-          const mask = (squared[stemIndex] + EPSILON / STEMS.length) / denominator;
-          modeledMasks[stemIndex][bin] = mask;
-          averageByStem[stemIndex] += mask;
-        }
-      }
-      for (let stemIndex = 0; stemIndex < STEMS.length; stemIndex += 1) {
-        averageByStem[stemIndex] /= MODEL_BINS;
-      }
-
-      const outputStart = (frameStart + localFrame) * HOP;
-      if (channelIndex === 0) {
-        for (let i = 0; i < FFT_SIZE; i += 1) {
-          weights[outputStart + i] += WINDOW[i] * WINDOW[i];
-        }
-      }
-
-      for (let stemIndex = 0; stemIndex < STEMS.length; stemIndex += 1) {
-        const re = new Float64Array(FULL_BINS);
-        const im = new Float64Array(FULL_BINS);
-        for (let bin = 0; bin < FULL_BINS; bin += 1) {
-          const mask = bin < MODEL_BINS
-            ? modeledMasks[stemIndex][bin]
-            : averageByStem[stemIndex];
-          re[bin] = spectrum.re[bin] * mask;
-          im[bin] = spectrum.im[bin] * mask;
-        }
-        const frame = ifft(re, im);
-        const target = outputs[STEMS[stemIndex]][channelIndex];
-        for (let i = 0; i < FFT_SIZE; i += 1) {
-          target[outputStart + i] += frame[i] * WINDOW[i];
-        }
-      }
-    }
-  }
-};
-
-const finalizeStem = (
-  padded: Float32Array,
-  weights: Float32Array,
-  sampleCount: number,
+  start: number,
+  end: number,
 ): Float32Array => {
-  const output = new Float32Array(sampleCount);
-  for (let i = 0; i < sampleCount; i += 1) {
-    const paddedIndex = PAD + i;
-    const weight = weights[paddedIndex];
-    output[i] = weight > 1e-8 ? padded[paddedIndex] / weight : 0;
+  const chunk = new Float32Array(CHANNELS * DEMUCS_SEGMENT_SAMPLES);
+  const length = Math.max(0, end - start);
+  chunk.subarray(0, length).set(left.subarray(start, end));
+  chunk.subarray(DEMUCS_SEGMENT_SAMPLES, DEMUCS_SEGMENT_SAMPLES + length).set(right.subarray(start, end));
+  return chunk;
+};
+
+const getChunkStarts = (sampleCount: number): number[] => {
+  const total = Math.max(0, Math.floor(sampleCount));
+  if (total <= DEMUCS_SEGMENT_SAMPLES) return [0];
+  const starts = [0];
+  let next = DEMUCS_STRIDE_SAMPLES;
+  while (next + DEMUCS_SEGMENT_SAMPLES < total) {
+    starts.push(next);
+    next += DEMUCS_STRIDE_SAMPLES;
   }
-  return output;
+  starts.push(Math.max(0, total - DEMUCS_SEGMENT_SAMPLES));
+  return Array.from(new Set(starts));
 };
 
 const separate = async (
@@ -214,44 +98,86 @@ const separate = async (
   right: Float32Array,
   sampleRate: number,
 ) => {
-  if (Math.round(sampleRate) !== SAMPLE_RATE) {
-    throw new Error(`Spleeter requires 44.1 kHz audio; received ${sampleRate} Hz.`);
+  if (Math.round(sampleRate) !== DEMUCS_SAMPLE_RATE) {
+    throw new Error(`HTDemucs requires 44.1 kHz audio; received ${sampleRate} Hz.`);
   }
   if (!left.length || left.length !== right.length) {
-    throw new Error('Stem separation requires matching non-empty stereo channels.');
+    throw new Error('HTDemucs separation requires matching non-empty stereo channels.');
   }
 
-  const sessions = await loadSessions(id);
-  const frameCount = Math.ceil((PAD + left.length) / HOP);
-  const paddedLength = (frameCount - 1) * HOP + FFT_SIZE;
-  const weights = new Float32Array(paddedLength);
+  const session = await loadSession(id);
+  const total = left.length;
+  const starts = getChunkStarts(total);
+  const baseWindow = createDemucsWindow();
+  const weights = new Float32Array(total);
   const outputs = Object.fromEntries(
-    STEMS.map((stem) => [
-      stem,
-      [new Float32Array(paddedLength), new Float32Array(paddedLength)] as [Float32Array, Float32Array],
-    ]),
-  ) as Record<StemName, [Float32Array, Float32Array]>;
+    DEMUCS_STEMS.map((stem) => [stem, [new Float32Array(total), new Float32Array(total)]]),
+  ) as Record<DemucsStemName, [Float32Array, Float32Array]>;
 
-  const chunks = Math.ceil(frameCount / FRAMES_PER_SPLIT);
-  for (let chunkIndex = 0; chunkIndex < chunks; chunkIndex += 1) {
-    const frameStart = chunkIndex * FRAMES_PER_SPLIT;
-    const count = Math.min(FRAMES_PER_SPLIT, frameCount - frameStart);
+  for (let chunkIndex = 0; chunkIndex < starts.length; chunkIndex += 1) {
+    const start = starts[chunkIndex];
+    const end = Math.min(start + DEMUCS_SEGMENT_SAMPLES, total);
+    const chunkLength = end - start;
     post({
       id,
       type: 'progress',
-      status: `Separating stems locally… ${Math.round((chunkIndex / chunks) * 100)}%`,
+      status: `Separating with HTDemucs locally… ${chunkIndex + 1}/${starts.length}`,
     });
-    const { tensor, spectra } = buildChunkInput(left, right, frameStart, count);
-    const estimates = await runStemModels(sessions, tensor);
-    addChunkToOutputs(estimates, spectra, frameStart, count, outputs, weights);
+
+    const chunk = buildChunk(left, right, start, end);
+    const inputTensor = new ort.Tensor('float32', chunk, [1, CHANNELS, DEMUCS_SEGMENT_SAMPLES]);
+    const result = await session.run({ mix: inputTensor });
+    const outputTensor = result.stems;
+    if (!outputTensor) throw new Error('HTDemucs returned no stems tensor.');
+    const data = outputTensor.data instanceof Float32Array
+      ? outputTensor.data
+      : Float32Array.from(outputTensor.data as any);
+
+    for (let stemIndex = 0; stemIndex < DEMUCS_STEMS.length; stemIndex += 1) {
+      const rows = extractDemucsStemRows(data, stemIndex, CHANNELS, DEMUCS_SEGMENT_SAMPLES);
+      const target = outputs[DEMUCS_STEMS[stemIndex]];
+      for (let channel = 0; channel < CHANNELS; channel += 1) {
+        for (let localIndex = 0; localIndex < chunkLength; localIndex += 1) {
+          let weight = baseWindow[localIndex];
+          if (chunkIndex === 0 && localIndex < DEMUCS_OVERLAP_SAMPLES) weight = 1;
+          if (
+            chunkIndex === starts.length - 1
+            && chunkLength === DEMUCS_SEGMENT_SAMPLES
+            && localIndex >= DEMUCS_SEGMENT_SAMPLES - DEMUCS_OVERLAP_SAMPLES
+          ) {
+            weight = 1;
+          }
+          target[channel][start + localIndex] += rows[channel][localIndex] * weight;
+        }
+      }
+    }
+
+    for (let localIndex = 0; localIndex < chunkLength; localIndex += 1) {
+      let weight = baseWindow[localIndex];
+      if (chunkIndex === 0 && localIndex < DEMUCS_OVERLAP_SAMPLES) weight = 1;
+      if (
+        chunkIndex === starts.length - 1
+        && chunkLength === DEMUCS_SEGMENT_SAMPLES
+        && localIndex >= DEMUCS_SEGMENT_SAMPLES - DEMUCS_OVERLAP_SAMPLES
+      ) {
+        weight = 1;
+      }
+      weights[start + localIndex] += weight;
+    }
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 
-  const result: Record<StemName, { left: Float32Array; right: Float32Array; sampleRate: number }> = {} as any;
+  const result = {} as Record<DemucsStemName, { left: Float32Array; right: Float32Array; sampleRate: number }>;
   const transfer: Transferable[] = [];
-  for (const stem of STEMS) {
-    const stemLeft = finalizeStem(outputs[stem][0], weights, left.length);
-    const stemRight = finalizeStem(outputs[stem][1], weights, left.length);
-    result[stem] = { left: stemLeft, right: stemRight, sampleRate: SAMPLE_RATE };
+  for (const stem of DEMUCS_STEMS) {
+    const [stemLeft, stemRight] = outputs[stem];
+    for (let index = 0; index < total; index += 1) {
+      const weight = Math.max(weights[index], 1e-8);
+      stemLeft[index] /= weight;
+      stemRight[index] /= weight;
+    }
+    result[stem] = { left: stemLeft, right: stemRight, sampleRate: DEMUCS_SAMPLE_RATE };
     transfer.push(stemLeft.buffer, stemRight.buffer);
   }
 
@@ -262,10 +188,16 @@ self.onmessage = async (event: MessageEvent) => {
   const message = event.data || {};
   if (message.type !== 'separate') return;
   const id = String(message.id || '');
+
   try {
-    const left = message.left instanceof Float32Array ? message.left : new Float32Array(message.left || []);
-    const right = message.right instanceof Float32Array ? message.right : new Float32Array(message.right || []);
-    await separate(id, left, right, Number(message.sampleRate));
+    const left = message.left instanceof Float32Array
+      ? message.left
+      : new Float32Array(message.left || []);
+    const right = message.right instanceof Float32Array
+      ? message.right
+      : new Float32Array(message.right || []);
+    const sampleRate = Number(message.sampleRate) || DEMUCS_SAMPLE_RATE;
+    await separate(id, left, right, sampleRate);
   } catch (error) {
     post({
       id,
