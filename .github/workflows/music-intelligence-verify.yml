@@ -89,6 +89,9 @@ jobs:
       - name: Video Maker notification loop regression
         run: node --experimental-strip-types --test src/services/videoNotificationLoop.test.ts
 
+      - name: Video Maker playback regression
+        run: node --experimental-strip-types --test src/services/videoPlaybackRegression.test.ts
+
       - name: Track analysis recovery tests
         run: node --experimental-strip-types --test src/services/trackAnalysisRecovery.test.ts
 

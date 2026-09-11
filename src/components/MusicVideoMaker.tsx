@@ -119,13 +119,7 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
 
   const resolvedAudioUrl = useMemo(() => {
     if (customAudioUrl) return customAudioUrl;
-    if (activeTrack?.file_url) {
-      if (activeTrack.file_url.startsWith('http') && !activeTrack.file_url.includes(window.location.host)) {
-        return `/api/proxy-audio?url=${encodeURIComponent(activeTrack.file_url)}`;
-      }
-      return activeTrack.file_url;
-    }
-    return '';
+    return activeTrack?.file_url || '';
   }, [customAudioUrl, activeTrack]);
 
   const resolvedLyrics = useMemo(() => {
@@ -262,7 +256,8 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
           audioRef.current.play().catch(() => setIsPlayPreviewing(false));
         }
       } else {
-        audioRef.current.src = '';
+        audioRef.current.removeAttribute('src');
+        audioRef.current.load();
       }
     }
   }, [resolvedAudioUrl]);
@@ -472,6 +467,11 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
       return;
     }
 
+    if (audioRef.current.getAttribute('src') !== resolvedAudioUrl) {
+      audioRef.current.src = resolvedAudioUrl;
+      audioRef.current.load();
+    }
+
     setupAudioGraph();
 
     if (isPlayPreviewing) {
@@ -485,7 +485,7 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
         .then(() => setIsPlayPreviewing(true))
         .catch((err) => {
           console.error("Audio playback error:", err);
-          addToast("Failed to initiate audio playhead.", "error");
+          addToast("Failed to initiate audio playhead. The selected audio source could not be played.", "error");
         });
     }
   };
@@ -524,6 +524,14 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
       logOutput(`[Compositor] Output Format: ${preset.aspect} (${canvasSize.width}x${canvasSize.height} px)`);
       logOutput(`[Compositor] Output File: ${outputFileName}${preset.suffix}.${videoFormat}`);
       logOutput(`[Compositor] Export Duration Limit: ${targetDuration} seconds`);
+
+      if (!audioRef.current) {
+        throw new Error("Unable to initialize audio playhead.");
+      }
+      if (audioRef.current.getAttribute('src') !== resolvedAudioUrl) {
+        audioRef.current.src = resolvedAudioUrl;
+        audioRef.current.load();
+      }
 
       // Setup/get audio graph nodes
       const graph = setupAudioGraph();
@@ -646,7 +654,7 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
 
       // Start play and record
       audioRef.current.currentTime = 0;
-      audioRef.current.play();
+      await audioRef.current.play();
       setIsPlayPreviewing(true);
 
       recorder.start();
