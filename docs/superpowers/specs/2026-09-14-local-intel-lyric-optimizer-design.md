@@ -1,14 +1,14 @@
 # Local Intel Lyric Optimizer Design
 
 Date: 2026-09-14
-Status: Proposed for implementation after user review
+Status: Design approved; awaiting written-spec review
 Branch: `feat/local-intel-lyric-optimizer`
 
 ## Summary
 
 Replace EZ-WAY's current browser-based lyric extraction pipeline with a local Python companion service built around `faster-whisper`, optimized for Intel CPU execution with `device="cpu"` and `compute_type="int8"`. Keep stem separation as a separate existing browser feature. Extend the local companion so it can also perform lyric-focused keyword/tag research and build the strict lyric-video description prompt requested for the YouTube Hub.
 
-The production EZ-WAY web app remains hosted normally. When the user runs lyric/SEO tools from the Intel computer, the browser talks to a loopback-only Python service such as `http://127.0.0.1:8765`. The service never binds publicly by default.
+The production EZ-WAY web app remains hosted normally. When the user runs lyric/SEO tools from the Intel computer, the browser talks to a loopback-only Python service at `http://127.0.0.1:8765` by default. The service never binds publicly by default.
 
 ## Goals
 
@@ -61,7 +61,7 @@ local_lyric_optimizer/
 
 Use FastAPI for a small loopback HTTP API. Default bind address: `127.0.0.1`. Default port: `8765`.
 
-The service loads the Whisper model lazily on first transcription request and reuses the model for later requests. Default model size is `small`; an environment variable may switch to `base`.
+The service loads the Whisper model lazily on first transcription request and reuses the model for later requests. Default model size is `small`; `LYRIC_MODEL_SIZE=base` is also supported.
 
 Model configuration:
 
@@ -74,11 +74,13 @@ WhisperModel(
 )
 ```
 
-`cpu_threads` is configurable rather than hard-coded because Intel systems vary. The default will use a conservative detected CPU count with an explicit override such as `LYRIC_CPU_THREADS`.
+`cpu_threads` is configurable because Intel systems vary. If `LYRIC_CPU_THREADS` is not set, use `max(1, min(8, os.cpu_count() or 4))`. This keeps the default conservative while allowing explicit tuning.
+
+The first version transcribes the uploaded full mix directly. It does not automatically run HTDemucs before Whisper. That keeps the replacement aligned with the requested Faster Whisper architecture and avoids coupling lyric extraction back to the browser stem engine. The existing stem-separation tool remains available independently.
 
 ### 2. Browser client
 
-Add a focused TypeScript service such as:
+Add a focused TypeScript service:
 
 ```text
 src/services/localLyricOptimizer.ts
@@ -91,21 +93,26 @@ Responsibilities:
 - normalize service errors into user-facing messages;
 - return clean transcript text plus timestamps;
 - optionally call local SEO research and prompt-builder endpoints;
-- expose a single configured base URL, defaulting to `http://127.0.0.1:8765`.
+- expose one configured base URL, defaulting to `http://127.0.0.1:8765`.
 
 The browser must not send requests to arbitrary LAN addresses. Only the configured loopback origin is allowed by default.
 
 ### 3. Existing application integration
 
-`TrackOptionsMenu.tsx` changes the lyric action from the current browser WASM pipeline to the local Python client. Suggested label: **Extract Lyrics — Local Intel**.
+Preserve the existing application-level contract by keeping `runLocalAudioTool(track, 'lyrics', ...)` as the entry point used by `TrackOptionsMenu.tsx`.
 
-On success:
+Change only its lyric branch:
 
-- save clean untimestamped text to `track.lyrics`;
-- retain returned segments to build optional `.lrc` and `.txt` downloads through the existing `buildLyricsFiles` utility;
-- keep the same downstream track update behavior so YouTube Hub immediately sees the new lyrics.
+1. Load the original MP3/WAV `File` through the existing track audio-source helper.
+2. Send that original file directly to `localLyricOptimizer.transcribeLyricsFile`.
+3. Do not decode to PCM in the browser for lyric extraction.
+4. Do not invoke `runLyricsPipelineLocally`, browser Whisper, or the combined lyrics Web Worker.
+5. Convert returned segments to optional LRC/plain downloads with the existing `buildLyricsFiles` utility.
+6. Return clean untimestamped transcription in `AudioToolJobResult.lyrics`.
 
-`browserAudioTools.ts` keeps the stem-separation branch. Its lyric branch is removed or redirected to the local companion so no browser Whisper model is loaded.
+The stem branch of `browserAudioTools.ts` is unchanged and continues to use the existing local HTDemucs stem path.
+
+`TrackOptionsMenu.tsx` changes the visible lyric action label to **Extract Lyrics — Local Intel** and updates explanatory copy. On success, it writes the clean untimestamped `result.lyrics` into `track.lyrics`, so the YouTube Hub immediately receives clean full lyrics rather than LRC timestamps.
 
 ### 4. YouTube SEO integration
 
@@ -115,15 +122,17 @@ Primary local SEO flow:
 
 1. Build modifier queries from a seed such as song title plus artist:
    - base seed
-   - `lyrics`
-   - `lyric video`
-   - `karaoke`
-   - `clean lyrics`
-2. Query the YouTube-scoped Google Suggest endpoint and collect suggestions in stable order.
-3. If `YOUTUBE_API_KEY` exists, call `youtube/v3/search` for the top 10 relevant video results using `<seed> lyrics`.
-4. Call `youtube/v3/videos?part=snippet` for those IDs and read public `snippet.tags` where present.
-5. Normalize, count, and rank tags.
-6. Prioritize foundational lyric intent terms before competitor and genre terms.
+   - `<seed> lyrics`
+   - `<seed> lyric video`
+   - `<seed> karaoke`
+   - `<seed> clean lyrics`
+2. Query the undocumented YouTube-scoped Google Suggest endpoint:
+   `https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=<encoded query>`.
+3. Collect suggestions in stable order and fail gracefully if this undocumented provider changes or becomes unavailable.
+4. If `YOUTUBE_API_KEY` exists, call `https://www.googleapis.com/youtube/v3/search` for the top 10 relevant video results using `<seed> lyrics`.
+5. Call `https://www.googleapis.com/youtube/v3/videos?part=snippet` for those IDs and read public `snippet.tags` where present.
+6. Normalize, count, and rank tags.
+7. Prioritize foundational lyric intent terms before competitor and genre terms.
 
 Foundational lyric terms include:
 
@@ -138,7 +147,7 @@ official lyrics
 
 Competitor tags are deduplicated case-insensitively. Repeated competitor tags receive more weight than one-off tags, but the system does not blindly copy every competitor tag.
 
-If the local service has no YouTube API key, the frontend can still use the already-existing OAuth-backed YouTube research path.
+If the local service has no YouTube API key, the frontend falls back to the already-existing OAuth-backed YouTube research path.
 
 ## HTTP API Contract
 
@@ -173,7 +182,7 @@ Validation:
 
 - allow `.mp3` and `.wav` only;
 - reject empty files;
-- enforce a configurable upload-size limit;
+- default maximum upload size: 250 MB, configurable with `LYRIC_MAX_UPLOAD_MB`;
 - write to a temporary file and delete it in `finally`.
 
 Response:
@@ -192,12 +201,13 @@ Response:
 Text formatting rules:
 
 - trim leading/trailing whitespace;
-- one segment per line for the base clean transcript;
+- one accepted Whisper segment per line for the base clean transcript;
 - collapse accidental repeated whitespace;
+- remove exact adjacent duplicate segments after normalization;
 - do not invent missing lyrics;
-- do not repeat obvious adjacent duplicate segments.
+- do not rewrite words to make them "sound more lyrical."
 
-The transcriber will use VAD filtering where appropriate and a lyric-friendly transcription configuration, but the first implementation will avoid aggressive post-processing that could silently rewrite the artist's words.
+The transcriber may use VAD filtering and lyric-friendly decoding settings, but the first implementation avoids aggressive post-processing that could silently change the artist's words.
 
 ### `POST /seo/research`
 
@@ -217,11 +227,12 @@ Response JSON:
   "queries": ["..."],
   "suggestions": ["..."],
   "competitor_tags": ["..."],
-  "ranked_tags": ["lyrics", "lyric video", "..."]
+  "ranked_tags": ["lyrics", "lyric video", "..."],
+  "warning": null
 }
 ```
 
-If Google Suggest fails, return an empty suggestions array and still provide deterministic modifier queries. If the YouTube API key is missing, return modifier/suggestion results and a machine-readable warning so the frontend may use its OAuth fallback.
+If Google Suggest fails, return an empty suggestions array and still provide deterministic modifier queries. If the YouTube API key is missing, return modifier/suggestion results plus a machine-readable warning so the frontend can use its OAuth fallback.
 
 ### `POST /seo/description-prompt`
 
@@ -246,42 +257,43 @@ The generated YouTube description must follow this order:
 <Line 2: engaging search-optimized mood/hook>
 
 🎧 STREAM / DOWNLOAD
-Spotify: <actual link or placeholder>
-Apple Music: <actual link or placeholder>
-Amazon Music: <actual link or placeholder>
+Spotify: <actual link or [Spotify URL]>
+Apple Music: <actual link or [Apple Music URL]>
+Amazon Music: <actual link or [Amazon Music URL]>
 
 📝 LYRICS
 <full extracted lyrics or [PASTE_LYRICS_HERE]>
 
 🎼 CREDITS
-Producer(s): <value or placeholder>
-Songwriter(s): <value or placeholder>
-Vocalist(s): <value or placeholder>
-Video / Visual Credit: <value or placeholder>
+Producer(s): <actual value or [Producer Name]>
+Songwriter(s): <actual value or [Songwriter Name]>
+Vocalist(s): <actual value or [Vocalist Name]>
+Video / Visual Credit: <actual value or [Video / Visual Credit]>
 ```
 
-The Gemini system prompt in `server.ts` remains the actual AI generator used by EZ-WAY. It must match this same contract and must be given the extracted full lyrics. The Python prompt builder exists so the local companion is complete, testable, and usable independently, not to create a second AI provider.
+The Gemini system prompt in `server.ts` remains the actual AI generator used by EZ-WAY. It must match this same contract and must receive the extracted full lyrics. The Python prompt builder exists so the local companion is complete, testable, and independently useful; it does not introduce a second AI provider.
 
 ## Browser / Localhost Security
 
-The service is loopback-only by default and will use explicit CORS allowlists.
+The service is loopback-only by default and uses explicit CORS allowlists.
 
-Allowed origins should include:
+Default allowed origins in the generated `.env.example`:
 
-- the production EZ-WAY origin;
-- the Amplify origin if still needed for direct testing;
-- local Vite development origins.
+- `https://ezwaypro.theartistcut.com`
+- `https://main.d1wu55zn1feotm.amplifyapp.com`
+- `http://localhost:5173`
+- `http://127.0.0.1:5173`
 
-No wildcard CORS origin when credentials are involved.
+No wildcard CORS origin is used.
 
-Modern browsers may gate public-site-to-loopback requests behind Local Network Access / loopback permission. The frontend must therefore distinguish:
+Loopback HTTP resources are considered local/potentially trustworthy by modern browser security models, but current browsers may still gate public-site-to-loopback requests behind Local Network Access / loopback permission. The frontend therefore distinguishes:
 
 - service not running;
 - request blocked by browser permission;
 - CORS failure;
 - transcription failure.
 
-The UI should provide a short remediation message instead of a generic network error.
+Where supported, the client may mark the request target address space as `loopback`; this must be feature-detected because browser support is not universal. The UI provides a short remediation message instead of a generic network error.
 
 ## Configuration
 
@@ -289,13 +301,15 @@ Local service environment variables:
 
 ```text
 LYRIC_MODEL_SIZE=small
-LYRIC_CPU_THREADS=<optional integer>
+LYRIC_CPU_THREADS=8
 LYRIC_SERVICE_HOST=127.0.0.1
 LYRIC_SERVICE_PORT=8765
-LYRIC_MAX_UPLOAD_MB=<sensible default>
-YOUTUBE_API_KEY=<optional>
-EZWAY_ALLOWED_ORIGINS=<comma-separated origins>
+LYRIC_MAX_UPLOAD_MB=250
+YOUTUBE_API_KEY=
+EZWAY_ALLOWED_ORIGINS=https://ezwaypro.theartistcut.com,https://main.d1wu55zn1feotm.amplifyapp.com,http://localhost:5173,http://127.0.0.1:5173
 ```
+
+`LYRIC_CPU_THREADS=8` is an example value in `.env.example`; if the variable is absent, runtime auto-selection uses `max(1, min(8, os.cpu_count() or 4))`.
 
 Frontend environment variable:
 
@@ -303,24 +317,26 @@ Frontend environment variable:
 VITE_LOCAL_LYRIC_OPTIMIZER_URL=http://127.0.0.1:8765
 ```
 
-The frontend default may use that loopback URL when the variable is omitted, but production UX must clearly state that the companion app must be running on the same computer.
+The frontend defaults to that loopback URL when the variable is omitted. Production UX clearly states that the companion service must be running on the same computer as the browser.
 
 ## Installation Contract
 
-The local package README will document an isolated virtual environment and Intel CPU installation. Core dependency installation will include:
+The local package README documents an isolated virtual environment and Intel CPU installation.
+
+Create the environment:
 
 ```bash
 python -m venv .venv
 ```
 
-Then platform-appropriate activation followed by:
+Activate it with the platform-appropriate command, then install:
 
 ```bash
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-`requirements.txt` will include at minimum:
+`requirements.txt` includes:
 
 ```text
 faster-whisper
@@ -330,17 +346,17 @@ python-multipart
 requests
 ```
 
-A system FFmpeg install is not a required dependency for `faster-whisper`'s normal audio decoding path because it uses PyAV, but the README will avoid claiming that every unrelated audio workflow in EZ-WAY is FFmpeg-free.
+A system FFmpeg install is not required for Faster Whisper's normal audio decoding path because Faster Whisper uses PyAV, which bundles FFmpeg libraries. The README will not imply that unrelated EZ-WAY audio features are FFmpeg-free.
 
 ## Removal Plan
 
 Remove only the obsolete browser lyric transcription path after the replacement tests are green.
 
-Expected removals or dead-code cleanup:
+Expected removals or dead-code cleanup after a repository-wide reference check:
 
-- `src/services/lyricsWorkerClient.ts` if no other feature uses it;
+- `src/services/lyricsWorkerClient.ts` if no remaining caller needs it;
 - `src/workers/lyricsPipeline.worker.ts`;
-- any lyrics-only browser Whisper model loading code and tests that assert that implementation.
+- lyrics-only browser Whisper model loading code and tests that assert that implementation.
 
 Keep:
 
@@ -349,7 +365,7 @@ Keep:
 - existing YouTube SEO browser research as fallback;
 - `Track.lyrics` and current YouTube description consumers.
 
-Before deletion, repository-wide references will be checked so shared code is not removed accidentally.
+Before deletion, repository-wide references are checked so shared code is not removed accidentally.
 
 ## Error Handling
 
@@ -385,24 +401,25 @@ Use TDD for implementation.
 
 - Intel model factory uses `device="cpu"` and `compute_type="int8"`.
 - configured model size defaults to `small` and accepts `base`.
-- `cpu_threads` override is honored.
-- MP3/WAV validation and temp-file cleanup.
-- transcript formatter removes adjacent duplicate segments without rewriting wording.
+- `cpu_threads` override and automatic default are honored.
+- MP3/WAV validation, 250 MB default size limit, and temp-file cleanup.
+- transcript formatter removes exact adjacent duplicate segments without rewriting wording.
 - modifier query generation includes base, lyrics, lyric video, karaoke, and clean lyrics.
 - autocomplete result dedupe preserves order.
 - competitor tag ranking prioritizes lyric tags and repeated competitor tags.
 - missing YouTube API key returns a partial-result warning rather than crashing.
 - description prompt contains all required sections and full lyrics.
 - health endpoint contains no secret values.
+- CORS allowlist does not use `*`.
 
-Whisper inference itself will be mocked in routine CI so GitHub Actions does not download a model for unit tests.
+Whisper inference itself is mocked in routine CI so GitHub Actions does not download a model for unit tests.
 
 ### TypeScript tests
 
 - local lyric client sends multipart audio correctly;
 - service health detection and error mapping;
-- track menu lyric action calls the local service, not the old worker;
-- successful transcript updates `track.lyrics`;
+- `runLocalAudioTool(track, 'lyrics')` delegates to the local companion and does not decode browser PCM or invoke the old lyrics worker;
+- successful transcript returns clean text and updates `track.lyrics`;
 - no transcript leaves existing lyrics unchanged;
 - LRC/plain downloads can still be built from returned segments;
 - stem separation still uses the existing path;
@@ -416,10 +433,10 @@ Run focused Python tests, existing relevant TypeScript tests, YouTube lyric SEO 
 ## Rollout
 
 1. Add the local Python companion and tests without deleting the old extractor.
-2. Add the TypeScript loopback client and UI integration behind the lyric action.
+2. Add the TypeScript loopback client and a tested delegation path in `browserAudioTools.ts`.
 3. Verify transcription response handling with mocked/local fixtures.
-4. Switch the lyric action to the new companion.
-5. Verify track lyrics flow into YouTube SEO and description generation.
+4. Switch the lyric action to the new companion and update UI copy.
+5. Verify clean track lyrics flow into YouTube SEO and description generation.
 6. Remove obsolete browser Whisper lyric code only after references and tests confirm it is unused.
 7. Commit on the feature branch and open a PR; do not merge until verification is green and the user requests merge.
 
@@ -428,7 +445,7 @@ Run focused Python tests, existing relevant TypeScript tests, YouTube lyric SEO 
 The change is complete when all of the following are true:
 
 - Clicking the lyric extraction action no longer loads browser Whisper or the combined lyrics Web Worker.
-- MP3 and WAV files can be transcribed by a local Python service using `faster-whisper` on CPU int8.
+- MP3 and WAV files can be transcribed by a local Python service using Faster Whisper on CPU int8.
 - Clean full lyrics are stored in `track.lyrics` and are immediately available to YouTube description generation.
 - Optional timestamped LRC/plain lyric downloads remain available.
 - Stem separation still works independently.
