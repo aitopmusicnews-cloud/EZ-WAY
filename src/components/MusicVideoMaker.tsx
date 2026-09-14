@@ -16,10 +16,16 @@ import {
   Check,
   ChevronRight,
   Clock,
-  RotateCcw
+  RotateCcw,
+  Mic2,
+  SplitSquareVertical,
+  FileText,
+  Music2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useMediaStore } from '../context/MediaStoreContext';
+import { runLocalAudioTool } from '../services/browserAudioTools';
+import type { AudioToolJobResult, StemMode } from '../services/audioToolTypes';
 import { parseLrc, formatLrcTime } from '../utils/lrcParser';
 import { v4 as uuidv4 } from 'uuid';
 import { cn } from '../lib/utils';
@@ -40,8 +46,25 @@ interface MusicVideoMakerProps {
   onClearInitialTrackId?: () => void;
 }
 
+type StudioTab = 'video' | 'lyrics' | 'stems';
+
 export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId }: MusicVideoMakerProps = {}) {
-  const { tracks, addPromoVideo, addToast } = useMediaStore();
+  const { tracks, addPromoVideo, updateTrack, addToast } = useMediaStore();
+  const [activeTab, setActiveTab] = useState<StudioTab>('video');
+
+  // Lyrics tab state
+  const [lyricsText, setLyricsText] = useState<string>('');
+  const [lyricsProcessing, setLyricsProcessing] = useState(false);
+  const [lyricsProgress, setLyricsProgress] = useState('');
+  const [lyricsResult, setLyricsResult] = useState<AudioToolJobResult | null>(null);
+  const [lyricsError, setLyricsError] = useState('');
+
+  // Stems tab state
+  const [stemMode, setStemMode] = useState<StemMode>('vocals_instrumental');
+  const [stemsProcessing, setStemsProcessing] = useState(false);
+  const [stemsProgress, setStemsProgress] = useState('');
+  const [stemsResult, setStemsResult] = useState<AudioToolJobResult | null>(null);
+  const [stemsError, setStemsError] = useState('');
   
   // States matching Python application fields
   const [selectedTrackId, setSelectedTrackId] = useState<string>('');
@@ -149,6 +172,15 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
     }
   }, [selectedPreset]);
 
+  // Sync lyrics textarea when track changes
+  useEffect(() => {
+    setLyricsText(activeTrack?.lyrics || '');
+    setLyricsResult(null);
+    setLyricsError('');
+    setStemsResult(null);
+    setStemsError('');
+  }, [selectedTrackId]);
+
   // Handle loading predefined track from library
   useEffect(() => {
     if (activeTrack) {
@@ -156,13 +188,56 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
       setCustomImageUrl('');
       setCustomAudioFile(null);
       setCustomAudioUrl('');
-      
       const cleanName = activeTrack.name.replace(/[^a-zA-Z0-9]/g, '_');
       setOutputFileName(cleanName);
-      
       addToast(`Loaded library track "${activeTrack.name}" parameters into the video workspace!`, "info");
     }
   }, [selectedTrackId, activeTrack, addToast]);
+
+  const runSyncedLyrics = async () => {
+    if (!activeTrack) return;
+    setLyricsProcessing(true);
+    setLyricsError('');
+    setLyricsResult(null);
+    setLyricsProgress('Preparing HTDemucs vocal isolation…');
+    try {
+      const result = await runLocalAudioTool(activeTrack, 'lyrics', undefined, setLyricsProgress);
+      if (!result.lyrics?.trim()) throw new Error('No reliable lyrics detected. Existing lyrics unchanged.');
+      await updateTrack(activeTrack.id, { lyrics: result.lyrics });
+      setLyricsText(result.lyrics);
+      setLyricsResult(result);
+      setLyricsProgress('Synced lyrics saved.');
+    } catch (err: any) {
+      setLyricsError(err?.message || 'Synced lyric generation failed.');
+      setLyricsProgress('');
+    } finally {
+      setLyricsProcessing(false);
+    }
+  };
+
+  const saveLyricsManually = async () => {
+    if (!activeTrack) return;
+    await updateTrack(activeTrack.id, { lyrics: lyricsText });
+    addToast('Lyrics saved to track.', 'success');
+  };
+
+  const runStemSeparation = async () => {
+    if (!activeTrack) return;
+    setStemsProcessing(true);
+    setStemsError('');
+    setStemsResult(null);
+    setStemsProgress('Preparing HTDemucs stem separation…');
+    try {
+      const result = await runLocalAudioTool(activeTrack, 'stems', stemMode, setStemsProgress);
+      setStemsResult(result);
+      setStemsProgress('Stem separation complete.');
+    } catch (err: any) {
+      setStemsError(err?.message || 'Stem separation failed.');
+      setStemsProgress('');
+    } finally {
+      setStemsProcessing(false);
+    }
+  };
 
   // Handle local custom image selection
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -781,27 +856,45 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
   };
 
   return (
-    <div className="bg-zinc-950 border border-zinc-900 rounded-[2.5rem] p-6 lg:p-8 space-y-8 shadow-2xl">
-      {/* Header Panel */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-zinc-900 pb-6 gap-4">
+    <div className="bg-zinc-950 border border-zinc-900 rounded-[2.5rem] p-4 sm:p-6 lg:p-8 space-y-6 shadow-2xl">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-900 pb-5 gap-3">
         <div>
-          <h1 className="text-2xl md:text-3xl font-black tracking-tight uppercase flex items-center gap-3">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight uppercase flex items-center gap-3">
             <span className="w-8 h-8 rounded-lg bg-orange-500 text-black flex items-center justify-center text-sm">🎵</span>
             Music Video Maker Pro
           </h1>
-          <p className="text-zinc-500 text-xs md:text-sm font-medium uppercase tracking-wider mt-1">
-            Follow steps 1 to 5 below to generate your high-fidelity MP4 promo asset.
+          <p className="text-zinc-500 text-xs font-medium uppercase tracking-wider mt-1">
+            Video · Lyrics · Stems — all in one studio
           </p>
         </div>
-
-        <div className="flex items-center gap-2">
-          <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            FFmpeg Native Compiled
-          </span>
-        </div>
+        <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-1 self-start sm:self-auto">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          FFmpeg Native Compiled
+        </span>
       </div>
 
+      {/* Tab Bar */}
+      <div className="flex gap-2 bg-zinc-900/60 border border-zinc-800 rounded-2xl p-1.5">
+        {([['video', '🎬', 'Video'], ['lyrics', '🎤', 'Lyrics'], ['stems', '🎛️', 'Stems']] as const).map(([id, icon, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setActiveTab(id)}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              activeTab === id
+                ? 'bg-orange-500 text-black shadow-lg shadow-orange-500/20'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <span>{icon}</span>
+            <span className="hidden xs:inline sm:inline">{label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* ── VIDEO TAB ── */}
+      {activeTab === 'video' && (
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
         
         {/* Left Column: Form Settings (Steps 1 to 5) */}
@@ -1236,6 +1329,183 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
         </div>
 
       </div>
+      )} {/* end video tab */}
+
+      {/* ── LYRICS TAB ── */}
+      {activeTab === 'lyrics' && (
+        <div className="space-y-5">
+          {/* Track selector */}
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest block">Track</label>
+            <select
+              value={selectedTrackId}
+              onChange={(e) => { setSelectedTrackId(e.target.value); if (onClearInitialTrackId) onClearInitialTrackId(); }}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-[11px] font-mono outline-none focus:border-orange-500 text-zinc-300 cursor-pointer"
+            >
+              <option value="">-- Select a track --</option>
+              {tracks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+
+          {/* LRC editor */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest">Timestamped Lyrics (LRC)</label>
+              {activeTrack && (
+                <button type="button" onClick={saveLyricsManually} className="text-[9px] font-black uppercase tracking-widest text-orange-400 hover:text-orange-300 transition-colors">
+                  Save ✓
+                </button>
+              )}
+            </div>
+            <textarea
+              value={lyricsText}
+              onChange={(e) => setLyricsText(e.target.value)}
+              placeholder={`[00:01.00] Line one\n[00:05.00] Line two\n...`}
+              rows={12}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 text-[11px] font-mono outline-none focus:border-orange-500 text-zinc-300 resize-none leading-relaxed"
+            />
+          </div>
+
+          {/* Progress / error */}
+          {lyricsProgress && (
+            <div className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/40 px-4 py-3">
+              {lyricsProcessing ? <Loader2 className="w-4 h-4 animate-spin text-orange-500 shrink-0" /> : <Check className="w-4 h-4 text-emerald-500 shrink-0" />}
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">{lyricsProgress}</span>
+            </div>
+          )}
+          {lyricsError && (
+            <div className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-4 text-[11px] text-rose-300 leading-relaxed">{lyricsError}</div>
+          )}
+
+          {/* Downloads */}
+          {lyricsResult && (
+            <div className="space-y-2">
+              <p className="text-[9px] uppercase tracking-[0.2em] text-zinc-500 font-black">Downloads</p>
+              {Object.entries(lyricsResult.files || {}).map(([name, url]) => (
+                <a key={name} href={url} target="_blank" rel="noreferrer"
+                  className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-[10px] font-black uppercase tracking-wider text-zinc-300 hover:border-zinc-700 hover:text-white">
+                  <span className="flex items-center gap-2"><FileText className="w-4 h-4 text-orange-500" />{name.replace(/_/g, ' ')}</span>
+                  <Download className="w-4 h-4" />
+                </a>
+              ))}
+            </div>
+          )}
+
+          {/* Generate button */}
+          {!lyricsResult && (
+            <button
+              type="button"
+              disabled={lyricsProcessing || !activeTrack}
+              onClick={runSyncedLyrics}
+              className="w-full h-12 rounded-2xl bg-orange-500 text-black text-xs font-black uppercase tracking-widest hover:bg-orange-400 transition-colors disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
+            >
+              {lyricsProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic2 className="w-4 h-4" />}
+              {lyricsProcessing ? 'Processing…' : 'Generate Synced Lyrics'}
+            </button>
+          )}
+          {lyricsResult && (
+            <button type="button" onClick={() => { setLyricsResult(null); setLyricsProgress(''); }}
+              className="w-full h-10 rounded-2xl border border-zinc-800 text-zinc-400 text-[10px] font-black uppercase tracking-widest hover:border-zinc-600 hover:text-zinc-200 transition-colors">
+              Generate Again
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── STEMS TAB ── */}
+      {activeTab === 'stems' && (
+        <div className="space-y-5">
+          {/* Track selector */}
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest block">Track</label>
+            <select
+              value={selectedTrackId}
+              onChange={(e) => { setSelectedTrackId(e.target.value); if (onClearInitialTrackId) onClearInitialTrackId(); }}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-[11px] font-mono outline-none focus:border-orange-500 text-zinc-300 cursor-pointer"
+            >
+              <option value="">-- Select a track --</option>
+              {tracks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+
+          {/* Mode selector */}
+          {!stemsResult && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button type="button" disabled={stemsProcessing} onClick={() => setStemMode('vocals_instrumental')}
+                className={`p-4 rounded-2xl border text-left transition-all ${
+                  stemMode === 'vocals_instrumental' ? 'border-orange-500 bg-orange-500/10' : 'border-zinc-800 bg-zinc-900/40 hover:border-zinc-700'
+                }`}>
+                <Mic2 className="w-5 h-5 text-orange-500 mb-3" />
+                <span className="block text-xs font-black uppercase">Vocals + Instrumental</span>
+                <span className="block text-[9px] text-zinc-500 mt-1">2 files: vocal and no-vocal mix</span>
+              </button>
+              <button type="button" disabled={stemsProcessing} onClick={() => setStemMode('full')}
+                className={`p-4 rounded-2xl border text-left transition-all ${
+                  stemMode === 'full' ? 'border-orange-500 bg-orange-500/10' : 'border-zinc-800 bg-zinc-900/40 hover:border-zinc-700'
+                }`}>
+                <SplitSquareVertical className="w-5 h-5 text-orange-500 mb-3" />
+                <span className="block text-xs font-black uppercase">Full Separation</span>
+                <span className="block text-[9px] text-zinc-500 mt-1">Vocals, drums, bass and other</span>
+              </button>
+            </div>
+          )}
+
+          {/* Progress / error */}
+          {stemsProgress && (
+            <div className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/40 px-4 py-3">
+              {stemsProcessing ? <Loader2 className="w-4 h-4 animate-spin text-orange-500 shrink-0" /> : <Check className="w-4 h-4 text-emerald-500 shrink-0" />}
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">{stemsProgress}</span>
+            </div>
+          )}
+          {stemsError && (
+            <div className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-4 text-[11px] text-rose-300 leading-relaxed">{stemsError}</div>
+          )}
+
+          {/* Downloads */}
+          {stemsResult && (
+            <div className="space-y-2">
+              {stemsResult.warning && (
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-[10px] text-amber-300 leading-relaxed">{stemsResult.warning}</div>
+              )}
+              <p className="text-[9px] uppercase tracking-[0.2em] text-zinc-500 font-black">Downloads</p>
+              {stemsResult.bundle_url && (
+                <a href={stemsResult.bundle_url} target="_blank" rel="noreferrer"
+                  className="flex items-center justify-between rounded-2xl border border-orange-500/20 bg-orange-500/10 px-4 py-3 text-xs font-black uppercase text-orange-400 hover:bg-orange-500/15">
+                  <span className="flex items-center gap-2"><Download className="w-4 h-4" />Download All Stems</span>
+                  <span>ZIP</span>
+                </a>
+              )}
+              {Object.entries(stemsResult.files || {}).map(([name, url]) => (
+                <a key={name} href={url} target="_blank" rel="noreferrer"
+                  className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-[10px] font-black uppercase tracking-wider text-zinc-300 hover:border-zinc-700 hover:text-white">
+                  <span className="flex items-center gap-2"><Music2 className="w-4 h-4 text-orange-500" />{name.replace(/_/g, ' ')}</span>
+                  <Download className="w-4 h-4" />
+                </a>
+              ))}
+            </div>
+          )}
+
+          {/* Run / again buttons */}
+          {!stemsResult && (
+            <button
+              type="button"
+              disabled={stemsProcessing || !activeTrack}
+              onClick={runStemSeparation}
+              className="w-full h-12 rounded-2xl bg-orange-500 text-black text-xs font-black uppercase tracking-widest hover:bg-orange-400 transition-colors disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
+            >
+              {stemsProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <SplitSquareVertical className="w-4 h-4" />}
+              {stemsProcessing ? 'Processing…' : stemMode === 'full' ? 'Create Full Stems' : 'Create Vocals + Instrumental'}
+            </button>
+          )}
+          {stemsResult && (
+            <button type="button" onClick={() => { setStemsResult(null); setStemsProgress(''); }}
+              className="w-full h-10 rounded-2xl border border-zinc-800 text-zinc-400 text-[10px] font-black uppercase tracking-widest hover:border-zinc-600 hover:text-zinc-200 transition-colors">
+              Separate Again
+            </button>
+          )}
+        </div>
+      )}
+
     </div>
   );
 }
