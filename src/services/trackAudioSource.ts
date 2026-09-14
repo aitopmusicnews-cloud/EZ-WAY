@@ -3,6 +3,18 @@ import { getIdToken } from './auth.ts';
 
 const cleanBase = (value: unknown): string => String(value ?? '').trim().replace(/\/+$/, '');
 
+const withSupportedAudioExtension = (name: unknown, type: unknown): string => {
+  const filename = String(name || 'track').trim() || 'track';
+  if (/\.(?:mp3|wav)$/i.test(filename)) return filename;
+
+  const mime = String(type || '').split(';', 1)[0].trim().toLowerCase();
+  if (mime === 'audio/mpeg' || mime === 'audio/mp3') return `${filename}.mp3`;
+  if (['audio/wav', 'audio/wave', 'audio/x-wav', 'audio/vnd.wave'].includes(mime)) {
+    return `${filename}.wav`;
+  }
+  return filename;
+};
+
 const getEnv = (name: string): string => {
   try {
     return String((import.meta as any).env?.[name] || '').trim();
@@ -59,10 +71,11 @@ export async function loadTrackAudioFile(
   fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis),
 ): Promise<File> {
   if (track.file_data) {
+    const type = track.file_data.type || track.type || 'audio/mpeg';
     return new File(
       [track.file_data],
-      String(track.name || 'track'),
-      { type: track.file_data.type || track.type || 'audio/mpeg' },
+      withSupportedAudioExtension(track.name, type),
+      { type },
     );
   }
 
@@ -76,9 +89,10 @@ export async function loadTrackAudioFile(
     throw new Error(`Could not load the track audio (${response.status}).`);
   }
   const blob = await response.blob();
+  const type = blob.type || track.type || 'audio/mpeg';
   return new File(
     [blob],
-    String(track.name || 'track'),
-    { type: blob.type || track.type || 'audio/mpeg' },
+    withSupportedAudioExtension(track.name, type),
+    { type },
   );
 }
