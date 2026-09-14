@@ -234,6 +234,9 @@ export async function runLocalAudioTool(
     onProgress?.('Preparing isolated vocals for transcription…');
     const prepareLyricsPcm = dependencies.prepareLyricsPcm || defaultPrepareLyricsPcm;
     const { pcm, sampleRate } = await prepareLyricsPcm(separated.vocals);
+    // Release stems worker WASM heap before loading Whisper — prevents std::bad_alloc on low-memory devices
+    onProgress?.('Releasing stem memory before transcription…');
+    await new Promise<void>((resolve) => setTimeout(resolve, 1500));
     onProgress?.('Transcribing isolated vocals locally…');
     const transcribe = dependencies.transcribe || defaultTranscribe;
     const transcript = await transcribe(pcm, sampleRate, onProgress);

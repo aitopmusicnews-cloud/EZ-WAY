@@ -27,10 +27,8 @@ const post = (message: Record<string, unknown>, transfer?: Transferable[]) => {
 
 const createSession = async (id: string): Promise<ort.InferenceSession> => {
   post({ id, type: 'progress', status: 'Loading HTDemucs with WASM…' });
-  const isolated = Boolean((self as any).crossOriginIsolated);
-  ort.env.wasm.numThreads = isolated
-    ? Math.min(Number((self.navigator as any)?.hardwareConcurrency) || 2, 4)
-    : 1;
+  // Cap at 1 thread to minimise peak WASM heap so Whisper can allocate after this worker terminates
+  ort.env.wasm.numThreads = 1;
   return ort.InferenceSession.create(MODEL_URL, {
     executionProviders: ['wasm'] as any,
     graphOptimizationLevel: 'all',
