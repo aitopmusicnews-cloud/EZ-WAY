@@ -6,14 +6,21 @@ from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from .config import OptimizerConfig, ServiceConfig
+from .seo import research_lyric_seo
 from .transcriber import FasterWhisperTranscriber, TranscriptionResult
 
 
 SERVICE_NAME = "ezway-local-lyric-optimizer"
 _ALLOWED_SUFFIXES = {".mp3", ".wav"}
 _CHUNK_SIZE = 1024 * 1024
+
+
+class SeoResearchRequest(BaseModel):
+    seed: str
+    genre: str = ""
 
 
 def _serialize_result(result: TranscriptionResult) -> dict[str, Any]:
@@ -116,6 +123,17 @@ def create_app(
             return _serialize_result(result)
         finally:
             temp_path.unlink(missing_ok=True)
+
+    @app.post("/seo/research")
+    def seo_research(request: SeoResearchRequest) -> dict[str, Any]:
+        seed = " ".join(request.seed.split()).strip()
+        if not seed:
+            raise HTTPException(status_code=422, detail="SEO research requires a seed keyword.")
+        return research_lyric_seo(
+            seed,
+            genre=request.genre,
+            api_key=service.youtube_api_key,
+        )
 
     return app
 
