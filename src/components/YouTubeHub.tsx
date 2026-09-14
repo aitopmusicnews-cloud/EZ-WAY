@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMediaStore } from '../context/MediaStoreContext';
+import { researchLocalLyricSeo } from '../services/localLyricOptimizer';
 import {
   createYouTubeBrowserClient,
   createYouTubeFetchBridge,
@@ -166,15 +167,33 @@ export default function YouTubeHub(props: YouTubeHubProps) {
     const track = tracks.find((item) => item.id === trackId);
     if (!track) return Promise.resolve();
     const seed = buildYouTubeSEOSeed(track.name, track.artist);
-    const task = fetch(`/api/youtube/seo-research?seed=${encodeURIComponent(seed)}`)
-      .then(async (response) => {
+    const primaryGenre = String(track.tags?.[0] || '').trim();
+
+    const task = (async () => {
+      try {
+        const local = await researchLocalLyricSeo(seed, primaryGenre);
+        cacheYouTubeSEOResearch(seed, {
+          suggestions: local.suggestions,
+          competitorTags: local.competitor_tags,
+        });
+        if (!local.warning) return;
+        if (local.warning !== 'youtube_api_key_missing') {
+          console.warn('[YouTube SEO] Local optimizer returned a partial result; using OAuth research.', local.warning);
+        }
+      } catch (error) {
+        console.warn('[YouTube SEO] Local optimizer unavailable; using OAuth research.', error);
+      }
+
+      try {
+        const response = await fetch(`/api/youtube/seo-research?seed=${encodeURIComponent(seed)}`);
         if (!response.ok) return;
         const research = await response.json();
         cacheYouTubeSEOResearch(seed, research);
-      })
-      .catch((error) => {
-        console.warn('[YouTube SEO] Live lyric research unavailable; using local lyric SEO.', error);
-      });
+      } catch (error) {
+        console.warn('[YouTube SEO] OAuth lyric research unavailable; using cached/static lyric SEO.', error);
+      }
+    })();
+
     researchPromiseRef.current = task;
     return task;
   };
