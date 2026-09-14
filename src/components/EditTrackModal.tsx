@@ -234,8 +234,8 @@ export default function EditTrackModal({ track, onClose, onSave, onDelete }: {
         <div className="p-8 flex flex-col md:flex-row gap-8">
           {/* Artwork Upload Column */}
           <div className="w-full md:w-80 space-y-5 shrink-0">
-            <div 
-              onClick={() => imageInputRef.current?.click()}
+            <label 
+              htmlFor="etm-image-input"
               className="bg-zinc-90 w-full rounded-2xl border border-zinc-800 flex flex-col items-center justify-center cursor-pointer hover:border-orange-500 group overflow-hidden relative shadow-inner shadow-black/60 min-h-[200px] transition-all bg-zinc-900/50 aspect-square"
             >
               {formData.image_url ? (
@@ -259,7 +259,7 @@ export default function EditTrackModal({ track, onClose, onSave, onDelete }: {
                   <span className="text-[7px] font-mono text-zinc-400 uppercase tracking-widest text-center px-2">Uploading art...</span>
                 </div>
               )}
-            </div>
+            </label>
             
             {formData.image_url && (
               <div className="flex gap-2">
@@ -282,8 +282,8 @@ export default function EditTrackModal({ track, onClose, onSave, onDelete }: {
 
             <input 
               type="file" 
-              ref={imageInputRef} 
-              className="hidden" 
+              id="etm-image-input"
+              style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
               accept="image/*" 
               onChange={handleImageChange} 
             />
@@ -410,13 +410,12 @@ export default function EditTrackModal({ track, onClose, onSave, onDelete }: {
                         File: {lyricsFilename}
                       </span>
                     )}
-                    <button 
-                      type="button"
-                      onClick={() => lyricsInputRef.current?.click()}
+                    <label 
+                      htmlFor="etm-lyrics-input"
                       className="text-[9px] font-black uppercase tracking-widest text-orange-400 hover:text-orange-300 transition-colors cursor-pointer"
                     >
                       Browse TXT / LRC / JSON
-                    </button>
+                    </label>
                     <button
                       type="button"
                       onClick={handleTranscribeWithWhisper}
@@ -601,9 +600,9 @@ export default function EditTrackModal({ track, onClose, onSave, onDelete }: {
 
                 <input 
                   type="file" 
-                  ref={lyricsInputRef} 
+                  id="etm-lyrics-input"
                   accept=".txt,.lrc,.json,text/plain,application/json" 
-                  className="hidden" 
+                  style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
                   onChange={(e) => {
                     const selectedFile = e.target.files?.[0];
                     if (selectedFile) handleLyricsFile(selectedFile);

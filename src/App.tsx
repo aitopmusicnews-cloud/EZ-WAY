@@ -765,7 +765,7 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
   const avatarInputRef = React.useRef<HTMLInputElement>(null);
 
   const handleImportClients = () => {
-    fileInputRef.current?.click();
+    document.getElementById('app-clients-import')?.click();
   };
 
   const toggleClientSelection = (id: string) => {
@@ -3665,17 +3665,17 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
                     className="w-full bg-black border border-zinc-900 rounded-[2.5rem] p-6 pr-20 text-sm font-medium outline-none focus:border-orange-500 focus:shadow-2xl focus:shadow-orange-500/10 transition-all resize-none h-32 scrollbar-hide"
                   />
                   <div className="absolute right-4 bottom-4 flex gap-2">
-                    <button
-                      onClick={() => chatImageInputRef.current?.click()}
-                      className="p-3 text-zinc-500 hover:text-white transition-all hover:rotate-45"
+                    <label
+                      htmlFor="app-chat-image-input"
+                      className="p-3 text-zinc-500 hover:text-white transition-all hover:rotate-45 cursor-pointer"
                     >
                       <Paperclip className="w-6 h-6" />
-                    </button>
+                    </label>
                     <input
                       type="file"
-                      ref={chatImageInputRef}
+                      id="app-chat-image-input"
                       onChange={handleChatAttachmentUpload}
-                      className="hidden"
+                      style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
                     />
                     <button
                       onClick={handleSendClientMessage}
@@ -3850,16 +3850,16 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
                 className="w-full h-full object-cover"
               />
             </div>
-            <button
-              onClick={() => avatarInputRef.current?.click()}
-              className="absolute -bottom-2 -right-2 w-8 h-8 rounded-xl bg-orange-500 text-black flex items-center justify-center shadow-lg hover:scale-110 transition-transform"
+            <label
+              htmlFor="app-avatar-input"
+              className="absolute -bottom-2 -right-2 w-8 h-8 rounded-xl bg-orange-500 text-black flex items-center justify-center shadow-lg hover:scale-110 transition-transform cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-            </button>
+            </label>
             <input
               type="file"
-              ref={avatarInputRef}
-              className="hidden"
+              id="app-avatar-input"
+              style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
               accept="image/*"
               onChange={handleAvatarChange}
             />
@@ -4278,20 +4278,20 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
                 className="w-full bg-black border border-zinc-900 rounded-xl p-3 text-xs outline-none focus:border-orange-500/60 transition-all h-16 resize-none custom-scrollbar text-white placeholder-zinc-700"
               />
 
-              <button
-                onClick={() => zipInputRef.current?.click()}
+              <label
+                htmlFor="app-zip-input"
                 className="w-full py-3.5 bg-orange-500 hover:bg-orange-400 text-black rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-2 shadow-xl shadow-orange-500/10"
               >
                 <Upload className="w-3.5 h-3.5" />
                 <span>UPLOAD ZIP</span>
-              </button>
+              </label>
 
               <input
                 type="file"
-                ref={zipInputRef}
+                id="app-zip-input"
                 onChange={handleSendZip}
                 accept=".zip"
-                className="hidden"
+                style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
               />
             </div>
           </div>
@@ -5209,10 +5209,10 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
 
       <input
         type="file"
-        ref={fileInputRef}
+        id="app-clients-import"
         onChange={handleFileChange}
         accept=".csv,.json"
-        className="hidden"
+        style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
       />
 
       <AnimatePresence>

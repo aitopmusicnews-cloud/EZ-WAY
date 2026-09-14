@@ -366,8 +366,8 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
               {/* Artwork Row */}
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-6 bg-zinc-950/40 border border-zinc-900 p-6 rounded-[2rem] items-center">
                 <div className="col-span-1 border-r border-zinc-900/60 pr-2">
-                  <div 
-                    onClick={() => artworkInputRef.current?.click()}
+                  <label 
+                    htmlFor="uz-artwork-input"
                     className="w-24 h-24 bg-zinc-950 rounded-2xl border border-zinc-900 flex flex-col items-center justify-center cursor-pointer hover:border-orange-500 group overflow-hidden relative"
                   >
                     {artworkUrl ? (
@@ -378,13 +378,13 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
                         <span className="text-[8px] font-black text-zinc-500 mt-1.5 uppercase">ADD COVER</span>
                       </>
                     )}
-                  </div>
+                  </label>
                 </div>
                 <div className="col-span-11 space-y-1">
                   <h4 className="text-xs font-black uppercase tracking-wider text-zinc-300">Master Cover Art Assignment</h4>
                   <p className="text-[9px] text-zinc-500 leading-normal uppercase">Assign a cover visual for distribution. Drag cover file over or click block to launch storage navigator.</p>
                 </div>
-                <input type="file" ref={artworkInputRef} accept="image/*" className="hidden" onChange={(e) => { if(e.target.files?.[0]) handleFileSingle(e.target.files[0]); }} />
+                <input type="file" id="uz-artwork-input" accept="image/*" style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}} onChange={(e) => { if(e.target.files?.[0]) handleFileSingle(e.target.files[0]); }} />
               </div>
 
               {/* Lyrics Field */}
@@ -392,13 +392,12 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-black uppercase text-zinc-500 tracking-widest block">🎙️ Master Lyric Projection Sheet</span>
                   <div className="flex gap-2">
-                    <button 
-                      type="button"
-                      onClick={() => lyricsInputRef.current?.click()}
+                    <label 
+                      htmlFor="uz-lyrics-input"
                       className="text-[9px] font-black uppercase tracking-widest text-orange-400 hover:text-orange-300 transition-colors cursor-pointer"
                     >
                       Browse TXT
-                    </button>
+                    </label>
                     {lyrics && (
                       <button 
                         type="button"
@@ -418,9 +417,9 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
                 />
                 <input 
                   type="file" 
-                  ref={lyricsInputRef} 
+                  id="uz-lyrics-input"
                   accept=".txt,.lrc,text/plain" 
-                  className="hidden" 
+                  style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
                   onChange={(e) => { if (e.target.files?.[0]) handleFileSingle(e.target.files[0]); }} 
                 />
               </div>
@@ -467,8 +466,8 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
             
             <input 
               type="file" 
-              ref={bulkFileInputRef}
-              className="hidden" 
+              id="uz-bulk-input"
+              style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
               accept="audio/*"
               multiple
               onChange={(e) => {
@@ -476,20 +475,19 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
               }}
             />
 
-            <button 
-              type="button"
-              onClick={() => bulkFileInputRef.current?.click()}
-              className="px-6 py-3 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest"
+            <label 
+              htmlFor="uz-bulk-input"
+              className="px-6 py-3 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer"
             >
               Select Multiple Audio Files
-            </button>
+            </label>
           </div>
 
           {/* Bulk Settings Option bar */}
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 bg-zinc-950/50 border border-zinc-900 p-5 rounded-3xl items-center">
             <div className="col-span-1 border-r border-zinc-900 pr-2">
-              <div 
-                onClick={() => bulkArtworkInputRef.current?.click()}
+              <label 
+                htmlFor="uz-bulk-artwork-input"
                 className="w-16 h-16 bg-zinc-950 rounded-xl border border-zinc-900 flex flex-col items-center justify-center cursor-pointer hover:border-orange-500 overflow-hidden relative"
               >
                 {bulkArtworkUrl ? (
@@ -500,12 +498,12 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
                     <span className="text-[7px] font-black text-zinc-650 mt-1 uppercase">BATCH COV</span>
                   </>
                 )}
-              </div>
+              </label>
             </div>
             <div className="col-span-11 leading-normal">
               <h4 className="text-[11px] font-black uppercase tracking-wider text-zinc-400">Batch Cover Artwork (Optional)</h4>
               <p className="text-[8px] text-zinc-500 leading-normal uppercase">If uploaded, this artwork will be shared by all assets in this bulk batch. If omitted, ogbeatz visual themes will represent your waveforms.</p>
-              <input type="file" ref={bulkArtworkInputRef} accept="image/*" className="hidden" onChange={(e) => { if (e.target.files?.[0]) handleBulkArtwork(e.target.files[0]); }} />
+              <input type="file" id="uz-bulk-artwork-input" accept="image/*" style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}} onChange={(e) => { if (e.target.files?.[0]) handleBulkArtwork(e.target.files[0]); }} />
             </div>
           </div>
 

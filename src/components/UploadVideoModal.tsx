@@ -469,19 +469,20 @@ export default function UploadVideoModal({ onClose }: { onClose: () => void; key
                       onDragOver={handleDragOverVideo}
                       onDragLeave={handleDragLeaveVideo}
                       onDrop={handleDropVideo}
-                      onClick={() => videoInputRef.current?.click()}
                       className={`aspect-video cursor-pointer border-2 border-dashed rounded-3xl flex flex-col items-center justify-center p-6 text-center transition-all ${
                         isDraggingVideo ? 'border-orange-500 bg-orange-500/5' : 'border-zinc-800 bg-zinc-900/30 hover:border-zinc-700'
                       }`}
                     >
+                      <label htmlFor="uvm-video-input" className="flex flex-col items-center justify-center cursor-pointer w-full h-full">
                       <Upload className="w-10 h-10 text-zinc-600 mb-2" />
                       <p className="text-xs font-black uppercase tracking-widest text-zinc-400">Drag video file here</p>
                       <p className="text-[8px] font-mono uppercase tracking-widest text-zinc-600 mt-1">MP4, WEBM, MOV</p>
+                      </label>
                       <input 
                         type="file" 
-                        ref={videoInputRef}
+                        id="uvm-video-input"
                         accept="video/*" 
-                        className="hidden" 
+                        style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
                         onChange={(e) => {
                           if (e.target.files && e.target.files[0]) {
                             handleVideoFile(e.target.files[0]);
@@ -523,19 +524,20 @@ export default function UploadVideoModal({ onClose }: { onClose: () => void; key
                       onDragOver={handleDragOverThumb}
                       onDragLeave={handleDragLeaveThumb}
                       onDrop={handleDropThumb}
-                      onClick={() => thumbInputRef.current?.click()}
                       className={`aspect-video cursor-pointer border-2 border-dashed rounded-3xl flex flex-col items-center justify-center p-6 text-center transition-all ${
                         isDraggingThumb ? 'border-orange-500 bg-orange-500/5' : 'border-zinc-800 bg-zinc-900/30 hover:border-zinc-700'
                       }`}
                     >
+                      <label htmlFor="uvm-thumb-input" className="flex flex-col items-center justify-center cursor-pointer w-full h-full">
                       <ImageIcon className="w-10 h-10 text-zinc-600 mb-2" />
                       <p className="text-xs font-black uppercase tracking-widest text-zinc-400">Drag image here</p>
                       <p className="text-[8px] font-mono uppercase tracking-widest text-zinc-600 mt-1">PNG, JPG, WEBP</p>
+                      </label>
                       <input 
                         type="file" 
-                        ref={thumbInputRef}
+                        id="uvm-thumb-input"
                         accept="image/*" 
-                        className="hidden" 
+                        style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
                         onChange={(e) => {
                           if (e.target.files && e.target.files[0]) {
                             handleThumbFile(e.target.files[0]);
@@ -571,14 +573,14 @@ export default function UploadVideoModal({ onClose }: { onClose: () => void; key
               
               {/* Timeline Container list */}
               {timelineClips.length === 0 ? (
-                <div 
-                  onClick={() => videoInputRef.current?.click()}
+                <label 
+                  htmlFor="uvm-clip-input"
                   className="py-12 border-2 border-dashed border-zinc-800 bg-zinc-900/10 rounded-3xl text-center cursor-pointer hover:border-zinc-700 transition-all flex flex-col items-center justify-center"
                 >
                   <Film className="w-12 h-12 text-zinc-700 mb-2" />
                   <p className="text-xs font-black uppercase tracking-widest text-zinc-400">No raw clips added to timeline</p>
                   <p className="text-[8px] font-bold text-zinc-600 uppercase tracking-widest mt-1">Click below to upload video segments</p>
-                </div>
+                </label>
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {timelineClips.map((clip, idx) => (
@@ -639,18 +641,17 @@ export default function UploadVideoModal({ onClose }: { onClose: () => void; key
 
               {/* Add segments trigger */}
               <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => videoInputRef.current?.click()}
+                <label
+                  htmlFor="uvm-clip-input"
                   className="flex-1 py-3 bg-zinc-900/60 border border-zinc-850 rounded-2xl text-[9px] font-black uppercase tracking-widest text-zinc-300 hover:border-zinc-700 transition-all cursor-pointer text-center"
                 >
                   ⚡ Click to Append Video Segment
-                </button>
+                </label>
                 <input 
                   type="file" 
-                  ref={videoInputRef}
+                  id="uvm-clip-input"
                   accept="video/*" 
-                  className="hidden" 
+                  style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
                       handleAddClip(e.target.files[0]);

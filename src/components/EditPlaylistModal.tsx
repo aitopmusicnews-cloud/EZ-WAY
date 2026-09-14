@@ -171,8 +171,8 @@ export default function EditPlaylistModal({ playlist, onClose, onSave, onDelete,
               {/* Cover Art Preview Block */}
               <div className="space-y-3">
                 <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block font-black">Visual Art Cover</span>
-                <div 
-                  onClick={() => fileInputRef.current?.click()}
+                <label 
+                  htmlFor="epm-cover-input"
                   style={{
                     background: formData.image_url 
                       ? 'none' 
@@ -204,18 +204,16 @@ export default function EditPlaylistModal({ playlist, onClose, onSave, onDelete,
                       <span className="text-[8px] font-mono text-zinc-400 uppercase tracking-widest">Inscribing cover package...</span>
                     </div>
                   )}
-                </div>
+                </label>
+              </div>
 
                 <input 
                   type="file" 
-                  ref={fileInputRef} 
-                  className="hidden" 
+                  id="epm-cover-input"
+                  style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
                   accept="image/*" 
                   onChange={handleFileChange} 
                 />
-              </div>
-
-              {/* Direct Image URL input */}
               <div className="space-y-2">
                 <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block font-black">Or Use External Cover URL</span>
                 <input 
