@@ -50,6 +50,7 @@ import {
   Volume2,
   Sparkles,
   ArrowUpDown,
+  Youtube,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -148,6 +149,7 @@ export default function App() {
     useState<Track | null>(null);
   const [selectedPlaylistForVideo, setSelectedPlaylistForVideo] =
     useState<Playlist | null>(null);
+  const [sendToYouTubeVideoId, setSendToYouTubeVideoId] = useState<string | null>(null);
   const [selectedVideoForPreview, setSelectedVideoForPreview] = useState<
     any | null
   >(null);
@@ -1414,11 +1416,24 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
                       <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
                         {new Date(video.created_at).toLocaleDateString()}
                       </span>
-                      <div className="flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        <span className="text-[8px] font-black uppercase tracking-widest text-emerald-500">
-                          READY
-                        </span>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          <span className="text-[8px] font-black uppercase tracking-widest text-emerald-500">
+                            READY
+                          </span>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSendToYouTubeVideoId(video.id);
+                            setActiveView('youtube');
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1 bg-red-600/10 hover:bg-red-600/20 border border-red-500/20 hover:border-red-500/40 text-red-400 hover:text-red-300 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                          title="Send to YouTube Hub"
+                        >
+                          <Youtube className="w-3 h-3" /> Publish
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -5137,7 +5152,7 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
         {activeView === "sharing" && renderSharing()}
         {activeView === "profile" && renderProfile()}
         {activeView === "client-detail" && renderClientDetail()}
-        {activeView === "youtube" && <YouTubeHub />}
+        {activeView === "youtube" && <YouTubeHub initialVideoId={sendToYouTubeVideoId || undefined} onClearInitialVideoId={() => setSendToYouTubeVideoId(null)} />}
         {/* Settings View */}
         {activeView === "settings" && (
           <div className="p-8 space-y-8 max-w-3xl">

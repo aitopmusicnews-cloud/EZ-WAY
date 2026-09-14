@@ -44,9 +44,11 @@ import { generateYouTubeSEO } from "../services/youtubeUploadCore";
 
 interface YouTubeHubProps {
     addToast?: (message: string, type: "success" | "error" | "info") => void;
+    initialVideoId?: string;
+    onClearInitialVideoId?: () => void;
 }
 
-export default function YouTubeHub({ addToast }: YouTubeHubProps) {
+export default function YouTubeHub({ addToast, initialVideoId, onClearInitialVideoId }: YouTubeHubProps) {
     const { promoVideos, tracks, playlists, toasts, addToast: storeAddToast } = useMediaStore();
     const triggerToast = addToast || storeAddToast || ((msg) => console.log(msg));
 
@@ -259,6 +261,27 @@ export default function YouTubeHub({ addToast }: YouTubeHubProps) {
         fetchAuthState();
         syncLiveYouTubeData();
     }, []);
+
+    // Auto-navigate to upload tab when a video is sent from the Video Library
+    useEffect(() => {
+        if (!initialVideoId) return;
+        const video = promoVideos.find(v => v.id === initialVideoId);
+        if (!video) return;
+        setActiveTab("upload");
+        setUploadSource("studio");
+        handleAssetSelect(initialVideoId);
+        // Auto-generate SEO if the video has a linked track
+        const track = tracks.find(t => t.id === video.track_id);
+        if (track) {
+            const pkg = generateYouTubeSEO(track, { videoStyle: video.style, spotifyLink, appleLink, instagramHandle });
+            setSeoPackage(pkg);
+            setSeoOpen(true);
+            setVideoTitle(pkg.title);
+            setVideoDescription(pkg.description);
+            setVideoTags(pkg.tags);
+        }
+        if (onClearInitialVideoId) onClearInitialVideoId();
+    }, [initialVideoId]);
 
     const fetchAuthState = async () => {
         try {

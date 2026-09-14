@@ -12,6 +12,8 @@ import YouTubeHubLegacy from './YouTubeHubLegacy';
 
 interface YouTubeHubProps {
   addToast?: (message: string, type: 'success' | 'error' | 'info') => void;
+  initialVideoId?: string;
+  onClearInitialVideoId?: () => void;
 }
 
 const setNativeSelectValue = (select: HTMLSelectElement, value: string) => {
