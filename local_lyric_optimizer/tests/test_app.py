@@ -57,6 +57,31 @@ def test_health_is_non_sensitive_and_reports_cpu_int8():
     }
 
 
+def test_disallowed_browser_origin_is_rejected_before_transcription():
+    transcriber = FakeTranscriber()
+    client, _ = make_client(transcriber=transcriber)
+
+    response = client.post(
+        "/lyrics/transcribe",
+        headers={"Origin": "https://malicious.example"},
+        files={"file": ("song.wav", b"audio bytes", "audio/wav")},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Origin is not allowed to use the local lyric service."
+    assert transcriber.paths == []
+
+
+def test_allowed_browser_origin_can_transcribe():
+    client, _ = make_client()
+    response = client.post(
+        "/lyrics/transcribe",
+        headers={"Origin": "https://ezwaypro.theartistcut.com"},
+        files={"file": ("song.wav", b"audio bytes", "audio/wav")},
+    )
+    assert response.status_code == 200
+
+
 @pytest.mark.parametrize(
     ("filename", "content_type"),
     [("song.mp3", "audio/mpeg"), ("song.wav", "audio/wav")],
