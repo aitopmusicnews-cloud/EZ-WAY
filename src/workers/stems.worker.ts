@@ -1,6 +1,10 @@
 /// <reference lib="webworker" />
 
 import * as ort from 'onnxruntime-web';
+
+// Set before any session is created — after first init this has no effect.
+ort.env.wasm.numThreads = 1;
+
 import {
   DEMUCS_OVERLAP_SAMPLES,
   DEMUCS_SAMPLE_RATE,
@@ -27,8 +31,6 @@ const post = (message: Record<string, unknown>, transfer?: Transferable[]) => {
 
 const createSession = async (id: string): Promise<ort.InferenceSession> => {
   post({ id, type: 'progress', status: 'Loading HTDemucs with WASM…' });
-  // Cap at 1 thread to minimise peak WASM heap so Whisper can allocate after this worker terminates
-  ort.env.wasm.numThreads = 1;
   return ort.InferenceSession.create(MODEL_URL, {
     executionProviders: ['wasm'] as any,
     graphOptimizationLevel: 'all',

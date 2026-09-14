@@ -21,7 +21,11 @@ import {
   type DemucsStemName,
 } from '../services/demucsCore.ts';
 
-// Point Transformers.js at the pre-copied WASM assets
+// Configure BOTH WASM runtimes at module load time — before any session is created.
+// numThreads=1 minimises the initial WASM heap reservation; setting it after first
+// use has no effect and leaves the runtime with a larger heap that triggers bad_alloc.
+ort.env.wasm.numThreads = 1;
+env.backends.onnx.wasm.numThreads = 1;
 env.backends.onnx.wasm.wasmPaths = '/transformers-wasm/';
 
 const DEMUCS_MODEL_URL = 'https://huggingface.co/StemSplitio/htdemucs-onnx/resolve/main/htdemucs_fp16weights.onnx';
@@ -56,7 +60,6 @@ const getChunkStarts = (sampleCount: number): number[] => {
 
 const separateVocals = async (id: string, left: Float32Array, right: Float32Array): Promise<{ vocalLeft: Float32Array; vocalRight: Float32Array }> => {
   post({ id, type: 'progress', status: 'Loading HTDemucs model…' });
-  ort.env.wasm.numThreads = 1;
   const session = await ort.InferenceSession.create(DEMUCS_MODEL_URL, {
     executionProviders: ['wasm'] as any,
     graphOptimizationLevel: 'all',
