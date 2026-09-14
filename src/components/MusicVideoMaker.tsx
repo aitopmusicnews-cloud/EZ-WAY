@@ -267,6 +267,11 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
   // Visualizer loop on canvas
   const drawVisualizer = () => {
     if (!canvasRef.current) return;
+    // Pause rendering when the component is hidden to save CPU
+    if (canvasRef.current.closest('.hidden')) {
+      animationFrameRef.current = requestAnimationFrame(drawVisualizer);
+      return;
+    }
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;

@@ -5143,16 +5143,24 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
       <div className="pb-24">
         {activeView === "dashboard" && renderDashboard()}
         {activeView === "tracks" && renderTracks()}
-        {activeView === "analyzer" && <AudioAnalyzerStudio />}
         {activeView === "clients" && renderClients()}
         {activeView === "playlists" && renderPlaylists()}
-        {activeView === "videos" && renderVideos()}
         {activeView === "activity" && renderActivity()}
         {activeView === "messages" && renderMessages()}
         {activeView === "sharing" && renderSharing()}
         {activeView === "profile" && renderProfile()}
         {activeView === "client-detail" && renderClientDetail()}
-        {activeView === "youtube" && <YouTubeHub initialVideoId={sendToYouTubeVideoId || undefined} onClearInitialVideoId={() => setSendToYouTubeVideoId(null)} />}
+
+        {/* Keep long-running process views mounted but hidden so background jobs survive tab switches */}
+        <div className={activeView === "videos" ? undefined : "hidden"}>
+          {renderVideos()}
+        </div>
+        <div className={activeView === "analyzer" ? undefined : "hidden"}>
+          <AudioAnalyzerStudio />
+        </div>
+        <div className={activeView === "youtube" ? undefined : "hidden"}>
+          <YouTubeHub initialVideoId={sendToYouTubeVideoId || undefined} onClearInitialVideoId={() => setSendToYouTubeVideoId(null)} />
+        </div>
         {/* Settings View */}
         {activeView === "settings" && (
           <div className="p-8 space-y-8 max-w-3xl">
