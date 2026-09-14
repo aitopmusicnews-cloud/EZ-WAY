@@ -165,10 +165,14 @@ test('browser SEO research queries YouTube autocomplete modifiers and top lyric-
   assert.deepEqual(result.competitorTags, ['lyrics', 'synth pop', 'sing along']);
 });
 
-test('YouTube Hub wrapper wires live lyric research and an Amazon Music input', () => {
+test('YouTube Hub prefers the local lyric optimizer and retains OAuth research fallback', () => {
   const hubPath = fileURLToPath(new URL('../components/YouTubeHub.tsx', import.meta.url));
   const source = readFileSync(hubPath, 'utf8');
+  assert.match(source, /researchLocalLyricSeo/);
+  assert.match(source, /competitor_tags/);
+  assert.match(source, /youtube_api_key_missing/);
   assert.match(source, /seo-research/);
+  assert.match(source, /Local optimizer unavailable; using OAuth research/);
   assert.match(source, /Amazon Music/);
   assert.match(source, /amazon/i);
 });
