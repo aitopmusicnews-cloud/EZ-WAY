@@ -43,3 +43,6 @@ jobs:
 
       - name: Local lyric SEO contract
         run: python -m pytest local_lyric_optimizer/tests/test_seo.py -q
+
+      - name: Lyric description contract
+        run: python -m pytest local_lyric_optimizer/tests/test_description.py -q
