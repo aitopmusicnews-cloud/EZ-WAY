@@ -49,3 +49,6 @@ jobs:
 
       - name: Local optimizer browser client
         run: node --experimental-strip-types --test src/services/localLyricOptimizer.test.ts
+
+      - name: Browser Audio Tools lyric integration
+        run: node --experimental-strip-types --test src/services/browserAudioTools.test.ts
