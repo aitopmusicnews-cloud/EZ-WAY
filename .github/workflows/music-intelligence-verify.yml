@@ -92,6 +92,9 @@ jobs:
       - name: Video Maker playback regression
         run: node --experimental-strip-types --test src/services/videoPlaybackRegression.test.ts
 
+      - name: Upload drag-and-drop regression
+        run: node --experimental-strip-types --test src/services/uploadFileAcceptance.test.ts
+
       - name: Track analysis recovery tests
         run: node --experimental-strip-types --test src/services/trackAnalysisRecovery.test.ts
 
