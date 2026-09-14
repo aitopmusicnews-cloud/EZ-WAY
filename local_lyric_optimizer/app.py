@@ -4,8 +4,9 @@ from pathlib import Path
 import tempfile
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .config import OptimizerConfig, ServiceConfig
@@ -90,6 +91,7 @@ def create_app(
     optimizer = optimizer_config or OptimizerConfig.from_env()
     service = service_config or ServiceConfig.from_env()
     lyric_transcriber = transcriber or FasterWhisperTranscriber(optimizer)
+    allowed_origins = {origin.rstrip("/") for origin in service.allowed_origins}
 
     app = FastAPI(title="EZ-WAY Local Lyric Optimizer")
     app.add_middleware(
@@ -99,6 +101,16 @@ def create_app(
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def enforce_browser_origin(request: Request, call_next):
+        origin = request.headers.get("origin")
+        if origin and origin.rstrip("/") not in allowed_origins:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Origin is not allowed to use the local lyric service."},
+            )
+        return await call_next(request)
 
     app.state.optimizer_config = optimizer
     app.state.service_config = service
