@@ -1,3 +1,5 @@
+import { buildLyricAutocompleteQueries, type YouTubeLyricSEOResearch } from './youtubeUploadCore';
+
 export const YOUTUBE_OAUTH_SENTINEL_URL = 'about:blank#ezway-youtube-oauth';
 export const YOUTUBE_TOKEN_STORAGE_KEY = 'EZWAY_YOUTUBE_OAUTH_TOKEN';
 
@@ -63,6 +65,7 @@ export interface YouTubeBrowserClient {
   getAnalytics(): Promise<Record<string, unknown>>;
   getVideos(): Promise<{ success: boolean; playbackMode: string; videos: unknown[] }>;
   getComments(): Promise<{ success: boolean; playbackMode: string; comments: unknown[] }>;
+  researchLyricSEO(seedKeyword: string): Promise<YouTubeLyricSEOResearch>;
   upload(payload: YouTubeBrowserUploadPayload): Promise<{ success: boolean; videoId: string; videoUrl: string; message: string }>;
 }
 
@@ -100,6 +103,20 @@ const parseError = async (response: Response, fallback: string) => {
   } catch {
     return text;
   }
+};
+
+const dedupeStrings = (values: unknown[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of values) {
+    const value = String(raw || '').trim().replace(/\s+/g, ' ');
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(value);
+  }
+  return result;
 };
 
 export function createYouTubeBrowserClient(options: ClientOptions = {}): YouTubeBrowserClient {
@@ -273,6 +290,72 @@ export function createYouTubeBrowserClient(options: ClientOptions = {}): YouTube
       return { success: true, playbackMode: 'live', comments };
     },
 
+    async researchLyricSEO(seedKeyword) {
+      const seed = String(seedKeyword || '').trim().replace(/\s+/g, ' ');
+      if (!seed) return { suggestions: [], competitorTags: [] };
+
+      const suggestionBatches = await Promise.all(buildLyricAutocompleteQueries(seed).map(async (query) => {
+        try {
+          const params = new URLSearchParams({ client: 'firefox', ds: 'yt', q: query });
+          const response = await fetchImpl(`https://suggestqueries.google.com/complete/search?${params.toString()}`);
+          if (!response.ok) return [];
+          const data: any = await response.json();
+          return Array.isArray(data?.[1]) ? data[1] : [];
+        } catch {
+          // Google Suggest is an undocumented endpoint; SEO research remains usable
+          // with the YouTube Data API if autocomplete is unavailable.
+          return [];
+        }
+      }));
+      const suggestions = dedupeStrings(suggestionBatches.flat());
+
+      const competitorTags: string[] = [];
+      if (getToken()) {
+        try {
+          const searchParams = new URLSearchParams({
+            part: 'id',
+            q: `${seed} lyrics`,
+            type: 'video',
+            maxResults: '10',
+            order: 'relevance',
+          });
+          const searchResponse = await youtubeFetch(`https://www.googleapis.com/youtube/v3/search?${searchParams.toString()}`);
+          if (searchResponse.ok) {
+            const searchData: any = await searchResponse.json();
+            const videoIds = (searchData?.items || [])
+              .map((item: any) => item?.id?.videoId)
+              .filter(Boolean)
+              .slice(0, 10);
+
+            if (videoIds.length) {
+              const videoParams = new URLSearchParams({
+                part: 'snippet',
+                id: videoIds.join(','),
+              });
+              const videoResponse = await youtubeFetch(`https://www.googleapis.com/youtube/v3/videos?${videoParams.toString()}`);
+              if (videoResponse.ok) {
+                const videoData: any = await videoResponse.json();
+                for (const item of videoData?.items || []) {
+                  for (const rawTag of item?.snippet?.tags || []) {
+                    const tag = String(rawTag || '').trim().toLowerCase();
+                    if (tag) competitorTags.push(tag);
+                  }
+                }
+              }
+            }
+          }
+        } catch {
+          // Competitor tags are enrichment only; keep autocomplete/local SEO usable
+          // if the account is disconnected, quota-limited, or YouTube is unavailable.
+        }
+      }
+
+      return {
+        suggestions,
+        competitorTags: dedupeStrings(competitorTags).map((tag) => tag.toLowerCase()),
+      };
+    },
+
     async upload(payload) {
       const token = getToken();
       if (!token) throw new Error('Connect your YouTube channel before publishing.');
@@ -355,6 +438,9 @@ export function createYouTubeFetchBridge({
       if (path === '/api/youtube/analytics' && method === 'GET') return jsonResponse(await client.getAnalytics());
       if (path === '/api/youtube/videos' && method === 'GET') return jsonResponse(await client.getVideos());
       if (path === '/api/youtube/comments' && method === 'GET') return jsonResponse(await client.getComments());
+      if (path === '/api/youtube/seo-research' && method === 'GET') {
+        return jsonResponse(await client.researchLyricSEO(url.searchParams.get('seed') || ''));
+      }
       if (path === '/api/youtube/disconnect' && method === 'POST') {
         await client.disconnect();
         return jsonResponse({ status: 'disconnected' });
