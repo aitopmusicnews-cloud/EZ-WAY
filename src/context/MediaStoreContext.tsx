@@ -187,7 +187,10 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
         setActivities(bootstrap.activities || []);
         setShareLinks(bootstrap.share_links || []);
         setMessages(bootstrap.messages || []);
-        setPromoVideos(await restorePromoVideoUrls(bootstrap.promo_videos || []));
+        const remoteVideos = await restorePromoVideoUrls(bootstrap.promo_videos || []);
+        const remoteIds = new Set(remoteVideos.map((v) => v.id));
+        const localOnly = promoVideos.filter((v) => !remoteIds.has(v.id));
+        setPromoVideos([...remoteVideos, ...(await restorePromoVideoUrls(localOnly))]);
         setProfile(bootstrap.profile || PROFILE_FALLBACK);
         setConnected(true);
         setLoadingProgress(90);
@@ -574,7 +577,7 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
     } as PromoVideo);
 
     try {
-      const canPersist = connected && !isTemporaryUrl(candidate.video_url) && Boolean(candidate.video_url || (candidate as any).video_key);
+      const canPersist = connected && Boolean((candidate as any).video_key || (!isTemporaryUrl(candidate.video_url) && candidate.video_url));
       const saved = canPersist ? await dataStore.createPromoVideo(candidate as PromoVideo) : candidate as PromoVideo;
       setPromoVideos((prev) => [...prev.filter((video) => video.id !== id), saved]);
     } catch (error: any) {
