@@ -149,6 +149,14 @@ const defaultTranscribe = async (
   return transcribePcmLocally(pcm, sampleRate, onProgress);
 };
 
+const defaultRunLyricsPipeline = async (
+  stereo: StereoPcm,
+  onProgress?: (status: string) => void,
+): Promise<LocalTranscript> => {
+  const { runLyricsPipelineLocally } = await import('./lyricsWorkerClient.ts');
+  return runLyricsPipelineLocally(stereo, onProgress);
+};
+
 const defaultSeparate = async (
   stereo: StereoPcm,
   onProgress?: (status: string) => void,
@@ -225,42 +233,13 @@ export async function runLocalAudioTool(
   const baseName = cleanFilename(sourceTrack.name);
 
   if (action === 'lyrics') {
-    onProgress?.('Decoding audio for transcription…');
+    onProgress?.('Decoding audio…');
     const decodeStems = dependencies.decodeStems || defaultDecodeStems;
-
-    // Estimate available memory - skip HTDemucs vocal isolation on low-memory devices
-    // to avoid std::bad_alloc when Whisper tries to allocate after the stems WASM heap
-    const estimatedMemoryGb = (navigator as any)?.deviceMemory ?? 0;
-    const skipIsolation = estimatedMemoryGb > 0 && estimatedMemoryGb < 4;
-
-    let vocalPcm: Float32Array;
-    let vocalSampleRate: number;
-
-    if (skipIsolation) {
-      onProgress?.(`Low memory device detected (${estimatedMemoryGb}GB) — transcribing mixed audio directly…`);
-      const stereo = await decodeStems(sourceFile);
-      const prepareLyricsPcm = dependencies.prepareLyricsPcm || defaultPrepareLyricsPcm;
-      const prepared = await prepareLyricsPcm(stereo);
-      vocalPcm = prepared.pcm;
-      vocalSampleRate = prepared.sampleRate;
-    } else {
-      onProgress?.('Isolating vocals with HTDemucs locally…');
-      const stereo = await decodeStems(sourceFile);
-      const separate = dependencies.separate || defaultSeparate;
-      const separated = await separate(stereo, onProgress);
-      onProgress?.('Preparing isolated vocals for transcription…');
-      const prepareLyricsPcm = dependencies.prepareLyricsPcm || defaultPrepareLyricsPcm;
-      const prepared = await prepareLyricsPcm(separated.vocals);
-      vocalPcm = prepared.pcm;
-      vocalSampleRate = prepared.sampleRate;
-      // Pause to let the stems worker WASM heap be reclaimed before Whisper allocates
-      onProgress?.('Releasing stem memory before transcription…');
-      await new Promise<void>((resolve) => setTimeout(resolve, 2500));
-    }
-
-    onProgress?.('Transcribing vocals locally…');
-    const transcribe = dependencies.transcribe || defaultTranscribe;
-    const transcript = await transcribe(vocalPcm, vocalSampleRate, onProgress);
+    const stereo = await decodeStems(sourceFile);
+    // Run HTDemucs + Whisper in one worker to share a single WASM heap
+    onProgress?.('Starting lyrics pipeline…');
+    const runPipeline = defaultRunLyricsPipeline;
+    const transcript = await runPipeline(stereo, onProgress);
     onProgress?.('Building synced lyrics…');
     const built = buildLyricsFiles(transcript.chunks || []);
     if (!built.lyrics.trim()) {

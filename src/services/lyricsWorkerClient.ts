@@ -1,4 +1,4 @@
-import type { LocalTranscript } from './browserAudioTools.ts';
+import type { LocalTranscript, StereoPcm } from './browserAudioTools.ts';
 
 export interface WorkerLike {
   onmessage: ((event: MessageEvent<any>) => void) | null;
@@ -7,62 +7,44 @@ export interface WorkerLike {
   terminate(): void;
 }
 
-interface LyricsWorkerClientOptions {
+interface LyricsPipelineOptions {
   workerFactory?: () => WorkerLike;
 }
 
 const defaultWorkerFactory = (): WorkerLike => {
-  if (typeof Worker === 'undefined') {
-    throw new Error('Web Workers are not available in this browser.');
-  }
-  return new Worker(new URL('../workers/lyrics.worker.ts', import.meta.url), { type: 'module' });
+  if (typeof Worker === 'undefined') throw new Error('Web Workers are not available in this browser.');
+  return new Worker(new URL('../workers/lyricsPipeline.worker.ts', import.meta.url), { type: 'module' });
 };
 
-export async function transcribePcmLocally(
-  pcm: Float32Array,
-  sampleRate: number,
+/**
+ * Runs the full lyrics pipeline (HTDemucs vocal isolation → Whisper transcription)
+ * inside a single worker so both models share one WASM heap, avoiding std::bad_alloc.
+ */
+export async function runLyricsPipelineLocally(
+  stereo: StereoPcm,
   onProgress?: (status: string) => void,
-  options: LyricsWorkerClientOptions = {},
+  options: LyricsPipelineOptions = {},
 ): Promise<LocalTranscript> {
   const worker = (options.workerFactory || defaultWorkerFactory)();
   const id = `lyrics-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const payload = new Float32Array(pcm);
+  const left = new Float32Array(stereo.left);
+  const right = new Float32Array(stereo.right);
 
   try {
     return await new Promise<LocalTranscript>((resolve, reject) => {
-      const cleanup = () => {
-        worker.onmessage = null;
-        worker.onerror = null;
-        worker.terminate();
-      };
+      const cleanup = () => { worker.onmessage = null; worker.onerror = null; worker.terminate(); };
 
-      worker.onerror = (event) => {
-        cleanup();
-        reject(new Error(event.message || 'Local transcription worker failed.'));
-      };
+      worker.onerror = (event) => { cleanup(); reject(new Error(event.message || 'Lyrics pipeline worker failed.')); };
 
       worker.onmessage = (event) => {
-        const message = event.data || {};
-        if (message.id !== id) return;
-        if (message.type === 'progress') {
-          if (message.status) onProgress?.(String(message.status));
-          return;
-        }
-        if (message.type === 'error') {
-          cleanup();
-          reject(new Error(String(message.error || 'Local transcription failed.')));
-          return;
-        }
-        if (message.type === 'result') {
-          cleanup();
-          resolve(message.result as LocalTranscript);
-        }
+        const msg = event.data || {};
+        if (msg.id !== id) return;
+        if (msg.type === 'progress') { if (msg.status) onProgress?.(String(msg.status)); return; }
+        if (msg.type === 'error') { cleanup(); reject(new Error(String(msg.error || 'Lyrics pipeline failed.'))); return; }
+        if (msg.type === 'result') { cleanup(); resolve(msg.result as LocalTranscript); }
       };
 
-      worker.postMessage(
-        { id, type: 'transcribe', pcm: payload, sampleRate },
-        [payload.buffer],
-      );
+      worker.postMessage({ id, type: 'lyrics-pipeline', left, right, sampleRate: stereo.sampleRate }, [left.buffer, right.buffer]);
     });
   } catch (error) {
     worker.terminate();
