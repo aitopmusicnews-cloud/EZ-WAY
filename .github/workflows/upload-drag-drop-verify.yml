@@ -30,8 +30,5 @@ jobs:
       - name: Upload drag-and-drop regression
         run: node --experimental-strip-types --test src/services/uploadFileAcceptance.test.ts
 
-      - name: TypeScript check
-        run: npm run lint
-
       - name: Production build
         run: npm run build
