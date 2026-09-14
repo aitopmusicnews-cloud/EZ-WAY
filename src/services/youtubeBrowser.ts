@@ -1,5 +1,3 @@
-import { buildLyricAutocompleteQueries, type YouTubeLyricSEOResearch } from './youtubeUploadCore';
-
 export const YOUTUBE_OAUTH_SENTINEL_URL = 'about:blank#ezway-youtube-oauth';
 export const YOUTUBE_TOKEN_STORAGE_KEY = 'EZWAY_YOUTUBE_OAUTH_TOKEN';
 
@@ -55,6 +53,11 @@ export interface YouTubeBrowserUploadPayload {
   description?: string;
   tags?: string;
   privacy?: 'private' | 'unlisted' | 'public' | string;
+}
+
+export interface YouTubeLyricSEOResearch {
+  suggestions: string[];
+  competitorTags: string[];
 }
 
 export interface YouTubeBrowserClient {
@@ -117,6 +120,18 @@ const dedupeStrings = (values: unknown[]): string[] => {
     result.push(value);
   }
   return result;
+};
+
+const buildLyricResearchQueries = (seedKeyword: string): string[] => {
+  const seed = String(seedKeyword || '').trim().replace(/\s+/g, ' ');
+  if (!seed) return [];
+  return [
+    seed,
+    `${seed} lyrics`,
+    `${seed} lyric video`,
+    `${seed} karaoke`,
+    `${seed} clean lyrics`,
+  ];
 };
 
 export function createYouTubeBrowserClient(options: ClientOptions = {}): YouTubeBrowserClient {
@@ -294,7 +309,7 @@ export function createYouTubeBrowserClient(options: ClientOptions = {}): YouTube
       const seed = String(seedKeyword || '').trim().replace(/\s+/g, ' ');
       if (!seed) return { suggestions: [], competitorTags: [] };
 
-      const suggestionBatches = await Promise.all(buildLyricAutocompleteQueries(seed).map(async (query) => {
+      const suggestionBatches = await Promise.all(buildLyricResearchQueries(seed).map(async (query) => {
         try {
           const params = new URLSearchParams({ client: 'firefox', ds: 'yt', q: query });
           const response = await fetchImpl(`https://suggestqueries.google.com/complete/search?${params.toString()}`);
@@ -302,8 +317,8 @@ export function createYouTubeBrowserClient(options: ClientOptions = {}): YouTube
           const data: any = await response.json();
           return Array.isArray(data?.[1]) ? data[1] : [];
         } catch {
-          // Google Suggest is an undocumented endpoint; SEO research remains usable
-          // with the YouTube Data API if autocomplete is unavailable.
+          // Google Suggest is undocumented; retain the YouTube Data API enrichment
+          // and the local lyric strategy if autocomplete is temporarily unavailable.
           return [];
         }
       }));
