@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      - 'server.ts'
       - 'src/components/YouTubeHub.tsx'
       - 'src/services/youtubeBrowser.ts'
       - 'src/services/youtubeBrowser.test.ts'
