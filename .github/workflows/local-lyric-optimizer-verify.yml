@@ -46,3 +46,6 @@ jobs:
 
       - name: Lyric description contract
         run: python -m pytest local_lyric_optimizer/tests/test_description.py -q
+
+      - name: Local optimizer browser client
+        run: node --experimental-strip-types --test src/services/localLyricOptimizer.test.ts
