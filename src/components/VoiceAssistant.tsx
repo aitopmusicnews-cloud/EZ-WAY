@@ -323,8 +323,8 @@ export default function VoiceAssistant({ activeView, onViewChange }: VoiceAssist
         speakResponse('Loading master reel. Track catalog is active.');
         return;
       }
-      if (clean.includes('analyzer') || clean.includes('a and r') || clean.includes('a&r') || clean.includes('transcription')) {
-        onViewChange('analyzer');
+      if (clean.includes('tracks') || clean.includes('a and r') || clean.includes('a&r') || clean.includes('transcription')) {
+        onViewChange('tracks');
         setLastAction('Navigated to A&R Analyzer');
         speakResponse('Arming the A and R rack. Spectral DSP and Whisper preamps are hot.');
         return;
@@ -477,8 +477,8 @@ export default function VoiceAssistant({ activeView, onViewChange }: VoiceAssist
 
     // 3. Page specific special triggers via Event dispatching
     if (clean.includes('transcribe') || clean.includes('lyrics') || clean.includes('vocals') || clean.includes('extract vocals')) {
-      if (activeView !== 'analyzer') {
-        onViewChange('analyzer');
+      if (activeView !== 'tracks') {
+        onViewChange('tracks');
       }
       setTimeout(() => {
         window.dispatchEvent(new CustomEvent('ai-voice-command', { detail: { action: 'transcribe' } }));
@@ -501,8 +501,8 @@ export default function VoiceAssistant({ activeView, onViewChange }: VoiceAssist
     }
 
     if (clean.includes('analyze') || clean.includes('audio dsp') || clean.includes('run analysis') || clean.includes('spectrum analysis')) {
-      if (activeView !== 'analyzer') {
-        onViewChange('analyzer');
+      if (activeView !== 'tracks') {
+        onViewChange('tracks');
       }
       setTimeout(() => {
         window.dispatchEvent(new CustomEvent('ai-voice-command', { detail: { action: 'analyze' } }));
@@ -682,7 +682,7 @@ export default function VoiceAssistant({ activeView, onViewChange }: VoiceAssist
         description: "open the A&R Vocal Analyzer and Speech DSP",
         keywords: ["analyzer", "a and r", "a&r", "vocal extractor", "whisper", "dsp", "transcription", "lyrics"],
         execute: () => {
-          onViewChange('analyzer');
+          onViewChange('tracks');
           setTimeout(() => {
             window.dispatchEvent(new CustomEvent('ai-voice-command', { detail: { action: 'transcribe' } }));
           }, 300);
@@ -807,7 +807,7 @@ export default function VoiceAssistant({ activeView, onViewChange }: VoiceAssist
         description: "run spectral signal processing",
         keywords: ["dsp", "spectral analysis", "frequency sweep", "analyze audio", "run analysis"],
         execute: () => {
-          onViewChange('analyzer');
+          onViewChange('tracks');
           setTimeout(() => {
             window.dispatchEvent(new CustomEvent('ai-voice-command', { detail: { action: 'analyze' } }));
           }, 300);

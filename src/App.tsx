@@ -85,7 +85,6 @@ import ShareModal from "./components/ShareModal";
 import TrackDetailsModal from "./components/TrackDetailsModal";
 import YouTubeHub from "./components/YouTubeHub";
 import ExportMasterModal from "./components/ExportMasterModal";
-import AudioAnalyzerStudio from "./components/AudioAnalyzerStudio";
 import MusicVideoMaker from "./components/MusicVideoMaker";
 import VoiceAssistant from "./components/VoiceAssistant";
 import { Track, ShareLink, Client, Playlist, AppView } from "./types";
@@ -5154,9 +5153,6 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
         {/* Keep long-running process views mounted but hidden so background jobs survive tab switches */}
         <div className={activeView === "videos" ? undefined : "hidden"}>
           {renderVideos()}
-        </div>
-        <div className={activeView === "analyzer" ? undefined : "hidden"}>
-          <AudioAnalyzerStudio />
         </div>
         <div className={activeView === "youtube" ? undefined : "hidden"}>
           <YouTubeHub initialVideoId={sendToYouTubeVideoId || undefined} onClearInitialVideoId={() => setSendToYouTubeVideoId(null)} />

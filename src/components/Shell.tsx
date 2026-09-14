@@ -11,7 +11,6 @@ import {
   Shield,
   ShieldCheck,
   Youtube,
-  Cpu,
   Menu,
   X,
   ChevronDown,
@@ -57,7 +56,6 @@ export default function Shell({ children, activeView, onViewChange }: ShellProps
   ];
 
   const secondaryItems: ShellNavItem[] = [
-    { id: 'analyzer', label: 'AI Diagnostics', icon: Cpu },
     { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'videos', label: 'Videos', icon: Video },
     { id: 'youtube', label: 'YouTube Hub', icon: Youtube },

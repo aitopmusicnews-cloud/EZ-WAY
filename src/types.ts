@@ -11,7 +11,6 @@ export type AppView =
   | 'client-detail'
   | 'videos'
   | 'youtube'
-  | 'analyzer'
   | 'copyrights'
   | 'albumcover';
 
