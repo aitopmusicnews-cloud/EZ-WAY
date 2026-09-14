@@ -1,0 +1,43 @@
+name: YouTube Lyrics SEO Verification
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/components/YouTubeHub.tsx'
+      - 'src/services/youtubeBrowser.ts'
+      - 'src/services/youtubeBrowser.test.ts'
+      - 'src/services/youtubeUploadCore.ts'
+      - 'src/services/youtubeUploadCore.test.ts'
+      - 'src/services/youtubeLyricsSeo.test.ts'
+      - '.github/workflows/youtube-lyrics-seo-verify.yml'
+  workflow_dispatch:
+
+jobs:
+  verify-youtube-lyrics-seo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: YouTube lyrics SEO regression
+        run: node --experimental-strip-types --test src/services/youtubeLyricsSeo.test.ts
+
+      - name: Existing YouTube browser tests
+        run: node --experimental-strip-types --test src/services/youtubeBrowser.test.ts
+
+      - name: Existing YouTube upload core tests
+        run: node --experimental-strip-types --test src/services/youtubeUploadCore.test.ts
+
+      - name: Production build
+        run: npm run build
