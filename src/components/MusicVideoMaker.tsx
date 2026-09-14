@@ -661,6 +661,7 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
         const newVideo = {
           id: newVideoId,
           track_id: selectedTrackId || undefined,
+          video_data: videoBlob,
           video_url: videoUrl,
           thumbnail_url: resolvedImageUrl,
           style: lyricVideoMode ? `Lyric Video ${preset.aspect}` : `Social ${preset.aspect}`,
