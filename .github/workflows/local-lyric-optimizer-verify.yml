@@ -31,7 +31,12 @@ jobs:
           python-version: '3.12'
 
       - name: Install Python test dependencies
-        run: python -m pip install --upgrade pip pytest
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r local_lyric_optimizer/requirements.txt pytest httpx
 
       - name: Intel transcriber contract
         run: python -m pytest local_lyric_optimizer/tests/test_transcriber.py -q
+
+      - name: Local API contract
+        run: python -m pytest local_lyric_optimizer/tests/test_app.py -q
