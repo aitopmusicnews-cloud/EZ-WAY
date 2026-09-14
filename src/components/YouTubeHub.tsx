@@ -5,6 +5,7 @@ import {
   createYouTubeBrowserClient,
   createYouTubeFetchBridge,
   preloadGoogleIdentityServices,
+  setYouTubeBrowserAmazonMusicLink,
   YOUTUBE_OAUTH_SENTINEL_URL,
 } from '../services/youtubeBrowser';
 import {
@@ -254,6 +255,7 @@ export default function YouTubeHub(props: YouTubeHubProps) {
           const value = event.target.value;
           setAmazonMusicLink(value);
           setYouTubeAmazonMusicLink(value);
+          setYouTubeBrowserAmazonMusicLink(value);
         }}
         placeholder="https://music.amazon.com/..."
         className="w-full bg-zinc-950 border border-zinc-850 rounded-xl px-3 py-2 text-[11px] text-white focus:outline-none focus:border-orange-500 font-sans"

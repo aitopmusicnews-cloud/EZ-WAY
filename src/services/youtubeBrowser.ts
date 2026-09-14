@@ -1,6 +1,11 @@
 export const YOUTUBE_OAUTH_SENTINEL_URL = 'about:blank#ezway-youtube-oauth';
 export const YOUTUBE_TOKEN_STORAGE_KEY = 'EZWAY_YOUTUBE_OAUTH_TOKEN';
 
+let youtubeAmazonMusicLink = '';
+export const setYouTubeBrowserAmazonMusicLink = (value: string) => {
+  youtubeAmazonMusicLink = String(value || '').trim();
+};
+
 const YOUTUBE_SCOPES = [
   'https://www.googleapis.com/auth/youtube.readonly',
   'https://www.googleapis.com/auth/youtube.upload',
@@ -455,6 +460,17 @@ export function createYouTubeFetchBridge({
       if (path === '/api/youtube/comments' && method === 'GET') return jsonResponse(await client.getComments());
       if (path === '/api/youtube/seo-research' && method === 'GET') {
         return jsonResponse(await client.researchLyricSEO(url.searchParams.get('seed') || ''));
+      }
+      if (path === '/api/youtube/generate-meta' && method === 'POST') {
+        const body = await readJsonBody();
+        const headers = new Headers(init?.headers || {});
+        headers.set('Content-Type', 'application/json');
+        return nativeFetch(input, {
+          ...init,
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ ...body, amazonLink: youtubeAmazonMusicLink }),
+        });
       }
       if (path === '/api/youtube/disconnect' && method === 'POST') {
         await client.disconnect();
