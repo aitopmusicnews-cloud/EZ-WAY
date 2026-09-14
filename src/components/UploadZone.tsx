@@ -327,7 +327,7 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
               <input 
                 type="file" 
                 id="file-upload-single" 
-                className="hidden" 
+                style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
                 accept="audio/*"
                 onChange={(e) => {
                   const selectedFile = e.target.files?.[0];

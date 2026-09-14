@@ -361,7 +361,7 @@ export default function SharePortal({ track: initialTrack, playlist, shareLink }
                 <div className="flex gap-3">
                   <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-zinc-800 px-4 py-3 text-xs font-black uppercase tracking-widest hover:border-orange-500">
                     <Paperclip className="w-4 h-4" /> Attach
-                    <input type="file" className="hidden" onChange={(event) => {
+                    <input type="file" style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}} onChange={(event) => {
                       const file = event.target.files?.[0] || null;
                       event.target.value = '';
                       if (!file) return;
