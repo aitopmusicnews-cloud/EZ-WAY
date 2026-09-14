@@ -10,6 +10,7 @@ on:
       - 'src/services/localLyricOptimizer.test.ts'
       - 'src/services/browserAudioTools.ts'
       - 'src/services/browserAudioTools.test.ts'
+      - 'src/services/trackActionButtons.test.ts'
       - 'src/components/TrackOptionsMenu.tsx'
       - 'src/components/YouTubeHub.tsx'
       - 'src/services/youtubeLyricsSeo.test.ts'
@@ -55,3 +56,6 @@ jobs:
 
       - name: Browser Audio Tools lyric integration
         run: node --experimental-strip-types --test src/services/browserAudioTools.test.ts
+
+      - name: Track action copy
+        run: node --experimental-strip-types --test src/services/trackActionButtons.test.ts
