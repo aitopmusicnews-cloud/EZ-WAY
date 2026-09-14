@@ -936,7 +936,7 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
                 />
                 <label className="px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 hover:border-zinc-600 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1 cursor-pointer">
                   <Upload className="w-3.5 h-3.5" /> Browse...
-                  <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                  <input type="file" accept="image/*" onChange={handleImageUpload} style={{ position: 'absolute', width: 1, height: 1, opacity: 0, overflow: 'hidden' }} />
                 </label>
               </div>
             </div>
@@ -956,7 +956,7 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
                 />
                 <label className="px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 hover:border-zinc-600 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1 cursor-pointer">
                   <Upload className="w-3.5 h-3.5" /> Browse...
-                  <input type="file" accept="audio/*" onChange={handleAudioUpload} className="hidden" />
+                  <input type="file" accept="audio/*" onChange={handleAudioUpload} style={{ position: 'absolute', width: 1, height: 1, opacity: 0, overflow: 'hidden' }} />
                 </label>
               </div>
             </div>
