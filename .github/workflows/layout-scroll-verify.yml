@@ -1,0 +1,33 @@
+name: Layout Scroll Verification
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/index.css'
+      - 'src/services/layoutScrollAudit.test.ts'
+      - '.github/workflows/layout-scroll-verify.yml'
+  workflow_dispatch:
+
+jobs:
+  verify-layout-scroll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Single-scrollbar regression
+        run: node --experimental-strip-types --test src/services/layoutScrollAudit.test.ts
+
+      - name: Production build
+        run: npm run build
