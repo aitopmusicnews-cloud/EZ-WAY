@@ -66,6 +66,8 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
   const [addLyrics, setAddLyrics] = useState<boolean>(true);
   const [showSoundwave, setShowSoundwave] = useState<boolean>(true);
   const [addWatermark, setAddWatermark] = useState<boolean>(true);
+  const [lyricVideoMode, setLyricVideoMode] = useState<boolean>(false);
+  const [lyricStyle, setLyricStyle] = useState<'white' | 'gradient' | 'outline'>('white');
   const [exportDuration, setExportDuration] = useState<number>(15);
   const [recordedVideoBlob, setRecordedVideoBlob] = useState<Blob | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -341,9 +343,9 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
     ctx.rect(xOffset, yOffset, targetW, targetH);
     ctx.clip();
 
-    if (showSoundwave) {
+    if (showSoundwave && !lyricVideoMode) {
       const barWidth = targetW / 32;
-      ctx.fillStyle = 'rgba(249, 115, 22, 0.45)'; // Theme Orange
+      ctx.fillStyle = 'rgba(249, 115, 22, 0.45)';
       for (let i = 0; i < 32; i++) {
         const val = array[i] || 0;
         const barHeight = (val / 255) * (targetH * 0.2);
@@ -353,45 +355,85 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
       }
     }
 
-    // Draw live synchronized subtitles text centered in the video
+    // Draw live synchronized lyrics
     if (addLyrics && activeSubtitle) {
-      ctx.shadowColor = 'black';
-      ctx.shadowBlur = 12;
-      ctx.shadowOffsetX = 2;
-      ctx.shadowOffsetY = 2;
-      
-      // Responsive font sizing based on preset format
-      const fontSize = targetW * 0.045;
-      ctx.font = `black ${fontSize}px Helvetica, sans-serif`;
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-
-      // Text word-wrapping for multiple lines
-      const words = activeSubtitle.split(' ');
-      let line = '';
-      const lines = [];
+      const fontSize = lyricVideoMode ? targetW * 0.065 : targetW * 0.045;
       const maxWidth = targetW * 0.85;
 
+      // Word-wrap
+      const words = activeSubtitle.split(' ');
+      let line = '';
+      const lines: string[] = [];
       for (let n = 0; n < words.length; n++) {
+        ctx.font = `900 ${fontSize}px Helvetica, sans-serif`;
         const testLine = line + words[n] + ' ';
-        const metrics = ctx.measureText(testLine);
-        const testWidth = metrics.width;
-        if (testWidth > maxWidth && n > 0) {
-          lines.push(line);
+        if (ctx.measureText(testLine).width > maxWidth && n > 0) {
+          lines.push(line.trim());
           line = words[n] + ' ';
         } else {
           line = testLine;
         }
       }
-      lines.push(line);
+      lines.push(line.trim());
 
-      // Render lines center aligned
-      const lh = fontSize * 1.3;
-      const startY = yOffset + (targetH * 0.75) - ((lines.length - 1) * lh / 2);
-      
+      const lh = fontSize * 1.35;
+      // Lyric video: vertically centered; visualizer: lower third
+      const centerY = lyricVideoMode
+        ? yOffset + targetH / 2
+        : yOffset + targetH * 0.75;
+      const startY = centerY - ((lines.length - 1) * lh) / 2;
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      if (lyricVideoMode) {
+        // Semi-transparent pill background behind lyrics
+        const padX = targetW * 0.06;
+        const padY = fontSize * 0.5;
+        const boxW = maxWidth + padX * 2;
+        const boxH = lines.length * lh + padY * 2;
+        const boxX = xOffset + (targetW - boxW) / 2;
+        const boxY = startY - lh / 2 - padY;
+        ctx.save();
+        ctx.globalAlpha = 0.55;
+        ctx.fillStyle = '#000000';
+        const r = fontSize * 0.6;
+        ctx.beginPath();
+        ctx.roundRect(boxX, boxY, boxW, boxH, r);
+        ctx.fill();
+        ctx.restore();
+      }
+
       lines.forEach((txt, idx) => {
-        ctx.fillText(txt.trim(), width / 2, startY + idx * lh);
+        const y = startY + idx * lh;
+        if (lyricVideoMode && lyricStyle === 'outline') {
+          ctx.font = `900 ${fontSize}px Helvetica, sans-serif`;
+          ctx.strokeStyle = '#f97316';
+          ctx.lineWidth = fontSize * 0.08;
+          ctx.strokeText(txt, width / 2, y);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(txt, width / 2, y);
+        } else if (lyricVideoMode && lyricStyle === 'gradient') {
+          const grad = ctx.createLinearGradient(xOffset, y - fontSize / 2, xOffset + targetW, y + fontSize / 2);
+          grad.addColorStop(0, '#f97316');
+          grad.addColorStop(0.5, '#ffffff');
+          grad.addColorStop(1, '#f97316');
+          ctx.font = `900 ${fontSize}px Helvetica, sans-serif`;
+          ctx.shadowColor = 'rgba(0,0,0,0.9)';
+          ctx.shadowBlur = 18;
+          ctx.fillStyle = grad;
+          ctx.fillText(txt, width / 2, y);
+          ctx.shadowBlur = 0;
+        } else {
+          ctx.font = `900 ${fontSize}px Helvetica, sans-serif`;
+          ctx.shadowColor = 'rgba(0,0,0,0.9)';
+          ctx.shadowBlur = lyricVideoMode ? 20 : 12;
+          ctx.shadowOffsetX = 2;
+          ctx.shadowOffsetY = 2;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(txt, width / 2, y);
+          ctx.shadowBlur = 0;
+        }
       });
     }
 
@@ -426,7 +468,7 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [resolvedImageUrl, selectedPreset, activeSubtitle, addLyrics, showSoundwave, addWatermark]);
+  }, [resolvedImageUrl, selectedPreset, activeSubtitle, addLyrics, showSoundwave, addWatermark, lyricVideoMode, lyricStyle]);
 
   const setupAudioGraph = () => {
     if (!audioRef.current) return null;
@@ -621,7 +663,7 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
           track_id: selectedTrackId || undefined,
           video_url: videoUrl,
           thumbnail_url: resolvedImageUrl,
-          style: `Social ${preset.aspect}`,
+          style: lyricVideoMode ? `Lyric Video ${preset.aspect}` : `Social ${preset.aspect}`,
           status: 'ready',
           created_at: new Date().toISOString(),
           name: `${outputFileName}${preset.suffix}.${ext}`,
@@ -888,7 +930,7 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
             </div>
 
             {/* Step 5: Lyrics Video Option */}
-            <div className="pt-2">
+            <div className="pt-2 space-y-3">
               <label className="flex items-center gap-3 cursor-pointer select-none bg-zinc-950 p-4 border border-zinc-850 rounded-2xl group hover:border-zinc-700 transition-colors">
                 <input
                   type="checkbox"
@@ -898,13 +940,56 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
                 />
                 <div className="text-left">
                   <span className="text-[10px] font-black uppercase tracking-wider text-zinc-200 block group-hover:text-orange-400 transition-colors">
-                    🎤 Add Lyrics Video overlay
+                    🎤 Add Lyrics Overlay
                   </span>
                   <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 block mt-0.5">
-                    auto-transcribe audio with Whisper AI model & render synced timed text sheet
+                    Render synced timed lyrics from track LRC data
                   </span>
                 </div>
               </label>
+
+              {addLyrics && (
+                <div className="ml-2 bg-zinc-950 border border-zinc-850 rounded-2xl p-4 space-y-3">
+                  <label className="flex items-center gap-3 cursor-pointer select-none group">
+                    <input
+                      type="checkbox"
+                      checked={lyricVideoMode}
+                      onChange={(e) => setLyricVideoMode(e.target.checked)}
+                      className="w-4 h-4 accent-orange-500 rounded cursor-pointer"
+                    />
+                    <div className="text-left">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-zinc-200 block group-hover:text-orange-400 transition-colors">
+                        🎬 Lyric Video Mode
+                      </span>
+                      <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 block mt-0.5">
+                        Large centered lyrics with pill background — YouTube lyric video style
+                      </span>
+                    </div>
+                  </label>
+
+                  {lyricVideoMode && (
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 font-mono block">Lyric Text Style</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(['white', 'gradient', 'outline'] as const).map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => setLyricStyle(s)}
+                            className={`py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border ${
+                              lyricStyle === s
+                                ? 'bg-orange-500/15 border-orange-500/40 text-orange-400'
+                                : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                            }`}
+                          >
+                            {s === 'white' ? '⬜ White' : s === 'gradient' ? '🌈 Gradient' : '🔲 Outline'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Step 5b: Soundwave Overlay Option */}

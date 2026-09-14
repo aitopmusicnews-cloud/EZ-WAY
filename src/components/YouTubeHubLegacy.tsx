@@ -20,7 +20,12 @@ import {
     FileText,
     ArrowUpRight,
     Search,
-    Send
+    Send,
+    Tag,
+    ChevronDown,
+    ChevronUp,
+    Copy,
+    Check
 } from "lucide-react";
 import {
     AreaChart,
@@ -35,6 +40,7 @@ import {
     Cell
 } from "recharts";
 import { useMediaStore } from "../context/MediaStoreContext";
+import { generateYouTubeSEO } from "../services/youtubeUploadCore";
 
 interface YouTubeHubProps {
     addToast?: (message: string, type: "success" | "error" | "info") => void;
@@ -87,6 +93,11 @@ export default function YouTubeHub({ addToast }: YouTubeHubProps) {
     const [uploadStatusText, setUploadStatusText] = useState("");
     const [publishingLogs, setPublishingLogs] = useState<string[]>([]);
     const [videoPreviewUrl, setVideoPreviewUrl] = useState<string>("");
+
+    // SEO panel state
+    const [seoOpen, setSeoOpen] = useState(false);
+    const [seoPackage, setSeoPackage] = useState<{ title: string; description: string; tags: string; keywords: string } | null>(null);
+    const [seoCopied, setSeoCopied] = useState<string | null>(null);
 
     useEffect(() => {
         let activeUrl = "";
@@ -364,6 +375,8 @@ export default function YouTubeHub({ addToast }: YouTubeHubProps) {
     const handleAssetSelect = (videoId: string) => {
         setIsPlayingVideo(false);
         setSelectedVideoId(videoId);
+        setSeoPackage(null);
+        setSeoOpen(false);
         const video = promoVideos.find(v => v.id === videoId);
         if (!video) return;
 
@@ -393,6 +406,33 @@ export default function YouTubeHub({ addToast }: YouTubeHubProps) {
             `ABOUT THE BEATZ WAY PORTAL:\n` +
             `Fully automated sound mastering, real-time sync licensing contracts, and smart YouTube broadcast workflows for contemporary music stars.`
         );
+    };
+
+    const generateSEO = (trackId: string, videoStyle?: string) => {
+        const track = tracks.find(t => t.id === trackId);
+        if (!track) return;
+        const pkg = generateYouTubeSEO(track, {
+            videoStyle,
+            spotifyLink,
+            appleLink,
+            instagramHandle,
+        });
+        setSeoPackage(pkg);
+        setSeoOpen(true);
+    };
+
+    const applySEOToForm = () => {
+        if (!seoPackage) return;
+        setVideoTitle(seoPackage.title);
+        setVideoDescription(seoPackage.description);
+        setVideoTags(seoPackage.tags);
+        triggerToast("SEO metadata applied to upload form.", "success");
+    };
+
+    const copySEOField = (field: string, value: string) => {
+        navigator.clipboard.writeText(value).catch(() => {});
+        setSeoCopied(field);
+        setTimeout(() => setSeoCopied(null), 2000);
     };
 
     // Generate smart YouTube SEO Metadata using AI on the server!
@@ -1459,6 +1499,90 @@ GOOGLE_CLIENT_SECRET=your_gcp_oauth_client_secret_here`}
                                     </div>
                                 </div>
                             </div>
+
+                            {/* SEO Optimizer Panel */}
+                            {uploadSource === "studio" && selectedVideoId && (() => {
+                                const video = promoVideos.find(v => v.id === selectedVideoId);
+                                const track = tracks.find(t => t.id === video?.track_id);
+                                return track ? (
+                                    <div className="bg-zinc-900/40 border border-zinc-850/60 rounded-[1.8rem] overflow-hidden">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (!seoPackage) generateSEO(track.id, video?.style);
+                                                setSeoOpen(o => !o);
+                                            }}
+                                            className="w-full flex items-center justify-between px-6 py-4 hover:bg-zinc-900/60 transition-colors cursor-pointer"
+                                        >
+                                            <div className="flex items-center gap-2.5">
+                                                <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                                                    <Tag className="w-3.5 h-3.5 text-emerald-400" />
+                                                </div>
+                                                <div className="text-left">
+                                                    <span className="text-xs font-black uppercase tracking-tight text-zinc-200 block">SEO Optimizer</span>
+                                                    <span className="text-[9px] text-zinc-500">Auto-generate title, description, tags &amp; keywords from track data</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                {!seoPackage && (
+                                                    <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[8px] font-mono font-black uppercase rounded-md tracking-wider">Generate</span>
+                                                )}
+                                                {seoOpen ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+                                            </div>
+                                        </button>
+
+                                        {seoOpen && seoPackage && (
+                                            <div className="px-6 pb-6 space-y-4 border-t border-zinc-900">
+                                                <div className="pt-4 flex items-center justify-between">
+                                                    <span className="text-[9px] font-mono font-black uppercase tracking-widest text-zinc-400">Generated for: {track.name}</span>
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => generateSEO(track.id, video?.style)}
+                                                            className="px-3 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white text-[8px] font-mono font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center gap-1"
+                                                        >
+                                                            <RefreshCw className="w-3 h-3" /> Regenerate
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={applySEOToForm}
+                                                            className="px-3 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-400 text-[8px] font-mono font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer"
+                                                        >
+                                                            Apply to Form
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {([
+                                                    { key: 'title', label: 'Title', value: seoPackage.title },
+                                                    { key: 'keywords', label: 'Keywords', value: seoPackage.keywords },
+                                                    { key: 'tags', label: 'Tags', value: seoPackage.tags },
+                                                    { key: 'description', label: 'Description', value: seoPackage.description },
+                                                ] as const).map(({ key, label, value }) => (
+                                                    <div key={key} className="space-y-1.5">
+                                                        <div className="flex items-center justify-between">
+                                                            <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 font-mono">{label}</label>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => copySEOField(key, value)}
+                                                                className="flex items-center gap-1 text-[8px] font-mono text-zinc-500 hover:text-white transition-colors cursor-pointer"
+                                                            >
+                                                                {seoCopied === key ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                                                {seoCopied === key ? 'Copied' : 'Copy'}
+                                                            </button>
+                                                        </div>
+                                                        <div className={`bg-zinc-950 border border-zinc-900 rounded-xl px-3 py-2.5 text-[10px] font-mono text-zinc-300 leading-relaxed ${
+                                                            key === 'description' ? 'whitespace-pre-wrap max-h-40 overflow-y-auto' : 'truncate'
+                                                        }`}>
+                                                            {value}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : null;
+                            })()}
 
                             {/* Enhanced copy tools banner */}
                             <div className="flex items-center justify-between bg-zinc-900/50 border border-zinc-850 p-4 rounded-2xl gap-4">
