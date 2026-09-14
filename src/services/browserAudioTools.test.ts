@@ -35,10 +35,11 @@ const fakeStereo = (value = 0.1) => ({
 const baseDeps = (): BrowserAudioToolsDependencies => ({
   refreshSource: async (track: Track) => track,
   loadSourceFile: async () => new File(['song'], 'Local-Song.wav', { type: 'audio/wav' }),
-  transcribe: async () => ({
+  transcribeFile: async () => ({
+    text: 'Hello world',
     language: 'en',
     language_probability: 0.99,
-    chunks: [{ text: 'Hello world', timestamp: [0, 1.5] as [number, number] }],
+    segments: [{ start: 0, end: 1.5, text: 'Hello world' }],
   }),
   decodeStems: async () => fakeStereo(),
   separate: async () => ({
@@ -47,81 +48,89 @@ const baseDeps = (): BrowserAudioToolsDependencies => ({
     bass: fakeStereo(0.3),
     other: fakeStereo(0.4),
   }),
-  prepareLyricsPcm: async () => ({ pcm: new Float32Array([0, 0.9, 0]), sampleRate: 16000 }),
   createObjectUrl: (file: File) => `blob:local/${file.name}`,
   uploadFile: undefined,
-});
+} as BrowserAudioToolsDependencies);
 
 test('a local file_data source is sufficient even without a cloud URL', () => {
   assert.equal(trackHasUsableAudioSource(baseTrack), true);
   assert.equal(trackHasUsableAudioSource({ ...baseTrack, file_data: undefined, file_url: null }), false);
 });
 
-test('browser lyrics returns timestamped lyrics and local LRC/plain downloads', async () => {
+test('lyrics uses the original file with the local service and returns clean text plus LRC/plain downloads', async () => {
+  const calls: string[] = [];
   const progress: string[] = [];
+  const deps = baseDeps();
+  deps.decodeStems = async () => { throw new Error('lyrics must not decode stems'); };
+  deps.separate = async () => { throw new Error('lyrics must not run Demucs'); };
+  deps.transcribeFile = async (file: File) => {
+    calls.push(file.name);
+    return {
+      text: 'Hello world',
+      language: 'en',
+      language_probability: 0.99,
+      segments: [{ start: 0, end: 1.5, text: 'Hello world' }],
+    };
+  };
+
   const result = await runLocalAudioTool(
     baseTrack,
     'lyrics',
     undefined,
     (message) => progress.push(message),
-    baseDeps(),
+    deps,
   );
 
   assert.equal(result.status, 'completed');
   assert.equal(result.action, 'lyrics');
-  assert.equal(result.lyrics, '[00:00.00] Hello world');
+  assert.equal(result.lyrics, 'Hello world');
+  assert.deepEqual(calls, ['Local-Song.wav']);
   assert.match(result.files?.lrc || '', /^blob:local\//);
   assert.match(result.files?.plain || '', /^blob:local\//);
-  assert.ok(progress.some((message) => /demucs|vocal/i.test(message)));
-  assert.ok(progress.some((message) => /transcrib/i.test(message)));
+  assert.ok(progress.some((message) => /local lyrics|transcrib/i.test(message)));
+  assert.equal(progress.some((message) => /demucs|vocal isolation/i.test(message)), false);
 });
 
-test('browser lyrics isolates Demucs vocals before sending PCM to Whisper', async () => {
-  const calls: string[] = [];
+test('lyrics builds timestamped LRC content from returned local-service segments', async () => {
   const deps = baseDeps();
-  deps.decodeStems = async () => {
-    calls.push('decode');
-    return fakeStereo(0.1);
-  };
-  deps.separate = async () => {
-    calls.push('separate');
-    return {
-      vocals: fakeStereo(0.9),
-      drums: fakeStereo(0.2),
-      bass: fakeStereo(0.3),
-      other: fakeStereo(0.4),
-    };
-  };
-  deps.prepareLyricsPcm = async (vocals) => {
-    calls.push('prepare-vocals');
-    assert.ok(Math.abs(vocals.left[1] - 0.9) < 1e-6, 'lyrics should prepare the isolated vocal stem');
-    return { pcm: new Float32Array([0, 0.77, 0]), sampleRate: 16000 };
-  };
-  deps.transcribe = async (pcm) => {
-    calls.push('transcribe');
-    assert.ok(Math.abs(pcm[1] - 0.77) < 1e-6, 'Whisper should receive PCM derived from isolated vocals');
-    return {
-      language: 'en',
-      language_probability: 0.99,
-      chunks: [{ text: 'Vocal line', timestamp: [0, 1] as [number, number] }],
-    };
+  const captured: File[] = [];
+  deps.transcribeFile = async () => ({
+    text: 'First line\nSecond line',
+    language: 'en',
+    language_probability: 0.97,
+    segments: [
+      { start: 0, end: 1.2, text: 'First line' },
+      { start: 2.34, end: 3.8, text: 'Second line' },
+    ],
+  });
+  deps.createObjectUrl = (file: File) => {
+    captured.push(file);
+    return `blob:local/${file.name}`;
   };
 
   const result = await runLocalAudioTool(baseTrack, 'lyrics', undefined, undefined, deps);
-  assert.equal(result.lyrics, '[00:00.00] Vocal line');
-  assert.deepEqual(calls, ['decode', 'separate', 'prepare-vocals', 'transcribe']);
+
+  assert.equal(result.lyrics, 'First line\nSecond line');
+  const lrc = captured.find((file) => file.name.endsWith('.lrc'));
+  assert.ok(lrc);
+  assert.equal(await lrc!.text(), '[00:00.00] First line\n[00:02.34] Second line\n');
 });
 
-test('browser lyrics rejects an empty transcript instead of replacing lyrics with invented text', async () => {
+test('lyrics rejects an empty local transcript instead of replacing existing lyrics', async () => {
   const deps = baseDeps();
-  deps.transcribe = async () => ({ language: null, language_probability: null, chunks: [] });
+  deps.transcribeFile = async () => ({
+    text: '',
+    language: null,
+    language_probability: null,
+    segments: [],
+  });
   await assert.rejects(
     () => runLocalAudioTool(baseTrack, 'lyrics', undefined, undefined, deps),
     /no reliable lyrics/i,
   );
 });
 
-test('vocals_instrumental derives the no-vocal mix and returns a ZIP bundle', async () => {
+test('vocals_instrumental still derives the no-vocal mix and returns a ZIP bundle', async () => {
   const result = await runLocalAudioTool(baseTrack, 'stems', 'vocals_instrumental', undefined, baseDeps());
   assert.equal(result.status, 'completed');
   assert.equal(result.mode, 'vocals_instrumental');
@@ -129,16 +138,17 @@ test('vocals_instrumental derives the no-vocal mix and returns a ZIP bundle', as
   assert.match(result.bundle_url || '', /^blob:local\//);
 });
 
-test('full separation returns vocals, drums, bass, other and a ZIP bundle', async () => {
+test('full separation still returns vocals, drums, bass, other and a ZIP bundle', async () => {
   const result = await runLocalAudioTool(baseTrack, 'stems', 'full', undefined, baseDeps());
   assert.deepEqual(Object.keys(result.files || {}).sort(), ['bass', 'drums', 'other', 'vocals']);
   assert.match(result.bundle_url || '', /^blob:local\//);
 });
 
-test('successful local processing survives an AWS output upload failure with a warning', async () => {
+test('successful local lyric processing survives an output upload failure with a warning', async () => {
   const deps = baseDeps();
   deps.uploadFile = async () => { throw new Error('cloud save unavailable'); };
   const result = await runLocalAudioTool(baseTrack, 'lyrics', undefined, undefined, deps);
+  assert.equal(result.lyrics, 'Hello world');
   assert.match(result.files?.lrc || '', /^blob:local\//);
   assert.match(result.warning || '', /cloud save/i);
 });

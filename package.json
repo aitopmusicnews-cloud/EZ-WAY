@@ -10,9 +10,7 @@
     "esbuild": "0.21.5"
   },
   "scripts": {
-    "predev": "node scripts/copy-transformers-wasm.mjs",
     "dev": "tsx server.ts",
-    "prebuild": "node scripts/copy-transformers-wasm.mjs",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
@@ -20,7 +18,6 @@
   },
   "dependencies": {
     "@google/genai": "^1.52.0",
-    "@huggingface/transformers": "4.2.0",
     "@supabase/supabase-js": "^2.105.4",
     "@tailwindcss/vite": "^4.1.14",
     "@types/canvas-confetti": "^1.9.0",

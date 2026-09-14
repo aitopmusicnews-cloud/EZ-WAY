@@ -12,7 +12,7 @@ test('track tools Analyze action stays wired to the manual analysis handler', ()
   assert.match(app, /onAnalyze=\{\(\) => handleAnalyzeTrackManual\(track\)\}/);
 });
 
-test('Lyrics and Stems consumers use the browser-local Audio Tools facade instead of remote jobs', () => {
+test('Lyrics and Stems consumers use the shared Audio Tools facade instead of remote jobs', () => {
   const menu = read('../components/TrackOptionsMenu.tsx');
   const studio = read('../components/AudioAnalyzerStudio.tsx');
   for (const source of [menu, studio]) {
@@ -23,11 +23,16 @@ test('Lyrics and Stems consumers use the browser-local Audio Tools facade instea
   assert.doesNotMatch(studio, /needs a cloud audio source before synced lyrics/i);
 });
 
-test('Synced Lyrics UI describes HTDemucs vocal isolation before local Whisper transcription', () => {
+test('Lyrics UI clearly uses the local Intel Faster Whisper companion and keeps stems separate', () => {
   const menu = read('../components/TrackOptionsMenu.tsx');
-  assert.match(menu, /HTDemucs/i);
-  assert.match(menu, /isolates vocals locally/i);
-  assert.match(menu, /transcribes the vocal stem/i);
+  assert.match(menu, /Extract Lyrics — Local Intel/);
+  assert.match(menu, /Local Intel Lyrics/);
+  assert.match(menu, /Faster Whisper on your Intel CPU/);
+  assert.match(menu, /Stem separation remains a separate tool/);
+  assert.match(menu, /Connecting to Local Lyrics Service/);
+  assert.match(menu, /Clean lyrics saved to this track/);
+  assert.doesNotMatch(menu, /Isolates vocals locally with HTDemucs, then transcribes/);
+  assert.doesNotMatch(menu, /transcribes the vocal stem in your browser/);
 });
 
 test('analyzer screen Analyze button stays wired to shared Music Intelligence', () => {

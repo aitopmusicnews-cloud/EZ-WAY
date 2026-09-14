@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import type { Track } from '../types.ts';
 import type { AudioToolAction, AudioToolJobResult, StemMode } from './audioToolTypes.ts';
 import { buildLyricsFiles } from './lyricsCore.ts';
+import { transcribeLyricsFile, type LocalLyricTranscript } from './localLyricOptimizer.ts';
 import { encodeStereoWav } from './wav.ts';
 import { sumStereoStems } from './demucsCore.ts';
 import {
@@ -16,15 +17,6 @@ export interface StereoPcm {
   sampleRate: number;
 }
 
-export interface LocalTranscript {
-  language?: string | null;
-  language_probability?: number | null;
-  chunks: Array<{
-    text: string;
-    timestamp?: [number | null, number | null] | null;
-  }>;
-}
-
 export interface LocalStemResult {
   vocals: StereoPcm;
   drums: StereoPcm;
@@ -35,17 +27,12 @@ export interface LocalStemResult {
 export interface BrowserAudioToolsDependencies {
   refreshSource?: (track: Track) => Promise<Track>;
   loadSourceFile?: (track: Track) => Promise<File>;
-  transcribe?: (
-    pcm: Float32Array,
-    sampleRate: number,
-    onProgress?: (status: string) => void,
-  ) => Promise<LocalTranscript>;
+  transcribeFile?: (file: File) => Promise<LocalLyricTranscript>;
   decodeStems?: (file: File) => Promise<StereoPcm>;
   separate?: (
     stereo: StereoPcm,
     onProgress?: (status: string) => void,
   ) => Promise<LocalStemResult>;
-  prepareLyricsPcm?: (vocals: StereoPcm) => Promise<{ pcm: Float32Array; sampleRate: number }>;
   createObjectUrl?: (file: File) => string;
   uploadFile?: (
     category: string,
@@ -126,37 +113,6 @@ const defaultDecodeStems = async (file: File): Promise<StereoPcm> => {
   return { left: resampledLeft, right: resampledRight, sampleRate: 44100 };
 };
 
-const defaultPrepareLyricsPcm = async (
-  vocals: StereoPcm,
-): Promise<{ pcm: Float32Array; sampleRate: number }> => {
-  if (!vocals.left.length || vocals.left.length !== vocals.right.length) {
-    throw new Error('Demucs returned an invalid vocal stem for transcription.');
-  }
-  const mono = new Float32Array(vocals.left.length);
-  for (let index = 0; index < mono.length; index += 1) {
-    mono[index] = (vocals.left[index] + vocals.right[index]) * 0.5;
-  }
-  const [pcm] = await resampleBuffer([mono], vocals.sampleRate, 16000);
-  return { pcm, sampleRate: 16000 };
-};
-
-const defaultTranscribe = async (
-  pcm: Float32Array,
-  sampleRate: number,
-  onProgress?: (status: string) => void,
-): Promise<LocalTranscript> => {
-  const { transcribePcmLocally } = await import('./lyricsWorkerClient.ts');
-  return transcribePcmLocally(pcm, sampleRate, onProgress);
-};
-
-const defaultRunLyricsPipeline = async (
-  stereo: StereoPcm,
-  onProgress?: (status: string) => void,
-): Promise<LocalTranscript> => {
-  const { runLyricsPipelineLocally } = await import('./lyricsWorkerClient.ts');
-  return runLyricsPipelineLocally(stereo, onProgress);
-};
-
 const defaultSeparate = async (
   stereo: StereoPcm,
   onProgress?: (status: string) => void,
@@ -233,21 +189,33 @@ export async function runLocalAudioTool(
   const baseName = cleanFilename(sourceTrack.name);
 
   if (action === 'lyrics') {
-    onProgress?.('Decoding audio…');
-    const decodeStems = dependencies.decodeStems || defaultDecodeStems;
-    const stereo = await decodeStems(sourceFile);
-    // Run HTDemucs + Whisper in one worker to share a single WASM heap
-    onProgress?.('Starting lyrics pipeline…');
-    const runPipeline = defaultRunLyricsPipeline;
-    const transcript = await runPipeline(stereo, onProgress);
-    onProgress?.('Building synced lyrics…');
-    const built = buildLyricsFiles(transcript.chunks || []);
-    if (!built.lyrics.trim()) {
+    onProgress?.('Connecting to Local Lyrics Service…');
+    const transcribeFile = dependencies.transcribeFile || transcribeLyricsFile;
+    const transcript = await transcribeFile(sourceFile);
+    const cleanLyrics = String(transcript.text || '').trim();
+    if (!cleanLyrics) {
       throw new Error('No reliable lyrics were detected. Existing lyrics were left unchanged.');
     }
 
-    const lrcFile = createOutputFile(new Blob([`${built.lyrics}\n`], { type: 'text/plain' }), `${baseName}.lrc`, 'text/plain');
-    const plainFile = createOutputFile(new Blob([`${built.plain}\n`], { type: 'text/plain' }), `${baseName}-lyrics.txt`, 'text/plain');
+    onProgress?.('Building synced lyric files…');
+    const built = buildLyricsFiles((transcript.segments || []).map((segment) => ({
+      text: segment.text,
+      timestamp: [segment.start, segment.end] as [number, number],
+    })));
+    if (!built.lyrics.trim()) {
+      throw new Error('No reliable timestamped lyric segments were detected. Existing lyrics were left unchanged.');
+    }
+
+    const lrcFile = createOutputFile(
+      new Blob([`${built.lyrics}\n`], { type: 'text/plain' }),
+      `${baseName}.lrc`,
+      'text/plain',
+    );
+    const plainFile = createOutputFile(
+      new Blob([`${built.plain}\n`], { type: 'text/plain' }),
+      `${baseName}-lyrics.txt`,
+      'text/plain',
+    );
     const localFiles = {
       lrc: { file: lrcFile, localUrl: createObjectUrl(lrcFile), category: 'audio-tools-text' },
       plain: { file: plainFile, localUrl: createObjectUrl(plainFile), category: 'audio-tools-text' },
@@ -257,7 +225,7 @@ export async function runLocalAudioTool(
     return {
       status: 'completed',
       action: 'lyrics',
-      lyrics: built.lyrics,
+      lyrics: cleanLyrics,
       language: transcript.language ?? null,
       language_probability: transcript.language_probability ?? null,
       files: persisted.urls,

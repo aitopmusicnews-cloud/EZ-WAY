@@ -87,7 +87,7 @@ export default function TrackOptionsMenu({
     setProcessing(true);
     setAudioError('');
     setAudioResult(null);
-    setProgressText('Preparing HTDemucs vocal isolation…');
+    setProgressText('Connecting to Local Lyrics Service…');
     try {
       const result = await runLocalAudioTool(track, 'lyrics', undefined, setProgressText);
       if (!result.lyrics?.trim()) {
@@ -95,9 +95,9 @@ export default function TrackOptionsMenu({
       }
       await updateTrack(track.id, { lyrics: result.lyrics });
       setAudioResult(result);
-      setProgressText('Synced lyrics saved to this track.');
+      setProgressText('Clean lyrics saved to this track.');
     } catch (error: any) {
-      setAudioError(error?.message || 'Synced lyric generation failed.');
+      setAudioError(error?.message || 'Local lyric extraction failed.');
       setProgressText('');
     } finally {
       setProcessing(false);
@@ -155,7 +155,7 @@ export default function TrackOptionsMenu({
               <TrackAnalyzeMenuItem onAnalyze={() => { onAnalyze(); setIsOpen(false); }} />
             )}
             <button onClick={() => openAudioDialog('lyrics')} className="w-full flex items-center gap-3 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-orange-400 hover:bg-orange-500/10 rounded-xl transition-colors">
-              <Mic2 className="w-3.5 h-3.5 text-orange-500" /> Synced Lyrics
+              <Mic2 className="w-3.5 h-3.5 text-orange-500" /> Extract Lyrics — Local Intel
             </button>
             <button onClick={() => openAudioDialog('stems')} className="w-full flex items-center gap-3 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-orange-400 hover:bg-orange-500/10 rounded-xl transition-colors">
               <SplitSquareVertical className="w-3.5 h-3.5 text-orange-500" /> Stem Separation
@@ -200,7 +200,7 @@ export default function TrackOptionsMenu({
               <div>
                 <p className="text-[9px] uppercase tracking-[0.24em] text-orange-500 font-black">Audio Tools</p>
                 <h3 className="text-lg font-black uppercase tracking-tight mt-1">
-                  {audioDialog === 'lyrics' ? 'Timestamped Lyrics' : 'Stem Separation'}
+                  {audioDialog === 'lyrics' ? 'Local Intel Lyrics' : 'Stem Separation'}
                 </h3>
               </div>
               <button onClick={closeAudioDialog} disabled={processing} className="p-2 text-zinc-500 hover:text-white disabled:opacity-30" aria-label="Close audio tools">
@@ -213,7 +213,7 @@ export default function TrackOptionsMenu({
                 <p className="text-xs font-black text-white truncate">{track.name}</p>
                 <p className="text-[10px] text-zinc-500 mt-1">
                   {audioDialog === 'lyrics'
-                    ? 'Isolates vocals locally with HTDemucs, then transcribes the vocal stem in your browser and builds timestamped LRC lyrics. If no reliable transcript is detected, nothing is invented.'
+                    ? 'Transcribes this MP3/WAV with Faster Whisper on your Intel CPU through the local companion service. Stem separation remains a separate tool.'
                     : 'Separates the source locally with HTDemucs. Choose a karaoke split or full production stems before processing starts.'}
                 </p>
               </div>
@@ -303,7 +303,7 @@ export default function TrackOptionsMenu({
                   {processing
                     ? 'Processing…'
                     : audioDialog === 'lyrics'
-                      ? 'Generate Synced Lyrics'
+                      ? 'Extract Local Lyrics'
                       : stemMode === 'full'
                         ? 'Create Full Stems'
                         : 'Create Vocals + Instrumental'}
