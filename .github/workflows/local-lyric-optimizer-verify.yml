@@ -1,0 +1,37 @@
+name: Local Lyric Optimizer Verification
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'local_lyric_optimizer/**'
+      - 'src/services/localLyricOptimizer.ts'
+      - 'src/services/localLyricOptimizer.test.ts'
+      - 'src/services/browserAudioTools.ts'
+      - 'src/services/browserAudioTools.test.ts'
+      - 'src/components/TrackOptionsMenu.tsx'
+      - 'src/components/YouTubeHub.tsx'
+      - 'src/services/youtubeLyricsSeo.test.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/local-lyric-optimizer-verify.yml'
+  workflow_dispatch:
+
+jobs:
+  verify-local-lyric-optimizer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python test dependencies
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Intel transcriber contract
+        run: python -m pytest local_lyric_optimizer/tests/test_transcriber.py -q
