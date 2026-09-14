@@ -1,7 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { 
-  Upload, X, FileAudio, Music, Image as ImageIcon, 
-  ListPlus, CheckCircle, AlertCircle, Loader2, Play, Info 
+  Upload, X, Music, Image as ImageIcon, 
+  ListPlus, CheckCircle, AlertCircle, Loader2
 } from 'lucide-react';
 import { useMediaStore } from '../context/MediaStoreContext';
 import { runUploadedTrackAnalysis } from '../services/backgroundTrackAnalysis';
@@ -32,11 +32,6 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
   const [bulkArtworkUrl, setBulkArtworkUrl] = useState<string | null>(null);
   const [isBulkUploading, setIsBulkUploading] = useState(false);
   const [bulkProgressGlobal, setBulkProgressGlobal] = useState({ successCount: 0, failCount: 0, total: 0 });
-
-  const artworkInputRef = useRef<HTMLInputElement>(null);
-  const lyricsInputRef = useRef<HTMLInputElement>(null);
-  const bulkArtworkInputRef = useRef<HTMLInputElement>(null);
-  const bulkFileInputRef = useRef<HTMLInputElement>(null);
   
   const { addTrack, updateTrack, uploadFile, addToast } = useMediaStore();
 
@@ -326,21 +321,19 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
                 <h3 className="text-lg font-black uppercase tracking-tight text-white">Post your high-fidelity master</h3>
                 <p className="text-zinc-500 text-[9px] font-black uppercase tracking-widest mt-2">WAV, MP3 and Artwork cover accepted</p>
               </div>
-              <input 
-                type="file" 
-                id="file-upload-single" 
-                style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
-                accept="audio/*"
-                onChange={(e) => {
-                  const selectedFile = e.target.files?.[0];
-                  if (selectedFile) handleFileSingle(selectedFile);
-                }} 
-              />
-              <label 
-                htmlFor="file-upload-single"
-                className="px-8 py-3.5 bg-white text-black hover:bg-zinc-200 rounded-2xl text-[9px] font-black uppercase tracking-widest cursor-pointer hover:scale-105 transition-all shadow-lg shadow-white/5"
-              >
+              <label className="relative overflow-hidden px-8 py-3.5 bg-white text-black hover:bg-zinc-200 rounded-2xl text-[9px] font-black uppercase tracking-widest cursor-pointer hover:scale-105 transition-all shadow-lg shadow-white/5">
                 Choose Audio Master
+                <input
+                  type="file"
+                  accept="audio/*"
+                  aria-label="Choose Audio Master"
+                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  onChange={(e) => {
+                    const selectedFile = e.target.files?.[0];
+                    if (selectedFile) handleFileSingle(selectedFile);
+                    e.currentTarget.value = '';
+                  }}
+                />
               </label>
             </div>
           ) : (
@@ -368,10 +361,7 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
               {/* Artwork Row */}
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-6 bg-zinc-950/40 border border-zinc-900 p-6 rounded-[2rem] items-center">
                 <div className="col-span-1 border-r border-zinc-900/60 pr-2">
-                  <label 
-                    htmlFor="uz-artwork-input"
-                    className="w-24 h-24 bg-zinc-950 rounded-2xl border border-zinc-900 flex flex-col items-center justify-center cursor-pointer hover:border-orange-500 group overflow-hidden relative"
-                  >
+                  <label className="w-24 h-24 bg-zinc-950 rounded-2xl border border-zinc-900 flex flex-col items-center justify-center cursor-pointer hover:border-orange-500 group overflow-hidden relative">
                     {artworkUrl ? (
                       <img src={artworkUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
@@ -380,13 +370,23 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
                         <span className="text-[8px] font-black text-zinc-500 mt-1.5 uppercase">ADD COVER</span>
                       </>
                     )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      aria-label="Add cover artwork"
+                      className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                      onChange={(e) => {
+                        const selectedFile = e.target.files?.[0];
+                        if (selectedFile) handleFileSingle(selectedFile);
+                        e.currentTarget.value = '';
+                      }}
+                    />
                   </label>
                 </div>
                 <div className="col-span-11 space-y-1">
                   <h4 className="text-xs font-black uppercase tracking-wider text-zinc-300">Master Cover Art Assignment</h4>
                   <p className="text-[9px] text-zinc-500 leading-normal uppercase">Assign a cover visual for distribution. Drag cover file over or click block to launch storage navigator.</p>
                 </div>
-                <input type="file" id="uz-artwork-input" accept="image/*" style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}} onChange={(e) => { if(e.target.files?.[0]) handleFileSingle(e.target.files[0]); }} />
               </div>
 
               {/* Lyrics Field */}
@@ -394,11 +394,19 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-black uppercase text-zinc-500 tracking-widest block">🎙️ Master Lyric Projection Sheet</span>
                   <div className="flex gap-2">
-                    <label 
-                      htmlFor="uz-lyrics-input"
-                      className="text-[9px] font-black uppercase tracking-widest text-orange-400 hover:text-orange-300 transition-colors cursor-pointer"
-                    >
+                    <label className="relative inline-flex overflow-hidden text-[9px] font-black uppercase tracking-widest text-orange-400 hover:text-orange-300 transition-colors cursor-pointer">
                       Browse TXT
+                      <input
+                        type="file"
+                        accept=".txt,.lrc,text/plain"
+                        aria-label="Browse lyric file"
+                        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                        onChange={(e) => {
+                          const selectedFile = e.target.files?.[0];
+                          if (selectedFile) handleFileSingle(selectedFile);
+                          e.currentTarget.value = '';
+                        }}
+                      />
                     </label>
                     {lyrics && (
                       <button 
@@ -416,13 +424,6 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
                   onChange={(e) => setLyrics(e.target.value)}
                   placeholder="Drop a lyric file, browse for local .txt/.lrc sheets, or compose vocal scripts manually..."
                   className="w-full h-28 bg-zinc-950 border border-zinc-900 rounded-2xl p-4 outline-none focus:border-orange-500 text-xs font-mono leading-relaxed resize-none text-zinc-300 placeholder:text-zinc-600"
-                />
-                <input 
-                  type="file" 
-                  id="uz-lyrics-input"
-                  accept=".txt,.lrc,text/plain" 
-                  style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
-                  onChange={(e) => { if (e.target.files?.[0]) handleFileSingle(e.target.files[0]); }} 
                 />
               </div>
 
@@ -466,32 +467,26 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
               <p className="text-zinc-500 text-[9px] font-black uppercase tracking-widest mt-2">Drag and drop multiple audio WAV/MP3 files into this container</p>
             </div>
             
-            <input 
-              type="file" 
-              id="uz-bulk-input"
-              style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}}
-              accept="audio/*"
-              multiple
-              onChange={(e) => {
-                if (e.target.files) handleBulkFilesSelect(Array.from(e.target.files));
-              }}
-            />
-
-            <label 
-              htmlFor="uz-bulk-input"
-              className="px-6 py-3 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer"
-            >
+            <label className="relative overflow-hidden px-6 py-3 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer">
               Select Multiple Audio Files
+              <input
+                type="file"
+                accept="audio/*"
+                multiple
+                aria-label="Select multiple audio files"
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                onChange={(e) => {
+                  if (e.target.files) handleBulkFilesSelect(Array.from(e.target.files));
+                  e.currentTarget.value = '';
+                }}
+              />
             </label>
           </div>
 
           {/* Bulk Settings Option bar */}
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 bg-zinc-950/50 border border-zinc-900 p-5 rounded-3xl items-center">
             <div className="col-span-1 border-r border-zinc-900 pr-2">
-              <label 
-                htmlFor="uz-bulk-artwork-input"
-                className="w-16 h-16 bg-zinc-950 rounded-xl border border-zinc-900 flex flex-col items-center justify-center cursor-pointer hover:border-orange-500 overflow-hidden relative"
-              >
+              <label className="w-16 h-16 bg-zinc-950 rounded-xl border border-zinc-900 flex flex-col items-center justify-center cursor-pointer hover:border-orange-500 overflow-hidden relative">
                 {bulkArtworkUrl ? (
                   <img src={bulkArtworkUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                 ) : (
@@ -500,12 +495,22 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
                     <span className="text-[7px] font-black text-zinc-650 mt-1 uppercase">BATCH COV</span>
                   </>
                 )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  aria-label="Add batch cover artwork"
+                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  onChange={(e) => {
+                    const selectedFile = e.target.files?.[0];
+                    if (selectedFile) handleBulkArtwork(selectedFile);
+                    e.currentTarget.value = '';
+                  }}
+                />
               </label>
             </div>
             <div className="col-span-11 leading-normal">
               <h4 className="text-[11px] font-black uppercase tracking-wider text-zinc-400">Batch Cover Artwork (Optional)</h4>
               <p className="text-[8px] text-zinc-500 leading-normal uppercase">If uploaded, this artwork will be shared by all assets in this bulk batch. If omitted, ogbeatz visual themes will represent your waveforms.</p>
-              <input type="file" id="uz-bulk-artwork-input" accept="image/*" style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden'}} onChange={(e) => { if (e.target.files?.[0]) handleBulkArtwork(e.target.files[0]); }} />
             </div>
           </div>
 
