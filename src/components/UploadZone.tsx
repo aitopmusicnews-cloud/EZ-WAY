@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useMediaStore } from '../context/MediaStoreContext';
 import { runUploadedTrackAnalysis } from '../services/backgroundTrackAnalysis';
+import { classifyUploadFile } from '../services/uploadFileAcceptance';
 
 interface BulkFileItem {
   id: string;
@@ -42,18 +43,19 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
   // Generic File Evaluator
   const handleFileSingle = async (f: File) => {
     if (!f) return;
-    if (f.type.startsWith('image/')) {
+    const kind = classifyUploadFile(f);
+    if (kind === 'image') {
       setArtwork(f);
       setArtworkUrl(URL.createObjectURL(f));
       return;
     }
     
-    if (f.type.startsWith('audio/')) {
+    if (kind === 'audio') {
       setFile(f);
       return;
     }
 
-    if (f.name.endsWith('.txt') || f.name.endsWith('.lrc') || f.type === 'text/plain') {
+    if (kind === 'lyrics') {
       const reader = new FileReader();
       reader.onload = (e) => {
         const text = e.target?.result;
@@ -67,14 +69,14 @@ export default function UploadZone({ onSuccess }: { onSuccess: () => void }) {
   };
 
   const handleBulkArtwork = (f: File) => {
-    if (f && f.type.startsWith('image/')) {
+    if (f && classifyUploadFile(f) === 'image') {
       setBulkArtwork(f);
       setBulkArtworkUrl(URL.createObjectURL(f));
     }
   };
 
   const handleBulkFilesSelect = (selectedFiles: File[]) => {
-    const audioFiles = selectedFiles.filter(f => f.type.startsWith('audio/'));
+    const audioFiles = selectedFiles.filter(f => classifyUploadFile(f) === 'audio');
     const items: BulkFileItem[] = audioFiles.map(f => ({
       id: Math.random().toString(36).substring(7),
       file: f,
