@@ -35,6 +35,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r local_lyric_optimizer/requirements.txt pytest httpx
 
+      - name: Install frontend dependencies
+        run: npm ci
+
       - name: Intel transcriber contract
         run: python -m pytest local_lyric_optimizer/tests/test_transcriber.py -q
 
