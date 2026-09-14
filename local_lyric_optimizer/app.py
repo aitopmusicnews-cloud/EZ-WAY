@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from .config import OptimizerConfig, ServiceConfig
+from .description import DescriptionInput, build_description_prompt, build_description_skeleton
 from .seo import research_lyric_seo
 from .transcriber import FasterWhisperTranscriber, TranscriptionResult
 
@@ -21,6 +22,21 @@ _CHUNK_SIZE = 1024 * 1024
 class SeoResearchRequest(BaseModel):
     seed: str
     genre: str = ""
+
+
+class DescriptionPromptRequest(BaseModel):
+    song_title: str
+    artist: str
+    genre: str
+    mood: str = ""
+    lyrics: str = ""
+    spotify_url: str = ""
+    apple_music_url: str = ""
+    amazon_music_url: str = ""
+    producers: str = ""
+    songwriters: str = ""
+    vocalists: str = ""
+    visual_credit: str = ""
 
 
 def _serialize_result(result: TranscriptionResult) -> dict[str, Any]:
@@ -134,6 +150,14 @@ def create_app(
             genre=request.genre,
             api_key=service.youtube_api_key,
         )
+
+    @app.post("/seo/description-prompt")
+    def description_prompt(request: DescriptionPromptRequest) -> dict[str, str]:
+        data = DescriptionInput(**request.model_dump())
+        return {
+            "prompt": build_description_prompt(data),
+            "skeleton": build_description_skeleton(data),
+        }
 
     return app
 
