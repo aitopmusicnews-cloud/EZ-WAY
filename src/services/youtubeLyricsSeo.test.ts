@@ -102,6 +102,19 @@ test('AI lyric description prompt explicitly requires the lyric-video template',
   assert.match(prompt, /Vocalist/i);
 });
 
+test('server-side AI metadata prompt uses the same lyric-video description contract', () => {
+  const serverPath = fileURLToPath(new URL('../../server.ts', import.meta.url));
+  const source = readFileSync(serverPath, 'utf8');
+  assert.match(source, /YouTube Music SEO assistant specializing in Lyric Channels/i);
+  assert.match(source, /LYRICS SECTION/i);
+  assert.match(source, /first 2 lines/i);
+  assert.match(source, /Amazon Music/i);
+  assert.match(source, /Producer/i);
+  assert.match(source, /Songwriter\(s\)/i);
+  assert.match(source, /Vocalist\(s\)/i);
+  assert.match(source, /amazonLink/);
+});
+
 test('browser SEO research queries YouTube autocomplete modifiers and top lyric-video tags', async () => {
   const storage = memoryStorage();
   storage.setItem('EZWAY_YOUTUBE_OAUTH_TOKEN', JSON.stringify({
