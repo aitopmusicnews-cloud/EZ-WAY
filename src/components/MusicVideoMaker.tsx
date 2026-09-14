@@ -330,6 +330,30 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
       ctx.fillRect(0, 0, width, height);
     }
 
+    // Draw cover art overlay
+    if (imgObj.complete && imgObj.naturalWidth > 0) {
+      const artSize = lyricVideoMode ? targetW * 0.35 : targetW * 0.18;
+      const artX = lyricVideoMode
+        ? xOffset + (targetW - artSize) / 2
+        : xOffset + targetW - artSize - targetW * 0.04;
+      const artY = yOffset + targetH * (lyricVideoMode ? 0.08 : 0.04);
+      const r = artSize * 0.12;
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(artX, artY, artSize, artSize, r);
+      ctx.clip();
+      ctx.drawImage(imgObj, artX, artY, artSize, artSize);
+      ctx.restore();
+      // subtle border
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(artX, artY, artSize, artSize, r);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // Audio frequency analyzer data
     let array = new Uint8Array(64);
     if (analyserRef.current) {
@@ -384,7 +408,7 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
       const lh = fontSize * 1.35;
       // Lyric video: vertically centered; visualizer: lower third
       const centerY = lyricVideoMode
-        ? yOffset + targetH / 2
+        ? yOffset + targetH * 0.68
         : yOffset + targetH * 0.75;
       const startY = centerY - ((lines.length - 1) * lh) / 2;
 
