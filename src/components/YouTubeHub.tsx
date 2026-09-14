@@ -5,9 +5,15 @@ import {
   createYouTubeBrowserClient,
   createYouTubeFetchBridge,
   preloadGoogleIdentityServices,
+  setYouTubeBrowserAmazonMusicLink,
   YOUTUBE_OAUTH_SENTINEL_URL,
 } from '../services/youtubeBrowser';
-import { promoVideosForTrack } from '../services/youtubeUploadCore';
+import {
+  buildYouTubeSEOSeed,
+  cacheYouTubeSEOResearch,
+  promoVideosForTrack,
+  setYouTubeAmazonMusicLink,
+} from '../services/youtubeUploadCore';
 import YouTubeHubLegacy from './YouTubeHubLegacy';
 
 interface YouTubeHubProps {
@@ -28,10 +34,14 @@ export default function YouTubeHub(props: YouTubeHubProps) {
   const [selectedTrackId, setSelectedTrackId] = useState('');
   const [selectedVideoId, setSelectedVideoId] = useState('');
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+  const [amazonPortalTarget, setAmazonPortalTarget] = useState<HTMLElement | null>(null);
+  const [amazonMusicLink, setAmazonMusicLink] = useState('');
   const hostRef = useRef<HTMLDivElement>(null);
   const legacySelectRef = useRef<HTMLSelectElement | null>(null);
   const legacyGroupRef = useRef<HTMLElement | null>(null);
   const portalNodeRef = useRef<HTMLElement | null>(null);
+  const amazonPortalNodeRef = useRef<HTMLElement | null>(null);
+  const researchPromiseRef = useRef<Promise<void> | null>(null);
 
   const filteredPromoVideos = useMemo(
     () => promoVideosForTrack(promoVideos, selectedTrackId),
@@ -90,10 +100,13 @@ export default function YouTubeHub(props: YouTubeHubProps) {
     const removeBridge = () => {
       if (legacyGroupRef.current) legacyGroupRef.current.style.display = '';
       portalNodeRef.current?.remove();
+      amazonPortalNodeRef.current?.remove();
       legacyGroupRef.current = null;
       legacySelectRef.current = null;
       portalNodeRef.current = null;
+      amazonPortalNodeRef.current = null;
       setPortalTarget(null);
+      setAmazonPortalTarget(null);
     };
 
     const installBridge = () => {
@@ -104,20 +117,39 @@ export default function YouTubeHub(props: YouTubeHubProps) {
       const group = label?.parentElement as HTMLElement | null;
       const select = group?.querySelector('select') as HTMLSelectElement | null;
 
-      if (!group || !select) {
-        if (legacyGroupRef.current && !root.contains(legacyGroupRef.current)) removeBridge();
-        return;
+      if (group && select && !(legacyGroupRef.current === group && portalNodeRef.current)) {
+        if (legacyGroupRef.current && legacyGroupRef.current !== group) {
+          legacyGroupRef.current.style.display = '';
+          portalNodeRef.current?.remove();
+          portalNodeRef.current = null;
+        }
+        if (!portalNodeRef.current) {
+          const portalNode = document.createElement('div');
+          group.parentElement?.insertBefore(portalNode, group);
+          group.style.display = 'none';
+          legacyGroupRef.current = group;
+          legacySelectRef.current = select;
+          portalNodeRef.current = portalNode;
+          setPortalTarget(portalNode);
+        }
       }
-      if (legacyGroupRef.current === group && portalNodeRef.current) return;
 
-      removeBridge();
-      const portalNode = document.createElement('div');
-      group.parentElement?.insertBefore(portalNode, group);
-      group.style.display = 'none';
-      legacyGroupRef.current = group;
-      legacySelectRef.current = select;
-      portalNodeRef.current = portalNode;
-      setPortalTarget(portalNode);
+      const amazonLabel = labels.find((item) => item.textContent?.includes('Amazon Music Link'));
+      const appleLabel = labels.find((item) => item.textContent?.includes('Apple Music Link'));
+      const appleGroup = appleLabel?.parentElement as HTMLElement | null;
+      const streamingGrid = appleGroup?.parentElement as HTMLElement | null;
+
+      if (!amazonLabel && streamingGrid && !amazonPortalNodeRef.current) {
+        const amazonPortalNode = document.createElement('div');
+        streamingGrid.appendChild(amazonPortalNode);
+        amazonPortalNodeRef.current = amazonPortalNode;
+        setAmazonPortalTarget(amazonPortalNode);
+      }
+
+      if (amazonPortalNodeRef.current && !root.contains(amazonPortalNodeRef.current)) {
+        amazonPortalNodeRef.current = null;
+        setAmazonPortalTarget(null);
+      }
     };
 
     installBridge();
@@ -130,15 +162,38 @@ export default function YouTubeHub(props: YouTubeHubProps) {
     };
   }, []);
 
+  const researchTrack = (trackId: string): Promise<void> => {
+    const track = tracks.find((item) => item.id === trackId);
+    if (!track) return Promise.resolve();
+    const seed = buildYouTubeSEOSeed(track.name, track.artist);
+    const task = fetch(`/api/youtube/seo-research?seed=${encodeURIComponent(seed)}`)
+      .then(async (response) => {
+        if (!response.ok) return;
+        const research = await response.json();
+        cacheYouTubeSEOResearch(seed, research);
+      })
+      .catch((error) => {
+        console.warn('[YouTube SEO] Live lyric research unavailable; using local lyric SEO.', error);
+      });
+    researchPromiseRef.current = task;
+    return task;
+  };
+
   const handleTrackSelect = (trackId: string) => {
     setSelectedTrackId(trackId);
     setSelectedVideoId('');
+    researchPromiseRef.current = trackId ? researchTrack(trackId) : null;
     if (legacySelectRef.current) setNativeSelectValue(legacySelectRef.current, '');
   };
 
   const handleVideoSelect = (videoId: string) => {
     setSelectedVideoId(videoId);
-    if (legacySelectRef.current) setNativeSelectValue(legacySelectRef.current, videoId);
+    const applySelection = () => {
+      if (legacySelectRef.current) setNativeSelectValue(legacySelectRef.current, videoId);
+    };
+    const pendingResearch = researchPromiseRef.current;
+    if (pendingResearch) void pendingResearch.finally(applySelection);
+    else applySelection();
   };
 
   const dropdowns = portalTarget ? createPortal(
@@ -188,10 +243,32 @@ export default function YouTubeHub(props: YouTubeHubProps) {
     portalTarget,
   ) : null;
 
+  const amazonMusicField = amazonPortalTarget ? createPortal(
+    <div className="space-y-1">
+      <label className="text-[8px] font-black uppercase tracking-wider text-zinc-500 font-mono block">
+        Amazon Music Link
+      </label>
+      <input
+        type="text"
+        value={amazonMusicLink}
+        onChange={(event) => {
+          const value = event.target.value;
+          setAmazonMusicLink(value);
+          setYouTubeAmazonMusicLink(value);
+          setYouTubeBrowserAmazonMusicLink(value);
+        }}
+        placeholder="https://music.amazon.com/..."
+        className="w-full bg-zinc-950 border border-zinc-850 rounded-xl px-3 py-2 text-[11px] text-white focus:outline-none focus:border-orange-500 font-sans"
+      />
+    </div>,
+    amazonPortalTarget,
+  ) : null;
+
   return (
     <div ref={hostRef}>
       <YouTubeHubLegacy {...props} />
       {dropdowns}
+      {amazonMusicField}
     </div>
   );
 }

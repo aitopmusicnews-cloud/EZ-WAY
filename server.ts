@@ -1703,6 +1703,7 @@ We need three core formats and an advanced music metadata analysis:
       resolutionTag,
       spotifyLink,
       appleLink,
+      amazonLink,
       instagramHandle,
       videoStyle
     } = req.body;
@@ -1724,6 +1725,15 @@ We need three core formats and an advanced music metadata analysis:
       });
 
       let prompt = "";
+      const lyricDescriptionRules = `
+LYRIC VIDEO DESCRIPTION REQUIREMENTS:
+- The first 2 lines must identify Song Title, Artist, and Genre, then give an engaging lyric-search hook.
+- STREAMING SECTION: include Spotify, Apple Music, and Amazon Music. Preserve supplied URLs; otherwise keep clear editable placeholders.
+- LYRICS SECTION: include the complete supplied lyrics exactly. Never summarize or truncate supplied lyrics. If lyrics are unavailable, use [PASTE_LYRICS_HERE].
+- CREDITS: include Producer: [Producer], Songwriter(s): [Songwriters], and Vocalist(s): [Vocalists].
+- Prioritize lyric search intent and lyric-specific terms such as lyrics, lyric video, lyrics video, sing along, and clean lyrics alongside the genre.
+- Treat this as a completed artist release, never a beat for sale.
+`;
       if (isLocalVideo) {
         prompt = `An artist is uploading their custom local video file to YouTube.
 File & Presentation configuration:
@@ -1735,6 +1745,7 @@ File & Presentation configuration:
 - Target Video Resolution Spec: "${resolutionTag || "4k"}" (options: 4k, 1080p, 8k)
 - Provided Spotify Link: "${spotifyLink || ""}"
 - Provided Apple Music Link: "${appleLink || ""}"
+- Provided Amazon Music Link: "${amazonLink || ""}"
 - Provided Instagram Profile: "${instagramHandle || ""}"
 
 IMPORTANT INSTRUCTIONS FOR GENRE ALIGNMENT & SPECIFICATION:
@@ -1748,7 +1759,9 @@ CRITICAL REQUIREMENT - PROMOTING COMPLETED SONGS, NOT BEATS:
 This video is for a COMPLETED song/release by an artist who is launching it to the public, NOT a background beat or license for sale.
 - You MUST write the description as a single/original track release.
 - Avoid ANY mention of "beat leases", "leasing rights", "licenses", "BeatStars website", "buying beats", or "WAV stems".
-- Pitch the track for streaming. Include the exact links provided (Spotify: ${spotifyLink || "link"}, Apple Music: ${appleLink || "link"}, Instagram: @${instagramHandle || "profile"}). Do not generate fake placeholders if real links are provided.
+- Pitch the track for streaming. Include the exact links provided (Spotify: ${spotifyLink || "link"}, Apple Music: ${appleLink || "link"}, Amazon Music: ${amazonLink || "link"}, Instagram: @${instagramHandle || "profile"}). Do not generate fake placeholders if real links are provided.
+
+${lyricDescriptionRules}
 
 Please generate and optimize:
 1. title: One viral, high-CTR, click-optimized title ready for YouTube indexing. Max 95 characters.
@@ -1790,6 +1803,7 @@ Track & Media Details:
 - Target Video Resolution Spec: "${resolutionTag || "4k"}" (options: 4k, 1080p, 8k)
 - Spotify Link: "${spotifyLink || ""}"
 - Apple Music Link: "${appleLink || ""}"
+- Amazon Music Link: "${amazonLink || ""}"
 - Instagram Handle: "${instagramHandle || ""}"
 
 IMPORTANT INSTRUCTIONS FOR GENRE ALIGNMENT & SPECIFICATION:
@@ -1804,7 +1818,9 @@ This track is a COMPLETED song/release by an artist who is launching it to the p
 - You MUST write the description as a single/original track release.
 - Avoid ANY mention of "beat leases", "leasing rights", "licenses", "BeatStars website", "buying beats", or "WAV stems".
 - Pitch the track for streaming. Focus on pitching to playlist curators, securing radio/club play, getting fans to pre-save, and launching TikTok/Reels sounds.
-- Integrate the exact URLs provided: Spotify: ${spotifyLink || "not provided"}, Apple Music: ${appleLink || "not provided"}, Instagram: @${instagramHandle || "not provided"}.
+- Integrate the exact URLs provided: Spotify: ${spotifyLink || "not provided"}, Apple Music: ${appleLink || "not provided"}, Amazon Music: ${amazonLink || "not provided"}, Instagram: @${instagramHandle || "not provided"}.
+
+${lyricDescriptionRules}
 
 Please generate:
 1. title: One high-engagement target title emphasizing original composition. Max 95 characters.
@@ -1839,7 +1855,7 @@ Return strict JSON only matching the keys: 'title', 'description', 'tags', and '
         model: "gemini-3.5-flash",
         contents: prompt,
         config: {
-          systemInstruction: "You are a platinum-selling music marketing copywriter and elite music media agent specializing in YouTube SEO branding for artist song releases across hip-hop, trap, lofi, electronic, drill, pop, and acoustic indie productions. You write highly customized, authentic, and evocative promotional metadata that perfectly aligns with the specific subgenre, emotional vibe, and instrumentation. CRITICAL: These tracks are full, completed artist songs/releases with vocals. You must never write copy that tries to sell or lease background beats, or licenses, nor mention 'licensing', 'leases', 'selling beats', or 'beat catalog'. Instead, promote the track as a completed masterpiece for fans to stream (on Spotify, Apple, etc.), playlist curators to feature, blogs to review, and TikTok/reels to use. Return direct JSON with title, description, tags, and growthInsights properties as specified.",
+          systemInstruction: "You are an expert YouTube Music SEO assistant specializing in Lyric Channels. Generate metadata for full, completed artist songs with lyrics. The description must follow the first 2 lines, STREAMING SECTION, LYRICS SECTION, and CREDITS rules in the user prompt; preserve all supplied lyrics without truncation; include Spotify, Apple Music, and Amazon Music; include Producer, Songwriter(s), and Vocalist(s) credit lines; prioritize lyric-search intent; never market a beat for sale. Return direct JSON with title, description, tags, and growthInsights properties as specified.",
           responseMimeType: "application/json"
         }
       });
