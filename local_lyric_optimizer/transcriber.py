@@ -81,7 +81,7 @@ class FasterWhisperTranscriber:
         raw_segments, info = model.transcribe(
             str(path),
             language=language or None,
-            vad_filter=True,
+            vad_filter=False,
             beam_size=5,
         )
         segments = self._normalize_segments(raw_segments)

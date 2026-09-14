@@ -48,7 +48,7 @@ def test_transcript_cleanup_preserves_words_and_removes_adjacent_duplicates(tmp_
     class FakeModel:
         def transcribe(self, path, **kwargs):
             assert path.endswith("song.wav")
-            assert kwargs == {"language": None, "vad_filter": True, "beam_size": 5}
+            assert kwargs == {"language": None, "vad_filter": False, "beam_size": 5}
             segments = [
                 SimpleNamespace(start=0.0, end=1.0, text="  First   line "),
                 SimpleNamespace(start=1.0, end=2.0, text="First line"),
