@@ -541,25 +541,9 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
       } catch (error) {
         console.warn('[MediaStore] Could not cache promo video blob', error);
       }
-      if (connected) {
-        const file = incoming.video_data instanceof File
-          ? incoming.video_data
-          : new File([incoming.video_data], `${id}.mp4`, { type: incoming.video_data.type || 'video/mp4' });
-        const uploaded = await dataStore.uploadFile('promo-video', id, file);
-        videoUrl = uploaded.url;
-        mediaFields.video_key = uploaded.objectKey;
-      } else if (!videoUrl) {
+      if (!videoUrl) {
         videoUrl = URL.createObjectURL(incoming.video_data);
       }
-    }
-
-    if (incoming.thumbnail_data instanceof Blob && connected) {
-      const file = incoming.thumbnail_data instanceof File
-        ? incoming.thumbnail_data
-        : new File([incoming.thumbnail_data], `${id}.jpg`, { type: incoming.thumbnail_data.type || 'image/jpeg' });
-      const uploaded = await dataStore.uploadFile('artwork', id, file);
-      thumbnailUrl = uploaded.url;
-      mediaFields.thumbnail_key = uploaded.objectKey;
     }
 
     const candidate = withPendingKeys({
@@ -576,13 +560,32 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
       thumbnail_url: thumbnailUrl || incoming.thumbnail_url || '/ogbeatz_logo.svg',
     } as PromoVideo);
 
-    try {
-      const canPersist = connected && Boolean((candidate as any).video_key || (!isTemporaryUrl(candidate.video_url) && candidate.video_url));
-      const saved = canPersist ? await dataStore.createPromoVideo(candidate as PromoVideo) : candidate as PromoVideo;
-      setPromoVideos((prev) => [...prev.filter((video) => video.id !== id), saved]);
-    } catch (error: any) {
-      addToast(`Failed to save promo video: ${error?.message || error}`, 'error');
-      throw error;
+    // Save locally first — always succeeds
+    setPromoVideos((prev) => [...prev.filter((v) => v.id !== id), candidate as PromoVideo]);
+
+    // Attempt S3 + DB persist in background — failure shows warning but doesn't lose the video
+    if (connected && incoming.video_data instanceof Blob) {
+      try {
+        const file = incoming.video_data instanceof File
+          ? incoming.video_data
+          : new File([incoming.video_data], `${id}.mp4`, { type: incoming.video_data.type || 'video/mp4' });
+        const uploaded = await dataStore.uploadFile('promo-video', id, file);
+        const withKey = { ...candidate, video_url: uploaded.url, video_key: uploaded.objectKey } as PromoVideo;
+        if (incoming.thumbnail_data instanceof Blob) {
+          try {
+            const tf = incoming.thumbnail_data instanceof File
+              ? incoming.thumbnail_data
+              : new File([incoming.thumbnail_data], `${id}.jpg`, { type: incoming.thumbnail_data.type || 'image/jpeg' });
+            const tu = await dataStore.uploadFile('artwork', id, tf);
+            (withKey as any).thumbnail_url = tu.url;
+            (withKey as any).thumbnail_key = tu.objectKey;
+          } catch { /* thumbnail upload failure is non-fatal */ }
+        }
+        const saved = await dataStore.createPromoVideo(withKey);
+        setPromoVideos((prev) => prev.map((v) => v.id === id ? saved : v));
+      } catch (error: any) {
+        addToast(`Video saved locally — cloud sync failed: ${error?.message || error}`, 'info');
+      }
     }
   };
 
