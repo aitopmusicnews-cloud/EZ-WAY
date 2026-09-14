@@ -6,7 +6,7 @@ import {
   runLocalAudioTool,
   type BrowserAudioToolsDependencies,
 } from './browserAudioTools.ts';
-import { trackHasUsableAudioSource } from './trackAudioSource.ts';
+import { loadTrackAudioFile, trackHasUsableAudioSource } from './trackAudioSource.ts';
 
 const baseTrack: Track = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -55,6 +55,18 @@ const baseDeps = (): BrowserAudioToolsDependencies => ({
 test('a local file_data source is sufficient even without a cloud URL', () => {
   assert.equal(trackHasUsableAudioSource(baseTrack), true);
   assert.equal(trackHasUsableAudioSource({ ...baseTrack, file_data: undefined, file_url: null }), false);
+});
+
+test('local MP3 blobs keep an MP3 filename when the track title has no extension', async () => {
+  const file = await loadTrackAudioFile({
+    ...baseTrack,
+    name: 'Local Song',
+    type: 'audio/mpeg',
+    file_data: new Blob(['song'], { type: 'audio/mpeg' }),
+  });
+
+  assert.equal(file.name, 'Local Song.mp3');
+  assert.equal(file.type, 'audio/mpeg');
 });
 
 test('lyrics uses the original file with the local service and returns clean text plus LRC/plain downloads', async () => {
