@@ -8,6 +8,7 @@ on:
       - 'src/components/UploadZone.tsx'
       - 'src/services/uploadFileAcceptance.ts'
       - 'src/services/uploadFileAcceptance.test.ts'
+      - 'src/services/uploadButtonWiring.test.ts'
       - '.github/workflows/upload-drag-drop-verify.yml'
   workflow_dispatch:
 
@@ -29,6 +30,9 @@ jobs:
 
       - name: Upload drag-and-drop regression
         run: node --experimental-strip-types --test src/services/uploadFileAcceptance.test.ts
+
+      - name: Upload picker wiring regression
+        run: node --experimental-strip-types --test src/services/uploadButtonWiring.test.ts
 
       - name: Production build
         run: npm run build
