@@ -32,65 +32,98 @@ jobs:
           from pathlib import Path
           import re
 
-          def replace(path, old, new):
+          def sub_file(path, pattern, replacement='', flags=0, minimum=1):
               p = Path(path)
               text = p.read_text()
-              if old not in text:
-                  raise SystemExit(f'Expected text not found in {path}: {old[:100]!r}')
-              p.write_text(text.replace(old, new))
+              updated, count = re.subn(pattern, replacement, text, flags=flags)
+              if count < minimum:
+                  raise SystemExit(f'Expected at least {minimum} match(es) in {path}: {pattern}')
+              p.write_text(updated)
+              return count
 
-          replace('src/App.tsx', 'import PromoPackModal from "./components/PromoPackModal";\n', '')
-          replace('src/App.tsx', '  const [selectedTrackForPromo, setSelectedTrackForPromo] =\n    useState<Track | null>(null);\n', '')
-          replace('src/App.tsx', '                      onCreatePromo={() => setSelectedTrackForPromo(track)}\n', '')
-          replace('src/App.tsx', '                          onCreatePromo={() => setSelectedTrackForPromo(track)}\n', '')
-          replace('src/App.tsx', '''        {selectedTrackForPromo && (\n          <PromoPackModal\n            key="promo-pack-modal"\n            track={selectedTrackForPromo}\n            onClose={() => setSelectedTrackForPromo(null)}\n          />\n        )}\n''', '')
+          app = Path('src/App.tsx')
+          text = app.read_text()
+          text = text.replace('import PromoPackModal from "./components/PromoPackModal";\n', '')
+          text, state_count = re.subn(r'\n  const \[selectedTrackForPromo, setSelectedTrackForPromo\] =\s*\n?\s*useState<Track \| null>\(null\);', '', text)
+          if state_count != 1:
+              raise SystemExit(f'Expected one Promo Pack state block, found {state_count}')
+          text, callback_count = re.subn(r'^\s*onCreatePromo=\{\(\) => setSelectedTrackForPromo\(track\)\}\s*\n', '', text, flags=re.M)
+          if callback_count < 1:
+              raise SystemExit('No Promo Pack callbacks found in App.tsx')
+          text, modal_count = re.subn(r'\n\s*\{selectedTrackForPromo && \(\s*\n\s*<PromoPackModal\s*\n\s*key="promo-pack-modal"\s*\n\s*track=\{selectedTrackForPromo\}\s*\n\s*onClose=\{\(\) => setSelectedTrackForPromo\(null\)\}\s*\n\s*/>\s*\n\s*\)\}', '', text, flags=re.S)
+          if modal_count != 1:
+              raise SystemExit(f'Expected one Promo Pack modal block, found {modal_count}')
+          app.write_text(text)
 
-          replace('src/components/TrackOptionsMenu.tsx', '  Plus,\n', '')
-          replace('src/components/TrackOptionsMenu.tsx', '  onCreatePromo: () => void;\n', '')
-          replace('src/components/TrackOptionsMenu.tsx', '  onCreatePromo,\n', '')
-          replace('src/components/TrackOptionsMenu.tsx', '''            <button onClick={() => { onCreatePromo(); setIsOpen(false); }} className="w-full flex items-center gap-3 px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-zinc-900 rounded-xl transition-colors">\n              <Plus className="w-3.5 h-3.5" /> Marketing Pack\n            </button>\n''', '')
+          menu = Path('src/components/TrackOptionsMenu.tsx')
+          text = menu.read_text()
+          text = text.replace('  Plus,\n', '')
+          text = text.replace('  onCreatePromo: () => void;\n', '')
+          text = text.replace('  onCreatePromo,\n', '')
+          text, menu_count = re.subn(r'\n\s*<button onClick=\{\(\) => \{ onCreatePromo\(\); setIsOpen\(false\); \}\}[^>]*>\s*\n\s*<Plus[^>]* /> Marketing Pack\s*\n\s*</button>', '', text, flags=re.S)
+          if menu_count != 1:
+              raise SystemExit(f'Expected one Marketing Pack menu action, found {menu_count}')
+          menu.write_text(text)
 
-          p = Path('src/services/dataStore.ts')
-          text = p.read_text()
-          text = re.sub(r'\nexport interface PromoPackPayload \{.*?\n\}\n', '\n', text, flags=re.S)
+          store = Path('src/services/dataStore.ts')
+          text = store.read_text()
+          text, interface_count = re.subn(r'\nexport interface PromoPackPayload \{.*?\n\}\n', '\n', text, flags=re.S)
+          if interface_count != 1:
+              raise SystemExit(f'Expected one PromoPackPayload interface, found {interface_count}')
           text = text.replace('      deletePromoVideo: configurationError, getPromoPack: configurationError, putPromoPack: configurationError,\n', '      deletePromoVideo: configurationError,\n')
-          text = re.sub(r"\n    getPromoPack: \(trackId: string\) => request<PromoPackPayload \| null>\(`/promo-packs/\$\{encoded\(trackId\)\}`\),\n    putPromoPack: \(trackId: string, pack: Pick<PromoPackPayload, 'youtube_copy' \| 'instagram_copy' \| 'generic_copy'>\) =>\n      request<PromoPackPayload>\(`/promo-packs/\$\{encoded\(trackId\)\}`\, jsonInit\('PUT', pack\)\),\n", '\n', text)
-          p.write_text(text)
+          text, method_count = re.subn(r"\n    getPromoPack: \(trackId: string\).*?\n\n    async uploadFile", '\n\n    async uploadFile', text, flags=re.S)
+          if method_count != 1:
+              raise SystemExit(f'Expected one Promo Pack dataStore method block, found {method_count}')
+          store.write_text(text)
 
-          p = Path('aws/app-data/api/contract.mjs')
-          text = p.read_text()
-          text = re.sub(r"\n    case 'promo_packs': return \{.*?\n    \};", '', text, flags=re.S)
-          p.write_text(text)
+          contract = Path('aws/app-data/api/contract.mjs')
+          text = contract.read_text()
+          text, contract_count = re.subn(r"\n    case 'promo_packs': return \{.*?\n    \};", '', text, flags=re.S)
+          if contract_count != 1:
+              raise SystemExit(f'Expected one promo_packs contract, found {contract_count}')
+          contract.write_text(text)
 
-          p = Path('aws/app-data/api/contract.test.mjs')
-          text = p.read_text()
-          text = re.sub(r"\n\ntest\('promo packs validate track ownership keys and copy payloads'.*?\n\}\);\n?", '\n', text, flags=re.S)
-          p.write_text(text)
+          contract_test = Path('aws/app-data/api/contract.test.mjs')
+          text = contract_test.read_text()
+          text, contract_test_count = re.subn(r"\n\ntest\('promo packs validate track ownership keys and copy payloads'.*?\n\}\);\n?", '\n', text, flags=re.S)
+          if contract_test_count != 1:
+              raise SystemExit(f'Expected one promo pack contract test, found {contract_test_count}')
+          contract_test.write_text(text)
 
-          p = Path('aws/app-data/api/handler.mjs')
-          text = p.read_text()
+          handler = Path('aws/app-data/api/handler.mjs')
+          text = handler.read_text()
           text = text.replace("'messages', 'promo_videos', 'promo_packs', 'profiles'", "'messages', 'promo_videos', 'profiles'")
-          text = re.sub(r'\nasync function normalizePromoPackTrackId\(trackId\) \{.*?\n\}\n\nasync function loadShare', '\nasync function loadShare', text, flags=re.S)
-          text = re.sub(r'\n    const promoPackMatch = rawPath\.match\(/\^\\/promo-packs.*?\n  \}', '', text, flags=re.S)
-          p.write_text(text)
+          text, helper_count = re.subn(r'\nasync function normalizePromoPackTrackId\(trackId\) \{.*?\n\}\n\nasync function loadShare', '\nasync function loadShare', text, flags=re.S)
+          if helper_count != 1:
+              raise SystemExit(f'Expected one Promo Pack helper block, found {helper_count}')
+          text, route_count = re.subn(r'\n\s*const promoPackMatch = rawPath\.match\(.*?\n\s*\}', '', text, flags=re.S)
+          if route_count != 1:
+              raise SystemExit(f'Expected one Promo Pack route block, found {route_count}')
+          handler.write_text(text)
 
-          p = Path('src/services/geminiService.ts')
-          text = p.read_text()
-          text = re.sub(r'\nexport async function generatePromoPack\(trackInfo: any\) \{.*\Z', '\n', text, flags=re.S)
-          p.write_text(text)
+          gemini = Path('src/services/geminiService.ts')
+          text = gemini.read_text()
+          text, gemini_count = re.subn(r'\nexport async function generatePromoPack\(trackInfo: any\) \{.*\Z', '\n', text, flags=re.S)
+          if gemini_count != 1:
+              raise SystemExit(f'Expected one generatePromoPack function, found {gemini_count}')
+          gemini.write_text(text)
 
-          p = Path('server.ts')
-          text = p.read_text()
+          server = Path('server.ts')
+          text = server.read_text()
           start = text.find('  // API - Generate Promo Pack\n')
           if start == -1:
               raise SystemExit('Promo Pack server endpoint marker not found')
           next_marker = text.find('\n  // API - ', start + 10)
           if next_marker == -1:
               raise SystemExit('Could not find next API marker after Promo Pack endpoint')
-          text = text[:start] + text[next_marker + 1:]
-          p.write_text(text)
+          server.write_text(text[:start] + text[next_marker + 1:])
 
-          replace('.github/workflows/music-intelligence-verify.yml', '''      - name: Promo Pack AWS persistence regression\n        run: node --experimental-strip-types --test src/services/promoPackAws.test.ts\n\n''', '')
+          ci = Path('.github/workflows/music-intelligence-verify.yml')
+          text = ci.read_text()
+          text, ci_count = re.subn(r'\n      - name: Promo Pack AWS persistence regression\n        run: node --experimental-strip-types --test src/services/promoPackAws\.test\.ts\n', '', text)
+          if ci_count != 1:
+              raise SystemExit(f'Expected one Promo Pack CI step, found {ci_count}')
+          ci.write_text(text)
           PY
 
           rm -f src/components/PromoPackModal.tsx src/services/promoPackAws.test.ts
