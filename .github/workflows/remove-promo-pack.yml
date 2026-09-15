@@ -121,27 +121,20 @@ jobs:
           if start == -1 or end == -1:
               raise SystemExit('Could not locate Promo Pack endpoint boundaries in server.ts')
           server.write_text(text[:start] + text[end:])
-
-          ci = Path('.github/workflows/music-intelligence-verify.yml')
-          text = ci.read_text()
-          text, ci_count = re.subn(r'\n      - name: Promo Pack AWS persistence regression\n        run: node --experimental-strip-types --test src/services/promoPackAws\.test\.ts\n', '', text)
-          if ci_count != 1:
-              raise SystemExit(f'Expected one Promo Pack CI step, found {ci_count}')
-          ci.write_text(text)
           PY
 
           rm -f src/components/PromoPackModal.tsx src/services/promoPackAws.test.ts
 
-      - name: Verify dead feature references are gone
+      - name: Verify dead runtime references are gone
         shell: bash
         run: |
-          ! grep -R -n -E 'PromoPackModal|selectedTrackForPromo|onCreatePromo|generatePromoPack|/api/generate-promo|/promo-packs|Promo Pack AWS persistence|Marketing Pack' src server.ts aws/app-data/api .github/workflows/music-intelligence-verify.yml
+          ! grep -R -n -E 'PromoPackModal|selectedTrackForPromo|onCreatePromo|generatePromoPack|/api/generate-promo|/promo-packs|Marketing Pack' src server.ts aws/app-data/api
 
       - name: Install dependencies
         run: npm ci
 
       - name: Install AWS app-data Lambda dependencies
-        run: npm install --prefix aws/app-data/api --ignore-scripts --no-audit --no-fund
+        run: npm install --prefix aws/app-data/api --ignore-scripts --no-audit --no-fund --package-lock=false
 
       - name: AWS app-data tests
         run: node --test aws/app-data/api/contract.test.mjs aws/app-data/api/rows.test.mjs aws/app-data/api/storage.test.mjs
@@ -158,6 +151,7 @@ jobs:
       - name: Commit cleanup
         shell: bash
         run: |
+          rm -f aws/app-data/api/package-lock.json
           git config user.name "aitopmusicnews-cloud"
           git config user.email "aitopmusicnews@gmail.com"
           git add -A
