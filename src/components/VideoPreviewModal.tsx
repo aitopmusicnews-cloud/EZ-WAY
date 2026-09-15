@@ -3,6 +3,9 @@ import { X, Download, Share2, Trash2, AlertCircle, Youtube, Instagram, Facebook,
 import { motion, AnimatePresence } from 'motion/react';
 import { PromoVideo } from '../types';
 import { useMediaStore } from '../context/MediaStoreContext';
+import { resolveMediaAccess } from '../services/mediaAccess';
+import { refreshTrackAudioSource } from '../services/trackAudioSource';
+import { DEFAULT_COVER_ASSET } from '../lib/brandAssets';
 
 interface VideoPreviewModalProps {
   video: PromoVideo;
@@ -13,10 +16,70 @@ interface VideoPreviewModalProps {
 export default function VideoPreviewModal({ video, onClose }: VideoPreviewModalProps) {
   const { deletePromoVideo, tracks, playlists, addToast } = useMediaStore();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRefreshAttemptRef = useRef(false);
+  const [resolvedVideoUrl, setResolvedVideoUrl] = useState(video.video_url || '');
+  const [resolvedThumbnailUrl, setResolvedThumbnailUrl] = useState(video.thumbnail_url || '');
+  const [resolvedTrackAudioUrl, setResolvedTrackAudioUrl] = useState('');
 
   const track = tracks.find(t => t.id === video.track_id);
   const playlist = playlists.find(p => p.id === video.playlist_id);
   const sourceName = track?.name || playlist?.name || 'Untitled Asset';
+  const isLocalSessionUrl = (value?: string | null) => Boolean(value && (value.startsWith('blob:') || value.startsWith('data:')));
+  const isVideoSource = Boolean(
+    video.video_data
+    || video.video_key
+    || resolvedVideoUrl.startsWith('data:video')
+    || resolvedVideoUrl.startsWith('blob:')
+    || (() => {
+      try {
+        return /\.(mp4|webm|mov)$/i.test(new URL(resolvedVideoUrl, window.location.origin).pathname);
+      } catch {
+        return /\.(mp4|webm|mov)(?:$|\?)/i.test(resolvedVideoUrl);
+      }
+    })()
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    videoRefreshAttemptRef.current = false;
+
+    void (async () => {
+      let nextVideoUrl = video.video_url || '';
+      let nextThumbnailUrl = video.thumbnail_url || '';
+      let nextTrackAudioUrl = track?.file_url || '';
+
+      if (video.video_key && !(video.video_data && isLocalSessionUrl(nextVideoUrl))) {
+        try {
+          const refreshed = await resolveMediaAccess({ objectKey: video.video_key, url: nextVideoUrl });
+          nextVideoUrl = refreshed.url;
+        } catch (error) {
+          console.warn('[VideoPreview] Could not refresh video URL', error);
+        }
+      }
+
+      if (video.thumbnail_key && !(video.thumbnail_data && isLocalSessionUrl(nextThumbnailUrl))) {
+        try {
+          const refreshed = await resolveMediaAccess({ objectKey: video.thumbnail_key, url: nextThumbnailUrl });
+          nextThumbnailUrl = refreshed.url;
+        } catch (error) {
+          console.warn('[VideoPreview] Could not refresh thumbnail URL', error);
+        }
+      }
+
+      if (track) {
+        const refreshedTrack = await refreshTrackAudioSource(track);
+        nextTrackAudioUrl = refreshedTrack.file_url || '';
+      }
+
+      if (!cancelled) {
+        setResolvedVideoUrl(nextVideoUrl);
+        setResolvedThumbnailUrl(nextThumbnailUrl);
+        setResolvedTrackAudioUrl(nextTrackAudioUrl);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [video.id, video.video_url, video.video_key, video.video_data, video.thumbnail_url, video.thumbnail_key, video.thumbnail_data, track?.id, track?.file_url, track?.file_key, track?.file_data]);
 
   useEffect(() => {
     if (videoRef.current && !video._brokenBlob) {
@@ -32,7 +95,7 @@ export default function VideoPreviewModal({ video, onClose }: VideoPreviewModalP
         });
       }
     }
-  }, [video.video_url, video._brokenBlob]);
+  }, [resolvedVideoUrl, video._brokenBlob]);
 
   const [isDownloading, setIsDownloading] = useState(false);
   const [activePanel, setActivePanel] = useState<'meta' | 'share'>('meta');
@@ -50,11 +113,18 @@ export default function VideoPreviewModal({ video, onClose }: VideoPreviewModalP
   };
 
   const handleDownload = async () => {
-    if (!video.video_url) return;
     setIsDownloading(true);
+    let downloadUrl = resolvedVideoUrl;
 
     try {
-      const response = await fetch(getProxyVideoUrl(video.video_url));
+      if (video.video_key && !video.video_data) {
+        const refreshed = await resolveMediaAccess({ objectKey: video.video_key, url: downloadUrl });
+        downloadUrl = refreshed.url;
+        setResolvedVideoUrl(refreshed.url);
+      }
+      if (!downloadUrl) throw new Error('Video source is unavailable.');
+      const response = await fetch(getProxyVideoUrl(downloadUrl));
+      if (!response.ok) throw new Error(`Video download failed (${response.status}).`);
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       
@@ -73,7 +143,8 @@ export default function VideoPreviewModal({ video, onClose }: VideoPreviewModalP
       console.error('Download failed:', error);
       setIsDownloading(false);
       const a = document.createElement('a');
-      a.href = getProxyVideoUrl(video.video_url);
+      if (!downloadUrl) return;
+      a.href = getProxyVideoUrl(downloadUrl);
       a.download = `${sourceName.replace(/\s+/g, '_')}_Promo_Master.mp4`;
       a.click();
     }
@@ -123,35 +194,40 @@ export default function VideoPreviewModal({ video, onClose }: VideoPreviewModalP
                  <p className="text-zinc-500 text-xs max-w-xs mx-auto">This neural render cache was tied to a volatile session buffer and is no longer available. Re-rendering required.</p>
                </div>
              </div>
-           ) : (video.video_url?.match(/\.(mp4|webm|mov)$/i) || video.video_url?.startsWith('data:video') || video.video_url?.startsWith('blob:')) ? (
+           ) : isVideoSource ? (
              <video 
                ref={videoRef}
-               src={getProxyVideoUrl(video.video_url)} 
+               src={getProxyVideoUrl(resolvedVideoUrl)} 
                controls 
                playsInline
                className="w-full h-full object-contain max-h-[85vh]"
-               poster={video.thumbnail_url}
+               poster={resolvedThumbnailUrl || DEFAULT_COVER_ASSET}
                onError={(e) => {
                  const videoElement = e.currentTarget;
                  console.error("Video load error:", videoElement.error);
+                 if (!video.video_key || video.video_data || videoRefreshAttemptRef.current) return;
+                 videoRefreshAttemptRef.current = true;
+                 void resolveMediaAccess({ objectKey: video.video_key, url: resolvedVideoUrl })
+                   .then((refreshed) => setResolvedVideoUrl(refreshed.url))
+                   .catch((error) => console.warn('[VideoPreview] Video retry refresh failed', error));
                }}
              />
            ) : (
              <div className="w-full h-full relative overflow-hidden bg-black flex items-center justify-center min-h-[400px]">
                <motion.img 
-                 src={video.video_url || 'https://images.unsplash.com/photo-1614113489855-66422ad300a4?w=800&q=80'}
+                 src={resolvedVideoUrl || resolvedThumbnailUrl || DEFAULT_COVER_ASSET}
                  className="w-full h-full object-contain"
                  initial={{ scale: 1 }}
                  animate={{ scale: 1.05 }}
                  transition={{ duration: 10, repeat: Infinity, repeatType: 'reverse', ease: 'linear' }}
                />
-               {track?.file_url && (
+               {resolvedTrackAudioUrl && (
                  <audio 
-                   src={track.file_url} 
+                   src={resolvedTrackAudioUrl} 
                    autoPlay 
                    controls 
                    onError={(e) => {
-                     console.warn("Audio load failure:", track.file_url);
+                     console.warn("Audio load failure:", resolvedTrackAudioUrl);
                      addToast?.("The preview audio file is currently unreachable. Enjoying video-only showcase.", "info");
                    }}
                    className="absolute bottom-8 w-3/4 max-w-md opacity-80 hover:opacity-100 transition-opacity z-10" 

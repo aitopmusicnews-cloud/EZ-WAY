@@ -29,6 +29,9 @@ import type { AudioToolJobResult, StemMode } from '../services/audioToolTypes';
 import { parseLrc, formatLrcTime } from '../utils/lrcParser';
 import { v4 as uuidv4 } from 'uuid';
 import { cn } from '../lib/utils';
+import { resolveMediaAccess } from '../services/mediaAccess';
+import { refreshTrackAudioSource } from '../services/trackAudioSource';
+import { DEFAULT_COVER_ASSET, WATERMARK_ASSET } from '../lib/brandAssets';
 
 // Social presets mirroring the python code exactly
 const SOCIAL_PRESETS = {
@@ -82,6 +85,8 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
   const [customImageUrl, setCustomImageUrl] = useState<string>('');
   const [customAudioFile, setCustomAudioFile] = useState<File | null>(null);
   const [customAudioUrl, setCustomAudioUrl] = useState<string>('');
+  const [refreshedTrackImageUrl, setRefreshedTrackImageUrl] = useState<string>('');
+  const [refreshedTrackAudioUrl, setRefreshedTrackAudioUrl] = useState<string>('');
   
   const [outputFileName, setOutputFileName] = useState<string>('Music_Video');
   const [selectedPreset, setSelectedPreset] = useState<PresetKey>("TikTok / Reels / Shorts (Vertical 9:16)");
@@ -111,11 +116,12 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
 
   // Refs
   const watermarkImgRef = useRef<HTMLImageElement | null>(null);
+  const backgroundImgRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.src = '/ogbeatz_logo.svg';
+    img.src = WATERMARK_ASSET;
     watermarkImgRef.current = img;
   }, []);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -133,17 +139,62 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
     return tracks.find(t => t.id === selectedTrackId) || null;
   }, [tracks, selectedTrackId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeTrack) {
+      setRefreshedTrackImageUrl('');
+      setRefreshedTrackAudioUrl('');
+      return () => { cancelled = true; };
+    }
+
+    void (async () => {
+      let nextImageUrl = activeTrack.image_url || '';
+      const localImageActive = Boolean(activeTrack.image_data && nextImageUrl.startsWith('blob:'));
+      if (activeTrack.image_key && !localImageActive) {
+        try {
+          const refreshedImage = await resolveMediaAccess({
+            objectKey: activeTrack.image_key,
+            url: nextImageUrl,
+          });
+          nextImageUrl = refreshedImage.url;
+        } catch (error) {
+          console.warn('[VideoMaker] Could not refresh track artwork', error);
+        }
+      }
+
+      const playbackTrack = await refreshTrackAudioSource(activeTrack);
+      if (!cancelled) {
+        setRefreshedTrackImageUrl(nextImageUrl);
+        setRefreshedTrackAudioUrl(playbackTrack.file_url || '');
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [activeTrack?.id, activeTrack?.image_url, activeTrack?.image_key, activeTrack?.image_data, activeTrack?.file_url, activeTrack?.file_key, activeTrack?.file_data]);
+
   // Derived image & audio details
   const resolvedImageUrl = useMemo(() => {
     if (customImageUrl) return customImageUrl;
+    if (refreshedTrackImageUrl) return refreshedTrackImageUrl;
     if (activeTrack?.image_url) return activeTrack.image_url;
-    return '/ogbeatz_logo.svg';
-  }, [customImageUrl, activeTrack]);
+    return DEFAULT_COVER_ASSET;
+  }, [customImageUrl, refreshedTrackImageUrl, activeTrack]);
 
   const resolvedAudioUrl = useMemo(() => {
     if (customAudioUrl) return customAudioUrl;
+    if (refreshedTrackAudioUrl) return refreshedTrackAudioUrl;
     return activeTrack?.file_url || '';
-  }, [customAudioUrl, activeTrack]);
+  }, [customAudioUrl, refreshedTrackAudioUrl, activeTrack]);
+
+  useEffect(() => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = resolvedImageUrl;
+    backgroundImgRef.current = img;
+    return () => {
+      if (backgroundImgRef.current === img) backgroundImgRef.current = null;
+    };
+  }, [resolvedImageUrl]);
 
   const resolvedLyrics = useMemo(() => {
     if (activeTrack?.lyrics) return activeTrack.lyrics;
@@ -265,6 +316,14 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
     }
   };
 
+  useEffect(() => () => {
+    if (customImageUrl.startsWith('blob:')) URL.revokeObjectURL(customImageUrl);
+  }, [customImageUrl]);
+
+  useEffect(() => () => {
+    if (customAudioUrl.startsWith('blob:')) URL.revokeObjectURL(customAudioUrl);
+  }, [customAudioUrl]);
+
   // Auto-scroll terminal log window to bottom (only if enabled by user and container exists)
   useEffect(() => {
     if (enableAutoScroll && terminalContainerRef.current) {
@@ -364,12 +423,10 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
     const xOffset = 0;
     const yOffset = (height - targetH) / 2;
 
-    // Draw background image
-    const imgObj = new Image();
-    imgObj.crossOrigin = "anonymous";
-    imgObj.src = resolvedImageUrl;
+    // Draw the already-preloaded background image. Never allocate an Image per animation frame.
+    const imgObj = backgroundImgRef.current;
     
-    if (imgObj.complete && imgObj.naturalWidth > 0) {
+    if (imgObj && imgObj.complete && imgObj.naturalWidth > 0) {
       // Blur outer layout
       ctx.save();
       ctx.filter = 'blur(20px) brightness(0.3)';
@@ -404,7 +461,7 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
     }
 
     // Draw cover art overlay
-    if (imgObj.complete && imgObj.naturalWidth > 0) {
+    if (imgObj && imgObj.complete && imgObj.naturalWidth > 0) {
       const artSize = lyricVideoMode ? targetW * 0.35 : targetW * 0.18;
       const artX = lyricVideoMode
         ? xOffset + (targetW - artSize) / 2
@@ -636,7 +693,7 @@ export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId 
 
   // Real-time video generation based on native browser MediaRecorder
   const handleGenerateVideo = async () => {
-    if (!resolvedImageUrl || resolvedImageUrl === '/ogbeatz_logo.svg') {
+    if (!resolvedImageUrl) {
       addToast("Please select a valid Background Image first.", "error");
       return;
     }
