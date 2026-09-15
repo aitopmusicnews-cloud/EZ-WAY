@@ -12,13 +12,16 @@ export interface WorkspaceMediaSnapshot {
 export type WorkspaceMediaResolver = (input: MediaAccessInput) => Promise<MediaAccessResult>;
 
 const MEDIA_PAIRS = [
-  ['file_key', 'file_url'],
-  ['image_key', 'image_url'],
-  ['avatar_key', 'avatar_url'],
-  ['video_key', 'video_url'],
-  ['thumbnail_key', 'thumbnail_url'],
-  ['attachment_key', 'attachment_url'],
+  ['file_key', 'file_url', 'file_data'],
+  ['image_key', 'image_url', 'image_data'],
+  ['avatar_key', 'avatar_url', null],
+  ['video_key', 'video_url', 'video_data'],
+  ['thumbnail_key', 'thumbnail_url', 'thumbnail_data'],
+  ['attachment_key', 'attachment_url', null],
 ] as const;
+
+const isLiveLocalUrl = (value: unknown) => typeof value === 'string'
+  && (value.startsWith('blob:') || value.startsWith('data:'));
 
 async function refreshRecord<T extends Record<string, any>>(
   record: T,
@@ -26,14 +29,17 @@ async function refreshRecord<T extends Record<string, any>>(
 ): Promise<T> {
   const next: Record<string, any> = { ...record };
 
-  await Promise.all(MEDIA_PAIRS.map(async ([keyField, urlField]) => {
+  await Promise.all(MEDIA_PAIRS.map(async ([keyField, urlField, dataField]) => {
     const objectKey = String(record[keyField] || '').trim();
     if (!objectKey) return;
+
+    const currentUrl = typeof record[urlField] === 'string' ? record[urlField] : null;
+    if (dataField && record[dataField] && isLiveLocalUrl(currentUrl)) return;
 
     try {
       const refreshed = await resolve({
         objectKey,
-        url: typeof record[urlField] === 'string' ? record[urlField] : null,
+        url: currentUrl,
       });
       if (refreshed.url) next[urlField] = refreshed.url;
       if (refreshed.objectKey) next[keyField] = refreshed.objectKey;
