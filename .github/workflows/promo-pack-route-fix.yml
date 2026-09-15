@@ -1,0 +1,80 @@
+name: Promo Pack route fix
+
+on:
+  push:
+    branches:
+      - fix/aws-promo-pack-routes
+    paths:
+      - .github/workflows/promo-pack-route-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fix branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/aws-promo-pack-routes
+
+      - name: Add failing route regression
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/services/promoPackAws.test.ts')
+          text = path.read_text(encoding='utf-8')
+          if "templateSource" not in text:
+              text = text.replace(
+                  "const migrationSource = readFileSync(new URL('../../aws/app-data/migrations/003_promo_pack_track_unique.sql', import.meta.url), 'utf8');",
+                  "const migrationSource = readFileSync(new URL('../../aws/app-data/migrations/003_promo_pack_track_unique.sql', import.meta.url), 'utf8');\nconst templateSource = readFileSync(new URL('../../aws/app-data/template.yaml', import.meta.url), 'utf8');"
+              )
+              text = text.replace(
+                  "  assert.match(migrationSource, /CREATE UNIQUE INDEX IF NOT EXISTS idx_promo_packs_track_id_unique/);",
+                  "  assert.match(migrationSource, /CREATE UNIQUE INDEX IF NOT EXISTS idx_promo_packs_track_id_unique/);\n  assert.match(templateSource, /Path: \\/promo-packs\\/\\{trackId\\}[\\s\\S]*?Method: GET/);\n  assert.match(templateSource, /Path: \\/promo-packs\\/\\{trackId\\}[\\s\\S]*?Method: PUT/);"
+              )
+              path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Prove regression fails before route fix
+        shell: bash
+        run: |
+          if node --experimental-strip-types --test src/services/promoPackAws.test.ts; then
+            echo "Expected route regression to fail before template fix."
+            exit 1
+          fi
+          echo "Route regression failed as expected."
+
+      - name: Add authenticated API Gateway routes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('aws/app-data/template.yaml')
+          text = path.read_text(encoding='utf-8')
+          marker = "        UploadPresign:\n          Type: HttpApi\n          Properties:\n            ApiId: !Ref EzwayHttpApi\n            Path: /uploads/presign\n            Method: POST\n"
+          routes = "        PromoPacksGet:\n          Type: HttpApi\n          Properties:\n            ApiId: !Ref EzwayHttpApi\n            Path: /promo-packs/{trackId}\n            Method: GET\n        PromoPacksPut:\n          Type: HttpApi\n          Properties:\n            ApiId: !Ref EzwayHttpApi\n            Path: /promo-packs/{trackId}\n            Method: PUT\n"
+          if 'PromoPacksGet:' not in text:
+              if marker not in text:
+                  raise SystemExit('UploadPresign insertion marker not found')
+              text = text.replace(marker, routes + marker, 1)
+              path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Verify route regression passes
+        run: node --experimental-strip-types --test src/services/promoPackAws.test.ts
+
+      - name: Validate SAM template
+        run: |
+          python -m pip install --quiet cfn-lint
+          cfn-lint aws/app-data/template.yaml
+
+      - name: Commit route fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add aws/app-data/template.yaml src/services/promoPackAws.test.ts
+          git commit -m "fix: expose AWS promo pack API routes"
+          git push origin HEAD:fix/aws-promo-pack-routes
