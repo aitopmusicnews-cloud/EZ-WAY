@@ -38,8 +38,8 @@ test('Music Video Maker reuses a preloaded background image instead of allocatin
 });
 
 test('watermark and default cover have separate centralized brand assets', () => {
-  assert.match(brandSource, /WATERMARK_ASSET\s*=\s*['"]\/ogbeatz_watermark\.jpeg['"]/);
-  assert.match(brandSource, /DEFAULT_COVER_ASSET\s*=\s*['"]\/ogbeatz_default_cover\.jpeg['"]/);
+  assert.match(brandSource, /WATERMARK_ASSET\s*=\s*['"]\/ogbeatz_watermark\.webp['"]/);
+  assert.match(brandSource, /DEFAULT_COVER_ASSET\s*=\s*['"]\/ogbeatz_default_cover\.webp['"]/);
   assert.match(makerSource, /WATERMARK_ASSET/);
   assert.match(makerSource, /DEFAULT_COVER_ASSET/);
   assert.match(makerSource, /refreshTrackAudioSource/);
