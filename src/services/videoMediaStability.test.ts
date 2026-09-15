@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const previewSource = readFileSync(
   new URL('../components/VideoPreviewModal.tsx', import.meta.url),
@@ -10,6 +10,8 @@ const makerSource = readFileSync(
   new URL('../components/MusicVideoMaker.tsx', import.meta.url),
   'utf8',
 );
+const brandUrl = new URL('../lib/brandAssets.ts', import.meta.url);
+const brandSource = existsSync(brandUrl) ? readFileSync(brandUrl, 'utf8') : '';
 
 test('saved video preview resolves stable video, thumbnail, and track audio keys before use', () => {
   assert.match(previewSource, /resolveMediaAccess/);
@@ -31,9 +33,11 @@ test('Music Video Maker reuses a preloaded background image instead of allocatin
   assert.match(drawBlock, /backgroundImgRef\.current/);
 });
 
-test('Music Video Maker keeps watermark, default cover, and library audio as separate stable sources', () => {
-  assert.match(makerSource, /\/ogbeatz_watermark\.jpeg/);
-  assert.match(makerSource, /\/ogbeatz_default_cover\.jpeg/);
+test('watermark and default cover have separate centralized brand assets', () => {
+  assert.match(brandSource, /WATERMARK_ASSET\s*=\s*['"]\/ogbeatz_watermark\.jpeg['"]/);
+  assert.match(brandSource, /DEFAULT_COVER_ASSET\s*=\s*['"]\/ogbeatz_default_cover\.jpeg['"]/);
+  assert.match(makerSource, /WATERMARK_ASSET/);
+  assert.match(makerSource, /DEFAULT_COVER_ASSET/);
   assert.match(makerSource, /refreshTrackAudioSource/);
   assert.doesNotMatch(makerSource, /img\.src\s*=\s*['"]\/ogbeatz_logo\.svg['"]/);
 });
