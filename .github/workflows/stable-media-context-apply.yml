@@ -1,0 +1,171 @@
+name: Apply Stable Media Context Integration
+
+on:
+  push:
+    branches:
+      - fix/stable-media-branding-red
+    paths:
+      - .github/workflows/stable-media-context-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/stable-media-branding-red
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Patch MediaStoreContext safely
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src/context/MediaStoreContext.tsx')
+          text = path.read_text()
+
+          def replace_once(old: str, new: str, label: str):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              "import { dataStore, uploadMediaForWorkspace } from '@/src/services/dataStore';",
+              "import { dataStore, uploadMediaForWorkspace } from '@/src/services/dataStore';\n"
+              "import { resolveMediaAccess } from '@/src/services/mediaAccess';\n"
+              "import { refreshWorkspaceMediaSources, sanitizeMediaForCache } from '@/src/services/workspaceMediaRefresh';",
+              'imports',
+          )
+
+          replace_once(
+              "const isTemporaryUrl = (value: unknown) => typeof value === 'string' && (value.startsWith('blob:') || value.startsWith('data:'));",
+              "const isTemporaryUrl = (value: unknown) => typeof value === 'string' && (value.startsWith('blob:') || value.startsWith('data:'));\n"
+              "const MEDIA_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000;",
+              'refresh interval',
+          )
+
+          replace_once(
+              "  const removeToast = (id: string) => setToasts((prev) => prev.filter((toast) => toast.id !== id));\n\n  const withPendingKeys",
+              "  const removeToast = (id: string) => setToasts((prev) => prev.filter((toast) => toast.id !== id));\n\n"
+              "  const refreshCurrentWorkspaceMedia = useCallback(async () => {\n"
+              "    const refreshed = await refreshWorkspaceMediaSources({\n"
+              "      tracks,\n"
+              "      playlists,\n"
+              "      clients,\n"
+              "      messages,\n"
+              "      promoVideos,\n"
+              "      profile,\n"
+              "    }, resolveMediaAccess);\n"
+              "    setTracks(refreshed.tracks as Track[]);\n"
+              "    setPlaylists(refreshed.playlists as Playlist[]);\n"
+              "    setClients(refreshed.clients as Client[]);\n"
+              "    setMessages(refreshed.messages as Message[]);\n"
+              "    setPromoVideos(refreshed.promoVideos as PromoVideo[]);\n"
+              "    setProfile(refreshed.profile as UserProfile | null);\n"
+              "  }, [tracks, playlists, clients, messages, promoVideos, profile]);\n\n"
+              "  const withPendingKeys",
+              'refresh callback',
+          )
+
+          for name in ['tracks', 'playlists', 'clients', 'messages', 'promoVideos']:
+              replace_once(
+                  f"JSON.stringify({name})",
+                  f"JSON.stringify(sanitizeMediaForCache({name}))",
+                  f'cache {name}',
+              )
+          replace_once(
+              "JSON.stringify(profile)",
+              "JSON.stringify(sanitizeMediaForCache(profile))",
+              'cache profile',
+          )
+
+          replace_once(
+              "        setConnected(false);\n        setPromoVideos(await restorePromoVideoUrls(promoVideos));\n        setLoadingStatusText('Local fallback cache active.');",
+              "        setConnected(false);\n"
+              "        const cachedVideos = await restorePromoVideoUrls(promoVideos);\n"
+              "        const refreshedCache = await refreshWorkspaceMediaSources({\n"
+              "          tracks,\n"
+              "          playlists,\n"
+              "          clients,\n"
+              "          messages,\n"
+              "          promoVideos: cachedVideos,\n"
+              "          profile,\n"
+              "        }, resolveMediaAccess);\n"
+              "        if (!cancelled) {\n"
+              "          setTracks(refreshedCache.tracks as Track[]);\n"
+              "          setPlaylists(refreshedCache.playlists as Playlist[]);\n"
+              "          setClients(refreshedCache.clients as Client[]);\n"
+              "          setMessages(refreshedCache.messages as Message[]);\n"
+              "          setPromoVideos(refreshedCache.promoVideos as PromoVideo[]);\n"
+              "          setProfile(refreshedCache.profile as UserProfile | null);\n"
+              "        }\n"
+              "        setLoadingStatusText('Local fallback cache active.');",
+              'fallback refresh',
+          )
+
+          replace_once(
+              "  }, []);\n\n  const addActivity = async",
+              "  }, []);\n\n"
+              "  useEffect(() => {\n"
+              "    if (loading || publicShareLocation()) return;\n"
+              "    let disposed = false;\n"
+              "    const refresh = () => {\n"
+              "      if (disposed) return;\n"
+              "      void refreshCurrentWorkspaceMedia().catch((error) => {\n"
+              "        console.warn('[MediaStore] Background media URL refresh failed', error);\n"
+              "      });\n"
+              "    };\n"
+              "    const intervalId = window.setInterval(refresh, MEDIA_REFRESH_INTERVAL_MS);\n"
+              "    const onVisibilityChange = () => {\n"
+              "      if (document.visibilityState === 'visible') refresh();\n"
+              "    };\n"
+              "    document.addEventListener('visibilitychange', onVisibilityChange);\n"
+              "    return () => {\n"
+              "      disposed = true;\n"
+              "      window.clearInterval(intervalId);\n"
+              "      document.removeEventListener('visibilitychange', onVisibilityChange);\n"
+              "    };\n"
+              "  }, [loading, refreshCurrentWorkspaceMedia]);\n\n"
+              "  const addActivity = async",
+              'background refresh effect',
+          )
+
+          path.write_text(text)
+
+      - name: Focused stable media tests
+        run: |
+          node --experimental-strip-types --test src/services/mediaAccess.test.ts
+          node --experimental-strip-types --test src/services/trackAudioSource.test.ts
+          node --experimental-strip-types --test src/services/audioPlaybackRefresh.test.ts
+          node --experimental-strip-types --test src/services/workspaceMediaRefresh.test.ts
+          node --experimental-strip-types --test src/services/mediaStoreStableMedia.test.ts
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit verified source change
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/context/MediaStoreContext.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: renew signed workspace media URLs"
+          git push origin HEAD:fix/stable-media-branding-red
