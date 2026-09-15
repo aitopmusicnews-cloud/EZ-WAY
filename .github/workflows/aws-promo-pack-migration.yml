@@ -1,0 +1,374 @@
+name: AWS promo pack migration
+
+on:
+  push:
+    branches:
+      - cleanup/aws-only-data-layer
+    paths:
+      - .github/workflows/aws-promo-pack-migration.yml
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout cleanup branch
+        uses: actions/checkout@v4
+        with:
+          ref: cleanup/aws-only-data-layer
+
+      - name: Patch active AWS persistence path
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def write(path, content):
+              Path(path).write_text(content, encoding='utf-8')
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one replacement target, found {count}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # Frontend data client: expose AWS promo-pack read/write methods.
+          path = 'src/services/dataStore.ts'
+          text = Path(path).read_text(encoding='utf-8')
+          marker = "export interface DiagnosticsPayload {\n  tables: Record<string, number>;\n}\n"
+          addition = marker + "\nexport interface PromoPackPayload {\n  id: string;\n  track_id: string;\n  youtube_copy?: string | null;\n  instagram_copy?: string | null;\n  generic_copy?: string | null;\n  created_at?: string;\n}\n"
+          if marker not in text:
+              raise SystemExit('dataStore diagnostics marker missing')
+          text = text.replace(marker, addition, 1)
+          old = "      createMessage: configurationError, putProfile: configurationError, createPromoVideo: configurationError,\n      deletePromoVideo: configurationError, uploadFile: configurationError, refreshMediaUrl: configurationError, getPublicShare: configurationError,"
+          new = "      createMessage: configurationError, putProfile: configurationError, createPromoVideo: configurationError,\n      deletePromoVideo: configurationError, getPromoPack: configurationError, putPromoPack: configurationError,\n      uploadFile: configurationError, refreshMediaUrl: configurationError, getPublicShare: configurationError,"
+          if old not in text:
+              raise SystemExit('dataStore configuration fallback marker missing')
+          text = text.replace(old, new, 1)
+          old = "    createPromoVideo: (video: PromoVideo) => request<PromoVideo>('/promo-videos', jsonInit('POST', stripBrowserFields(video))),\n    deletePromoVideo: (id: string) => request<void>(`/promo-videos/${encoded(id)}`, { method: 'DELETE' }),\n\n    async uploadFile"
+          new = "    createPromoVideo: (video: PromoVideo) => request<PromoVideo>('/promo-videos', jsonInit('POST', stripBrowserFields(video))),\n    deletePromoVideo: (id: string) => request<void>(`/promo-videos/${encoded(id)}`, { method: 'DELETE' }),\n\n    getPromoPack: (trackId: string) => request<PromoPackPayload | null>(`/promo-packs/${encoded(trackId)}`),\n    putPromoPack: (trackId: string, pack: Pick<PromoPackPayload, 'youtube_copy' | 'instagram_copy' | 'generic_copy'>) =>\n      request<PromoPackPayload>(`/promo-packs/${encoded(trackId)}`, jsonInit('PUT', pack)),\n\n    async uploadFile"
+          if old not in text:
+              raise SystemExit('dataStore promo video marker missing')
+          text = text.replace(old, new, 1)
+          write(path, text)
+
+          # Backend validation for promo packs.
+          path = 'aws/app-data/api/contract.mjs'
+          text = Path(path).read_text(encoding='utf-8')
+          marker = "    case 'profiles': return {"
+          case = "    case 'promo_packs': return {\n      id: requireUuid(body.id),\n      track_id: requireUuid(body.track_id, 'track_id'),\n      youtube_copy: optionalText(body.youtube_copy, 200000),\n      instagram_copy: optionalText(body.instagram_copy, 200000),\n      generic_copy: optionalText(body.generic_copy, 200000),\n    };\n"
+          if marker not in text:
+              raise SystemExit('contract profile marker missing')
+          text = text.replace(marker, case + marker, 1)
+          write(path, text)
+
+          # Backend AWS API read/upsert routes.
+          path = 'aws/app-data/api/handler.mjs'
+          text = Path(path).read_text(encoding='utf-8')
+          marker = "async function loadShare(token) {"
+          helpers = """async function normalizePromoPackTrackId(trackId) {
+            return normalizeEntityCreate('promo_packs', {
+              id: randomUUID(),
+              track_id: trackId,
+            }).track_id;
+          }
+
+          async function getPromoPack(trackId) {
+            const validatedTrackId = await normalizePromoPackTrackId(trackId);
+            return one(await execute(
+              'SELECT * FROM promo_packs WHERE track_id = CAST(:track_id AS uuid) ORDER BY created_at DESC LIMIT 1',
+              [{ name: 'track_id', value: validatedTrackId }],
+            ));
+          }
+
+          async function putPromoPack(trackId, body) {
+            const item = normalizeEntityCreate('promo_packs', {
+              ...body,
+              id: randomUUID(),
+              track_id: trackId,
+            });
+            const rows = await execute(`
+              INSERT INTO promo_packs (id, track_id, youtube_copy, instagram_copy, generic_copy)
+              VALUES (CAST(:id AS uuid), CAST(:track_id AS uuid), :youtube_copy, :instagram_copy, :generic_copy)
+              ON CONFLICT (track_id) DO UPDATE SET
+                youtube_copy = EXCLUDED.youtube_copy,
+                instagram_copy = EXCLUDED.instagram_copy,
+                generic_copy = EXCLUDED.generic_copy
+              RETURNING *
+            `, params(item));
+            return one(rows);
+          }
+
+          """
+          if marker not in text:
+              raise SystemExit('handler loadShare marker missing')
+          text = text.replace(marker, helpers + marker, 1)
+          marker = "    const createRoutes = new Map(["
+          routes = """    const promoPackMatch = rawPath.match(/^\\/promo-packs\\/([^/]+)$/);
+            if (promoPackMatch) {
+              const trackId = String(pathParameters.trackId || promoPackMatch[1]).trim();
+              if (method === 'GET') return response(event, 200, await getPromoPack(trackId));
+              if (method === 'PUT') return response(event, 200, await putPromoPack(trackId, parseBody(event)));
+            }
+          """
+          if marker not in text:
+              raise SystemExit('handler create routes marker missing')
+          text = text.replace(marker, routes + marker, 1)
+          write(path, text)
+
+          # Ensure one persisted pack per track before using ON CONFLICT(track_id).
+          write('aws/app-data/migrations/003_promo_pack_track_unique.sql', """WITH ranked AS (
+            SELECT id,
+                   ROW_NUMBER() OVER (PARTITION BY track_id ORDER BY created_at DESC, id DESC) AS row_number
+            FROM promo_packs
+            WHERE track_id IS NOT NULL
+          )
+          DELETE FROM promo_packs
+          WHERE id IN (SELECT id FROM ranked WHERE row_number > 1);
+          -- statement-breakpoint
+
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_promo_packs_track_id_unique
+          ON promo_packs (track_id);
+          """)
+
+          # Promo Pack modal: use the AWS data API while preserving offline generation.
+          path = 'src/components/PromoPackModal.tsx'
+          text = Path(path).read_text(encoding='utf-8')
+          text = text.replace("import { getSupabaseClient } from '../lib/supabase';", "import { dataStore } from '../services/dataStore';", 1)
+          start = text.index('  // Load existing promo pack')
+          end = text.index('  useEffect(() => {', start)
+          replacement = """  // Load an existing AWS-backed promo pack or generate a new one.
+            const fetchOrGeneratePromo = async (forceRegenerate = false) => {
+              if (forceRegenerate) {
+                setRegenerating(true);
+              } else {
+                setLoading(true);
+              }
+
+              try {
+                let existingPack: PromoPackType | null = null;
+
+                if (!forceRegenerate && dataStore.configured) {
+                  try {
+                    existingPack = await dataStore.getPromoPack(track.id);
+                  } catch (error) {
+                    console.warn('[PromoPack] Saved pack could not be loaded. Generating locally.', error);
+                  }
+                }
+
+                if (existingPack && !forceRegenerate) {
+                  setPromoPack(existingPack);
+                  try {
+                    const parsedGeneric = JSON.parse(existingPack.generic_copy || '{}');
+                    if (parsedGeneric && parsedGeneric.acousticReport) {
+                      setAcousticReport(parsedGeneric.acousticReport);
+                    } else {
+                      setAcousticReport(predictAcousticFeaturesFromMetadata(track));
+                    }
+                  } catch {
+                    setAcousticReport(predictAcousticFeaturesFromMetadata(track));
+                  }
+                  return;
+                }
+
+                const report = await performWebAudioAnalysis(track, setAnalysisProgress);
+                setAcousticReport(report);
+                setAnalysisProgress('Enrolling sound registers via Gemini...');
+
+                const generated = await generatePromoPack({
+                  name: track.name,
+                  artist: track.artist,
+                  bpm: track.bpm,
+                  key_signature: track.key_signature,
+                  tags: track.tags || [],
+                  acousticReport: report,
+                });
+
+                const formattedPack: PromoPackType = {
+                  track_id: track.id,
+                  youtube_copy: JSON.stringify(generated.youtube),
+                  instagram_copy: generated.instagram || '',
+                  generic_copy: JSON.stringify({
+                    pitch: generated.generic || '',
+                    analysis: generated.analysis || null,
+                    acousticReport: report,
+                  }),
+                };
+
+                if (dataStore.configured) {
+                  try {
+                    const saved = await dataStore.putPromoPack(track.id, {
+                      youtube_copy: formattedPack.youtube_copy,
+                      instagram_copy: formattedPack.instagram_copy,
+                      generic_copy: formattedPack.generic_copy,
+                    });
+                    formattedPack.id = saved.id;
+                  } catch (error) {
+                    console.warn('[PromoPack] Generated pack is available locally, but cloud save failed.', error);
+                  }
+                }
+
+                setPromoPack(formattedPack);
+              } catch (err) {
+                console.error('Promo pack load/generate error:', err);
+              } finally {
+                setLoading(false);
+                setRegenerating(false);
+              }
+            };
+
+          """
+          text = text[:start] + replacement + text[end:]
+          write(path, text)
+
+          # User-facing cloud wording must match the active AWS architecture.
+          path = 'src/components/ClientPortal.tsx'
+          text = Path(path).read_text(encoding='utf-8')
+          text = text.replace('Connecting to Supabase Storage master buckets...', 'Connecting to secure cloud media storage...')
+          text = text.replace('Supabase Realtime Feed', 'Live Activity Feed')
+          write(path, text)
+
+          # Remove stale provider-specific assertions while retaining useful UI cleanup checks.
+          path = 'src/services/ghostUiCleanup.test.ts'
+          lines = Path(path).read_text(encoding='utf-8').splitlines()
+          lines = [line for line in lines if 'Supabase' not in line and 'supabase' not in line]
+          write(path, '\n'.join(lines) + '\n')
+
+          write('src/services/mediaStoreMigration.test.ts', """import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+
+          const source = readFileSync(new URL('../context/MediaStoreContext.tsx', import.meta.url), 'utf8');
+
+          test('MediaStoreContext uses the AWS dataStore boundary', () => {
+            assert.match(source, /from ['\"]@\\/src\\/services\\/dataStore['\"]/);
+            assert.doesNotMatch(source, /\\.from\\(['\"]/);
+          });
+
+          test('MediaStoreContext initializes owner data through one bootstrap call', () => {
+            assert.match(source, /dataStore\\.health\\(\\)/);
+            assert.match(source, /dataStore\\.bootstrap\\(\\)/);
+            assert.doesNotMatch(source, /ALTER TABLE|createBucket/);
+          });
+
+          test('MediaStoreContext preserves public share and upload component contracts', () => {
+            assert.match(source, /getShareContent: \\(token: string\\)/);
+            assert.match(source, /uploadFile: \\(bucket: string, file: File\\) => Promise<string \\| null>/);
+            assert.match(source, /dataStore\\.getPublicShare\\(token\\)/);
+            assert.match(source, /pendingMediaKeys/);
+          });
+
+          test('MediaStoreContext preserves the original AWS media upload failure for the caller', () => {
+            const uploadFileStart = source.indexOf('const uploadFile = async');
+            const uploadFileEnd = source.indexOf('const handleSetEnableMockData', uploadFileStart);
+            const uploadFileSource = source.slice(uploadFileStart, uploadFileEnd);
+            assert.match(uploadFileSource, /throw error;/);
+          });
+          """)
+
+          # Update AWS documentation to describe only the current architecture.
+          path = 'aws/app-data/README.md'
+          text = Path(path).read_text(encoding='utf-8')
+          text = text.replace('This stack replaces the former Supabase application backend with an AWS-native data layer.', 'This stack is the AWS-native application data layer for EZ-WAY.')
+          text = text.replace('The schema starts empty. No old Supabase rows, storage objects, or browser cache are imported automatically. New data created after cutover becomes authoritative AWS data. Browser cache remains fallback/cache only.', 'AWS data is authoritative for application records. Browser cache remains fallback/cache only.')
+          write(path, text)
+
+          path = 'aws/music-intelligence/README.md'
+          text = Path(path).read_text(encoding='utf-8')
+          text = text.replace("This folder replaces the new analyzer's Supabase `track_analysis` dependency with an AWS-native storage path.", 'This folder provides the AWS-native storage path for Music Intelligence analysis records.')
+          text = text.replace('This keeps the analyzer profile contract stable while allowing Supabase, file storage, and compute to be migrated independently.', 'This keeps the analyzer profile contract stable while storage and compute can evolve independently.')
+          write(path, text)
+
+          legacy_plan = Path('docs/superpowers/plans/2026-08-22-music-intelligence-analyzer.md')
+          if legacy_plan.exists():
+              legacy_plan.unlink()
+
+          # Regression coverage for the active Promo Pack data path.
+          write('src/services/promoPackAws.test.ts', """import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+
+          const modalSource = readFileSync(new URL('../components/PromoPackModal.tsx', import.meta.url), 'utf8');
+          const dataStoreSource = readFileSync(new URL('./dataStore.ts', import.meta.url), 'utf8');
+          const handlerSource = readFileSync(new URL('../../aws/app-data/api/handler.mjs', import.meta.url), 'utf8');
+          const migrationSource = readFileSync(new URL('../../aws/app-data/migrations/003_promo_pack_track_unique.sql', import.meta.url), 'utf8');
+
+          test('Promo Pack reads and writes through the AWS data API', () => {
+            assert.match(modalSource, /dataStore\\.getPromoPack\\(track\\.id\\)/);
+            assert.match(modalSource, /dataStore\\.putPromoPack\\(track\\.id/);
+            assert.match(dataStoreSource, /\\/promo-packs\\/\\$\\{encoded\\(trackId\\)\\}/);
+            assert.match(handlerSource, /ON CONFLICT \\(track_id\\) DO UPDATE/);
+            assert.match(migrationSource, /CREATE UNIQUE INDEX IF NOT EXISTS idx_promo_packs_track_id_unique/);
+          });
+          """)
+
+          # Extend backend contract coverage.
+          path = 'aws/app-data/api/contract.test.mjs'
+          text = Path(path).read_text(encoding='utf-8')
+          if "promo packs validate track ownership keys" not in text:
+              text += """
+
+          test('promo packs validate track ownership keys and copy payloads', () => {
+            const pack = normalizeEntityCreate('promo_packs', {
+              id: '00000000-0000-4000-8000-000000000020',
+              track_id: '00000000-0000-4000-8000-000000000021',
+              youtube_copy: '{\"title\":\"Launch\"}',
+              instagram_copy: 'Caption',
+              generic_copy: '{\"pitch\":\"Pitch\"}',
+            });
+            assert.equal(pack.track_id, '00000000-0000-4000-8000-000000000021');
+            assert.equal(pack.instagram_copy, 'Caption');
+            assert.throws(() => normalizeEntityCreate('promo_packs', {
+              id: '00000000-0000-4000-8000-000000000020',
+              track_id: 'not-a-uuid',
+            }), /track_id must be a UUID/i);
+          });
+          """
+              write(path, text)
+
+          # Keep the focused regression in the standard verification workflow.
+          path = '.github/workflows/music-intelligence-verify.yml'
+          text = Path(path).read_text(encoding='utf-8')
+          marker = "      - name: Track bundle stable-media tests\n        run: node --experimental-strip-types --test src/services/trackBundleMedia.test.ts\n"
+          step = "      - name: Promo Pack AWS persistence regression\n        run: node --experimental-strip-types --test src/services/promoPackAws.test.ts\n\n"
+          if step not in text:
+              if marker not in text:
+                  raise SystemExit('verification workflow insertion marker missing')
+              text = text.replace(marker, step + marker, 1)
+              write(path, text)
+          PY
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Clean install
+        run: npm ci
+
+      - name: Focused AWS persistence tests
+        run: |
+          node --test aws/app-data/api/contract.test.mjs
+          node --check aws/app-data/api/handler.mjs aws/app-data/api/contract.mjs
+          node --experimental-strip-types --test src/services/promoPackAws.test.ts src/services/dataStore.test.ts src/services/ghostUiCleanup.test.ts src/services/mediaStoreMigration.test.ts
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit migration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "fix: migrate promo pack persistence to AWS"
+            git push origin HEAD:cleanup/aws-only-data-layer
+          fi
