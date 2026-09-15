@@ -33,6 +33,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   const activeTrackRef = useRef<Track | null>(null);
   const localObjectUrlRef = useRef<string | null>(null);
   const playRequestRef = useRef(0);
+  const resumeRefreshRef = useRef(false);
   const addToastRef = useRef(addToast);
 
   useEffect(() => {
@@ -130,6 +131,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
+        resumeRefreshRef.current = false;
         setIsPlaying(true);
 
         updateTrack(track.id, { plays: (track.plays || 0) + 1 }).catch(console.error);
@@ -162,18 +164,53 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     if (!audio || !activeTrackRef.current) return;
 
     setIsPlaying(true);
-    const playPromise = audio.play();
-    if (playPromise !== undefined) {
-      playPromise.catch((error) => {
+    void (async () => {
+      try {
+        await audio.play();
+        resumeRefreshRef.current = false;
+      } catch (error) {
         console.warn('Could not resume real track playback:', error);
-        setIsPlaying(false);
-        addToast('The track source expired. Select the track again to refresh it.', 'error');
-      });
-    }
+        if (resumeRefreshRef.current || !activeTrackRef.current) {
+          setIsPlaying(false);
+          addToast('The track could not be resumed.', 'error');
+          return;
+        }
+
+        resumeRefreshRef.current = true;
+        try {
+          const playbackTrack = await refreshTrackAudioSource(activeTrackRef.current);
+          let source = String(playbackTrack.file_url || '').trim();
+          clearLocalObjectUrl();
+
+          if (playbackTrack.file_data) {
+            source = URL.createObjectURL(playbackTrack.file_data);
+            localObjectUrlRef.current = source;
+          }
+          if (!source || (source.startsWith('blob:') && !playbackTrack.file_data)) {
+            throw new Error('The track has no playable audio source.');
+          }
+
+          activeTrackRef.current = playbackTrack;
+          setActiveTrack(playbackTrack);
+          audio.src = source;
+          audio.load();
+          audio.volume = volume;
+          await audio.play();
+          resumeRefreshRef.current = false;
+          setIsPlaying(true);
+        } catch (refreshError) {
+          console.warn('Could not refresh expired track audio:', refreshError);
+          resumeRefreshRef.current = false;
+          setIsPlaying(false);
+          addToast('The track source could not be refreshed.', 'error');
+        }
+      }
+    })();
   };
 
   const stop = () => {
     playRequestRef.current += 1;
+    resumeRefreshRef.current = false;
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
