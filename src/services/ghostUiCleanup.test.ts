@@ -17,7 +17,6 @@ test('retired ghost features are absent from the active UI and source tree', () 
 
 test('stale settings and synthetic system-status placeholders are removed', () => {
   for (const label of [
-    'Supabase Cloud Connection',
     'Live Database Catalog Explorer',
     'Two-Factor Auth',
     'Storage Usage',
@@ -30,8 +29,6 @@ test('stale settings and synthetic system-status placeholders are removed', () =
   ]) {
     assert.equal(appSource.includes(label), false, `${label} placeholder must be removed`);
   }
-  assert.equal(appSource.includes('./lib/supabase'), false, 'App must not depend on the Supabase compatibility facade');
-  assert.equal(fs.existsSync(new URL('../lib/supabase.ts', import.meta.url)), true, 'compatibility facade must remain while PromoPackModal still depends on it');
 });
 
 test('navigation uses a shared typed view contract for retained features', () => {

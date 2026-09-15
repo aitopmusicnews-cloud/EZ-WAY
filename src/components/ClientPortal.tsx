@@ -434,7 +434,7 @@ export default function ClientPortal({ client }: { client: Client }) {
 
     setZipPackingStage('analyzing');
     setZipPackingProgress(5);
-    setZipPackingStatusText("Connecting to Supabase Storage master buckets...");
+    setZipPackingStatusText("Connecting to secure cloud media storage...");
 
     // Stage updates
     setTimeout(() => {
@@ -950,7 +950,7 @@ export default function ClientPortal({ client }: { client: Client }) {
                   
                   {/* Real-time system handshake logging alerts */}
                   <div className="p-3.5 bg-slate-900/30 border border-slate-900 rounded-xl space-y-1 text-[10px] font-mono text-slate-400">
-                    <span className="text-amber-500 uppercase font-black tracking-widest block text-[8px]">Supabase Realtime Feed</span>
+                    <span className="text-amber-500 uppercase font-black tracking-widest block text-[8px]">Live Activity Feed</span>
                     <p className="leading-normal">Connected client tunnel. Instant synchronizing active on <strong className="text-slate-300">client_feedback</strong> session rules.</p>
                   </div>
 

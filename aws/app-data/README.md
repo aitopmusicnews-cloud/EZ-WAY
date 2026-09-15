@@ -1,6 +1,6 @@
 # EZ-WAY AWS App Data
 
-This stack replaces the former Supabase application backend with an AWS-native data layer. It is intentionally separate from `aws/audio-tools/`, which continues to own Music Intelligence jobs and DynamoDB analysis profiles.
+This stack is the AWS-native application data layer for EZ-WAY. It is intentionally separate from `aws/audio-tools/`, which continues to own Music Intelligence jobs and DynamoDB analysis profiles.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ This stack replaces the former Supabase application backend with an AWS-native d
 
 ## Fresh-start behavior
 
-The schema starts empty. No old Supabase rows, storage objects, or browser cache are imported automatically. New data created after cutover becomes authoritative AWS data. Browser cache remains fallback/cache only.
+AWS data is authoritative for application records. Browser cache remains fallback/cache only.
 
 ## Files
 

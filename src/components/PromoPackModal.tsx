@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Copy, Check, Sparkles, RefreshCw, Mail, Youtube, Instagram, Tag } from 'lucide-react';
 import { Track } from '../types';
 import { generatePromoPack } from '../services/geminiService';
-import { getSupabaseClient } from '../lib/supabase';
+import { dataStore } from '../services/dataStore';
 
 // High-fidelity type definition for local state
 interface PromoPackType {
@@ -235,7 +235,7 @@ export default function PromoPackModal({ track, onClose }: { track: Track; onClo
     confidence: number;
   } | null>(null);
 
-  // Load existing promo pack from Supabase or generate a new one
+  // Load an existing AWS-backed promo pack or generate a new one.
   const fetchOrGeneratePromo = async (forceRegenerate = false) => {
     if (forceRegenerate) {
       setRegenerating(true);
@@ -245,28 +245,19 @@ export default function PromoPackModal({ track, onClose }: { track: Track; onClo
 
     try {
       let existingPack: PromoPackType | null = null;
-      const activeSupabase = await getSupabaseClient().catch(() => null);
 
-      // 1. Check Supabase first if available
-      if (activeSupabase && !forceRegenerate) {
-        const { data, error } = await activeSupabase
-          .from('promo_packs')
-          .select('*')
-          .eq('track_id', track.id)
-          .maybeSingle();
-
-        if (data && !error) {
-          existingPack = data;
+      if (!forceRegenerate && dataStore.configured) {
+        try {
+          existingPack = await dataStore.getPromoPack(track.id);
+        } catch (error) {
+          console.warn('[PromoPack] Saved pack could not be loaded. Generating locally.', error);
         }
       }
 
-      // 2. If existing pack found, set it, else generate with Gemini
       if (existingPack && !forceRegenerate) {
         setPromoPack(existingPack);
-        
-        // Extract persisted spectral signature from json representation
         try {
-          const parsedGeneric = JSON.parse(existingPack.generic_copy || "{}");
+          const parsedGeneric = JSON.parse(existingPack.generic_copy || '{}');
           if (parsedGeneric && parsedGeneric.acousticReport) {
             setAcousticReport(parsedGeneric.acousticReport);
           } else {
@@ -275,70 +266,49 @@ export default function PromoPackModal({ track, onClose }: { track: Track; onClo
         } catch {
           setAcousticReport(predictAcousticFeaturesFromMetadata(track));
         }
-      } else {
-        // Physical high fidelity Web Audio analysis passes first
-        const report = await performWebAudioAnalysis(track, setAnalysisProgress);
-        setAcousticReport(report);
-
-        setAnalysisProgress("Enrolling sound registers via Gemini...");
-
-        // High fidelity generator call targeting the server API
-        const generated = await generatePromoPack({
-          name: track.name,
-          artist: track.artist,
-          bpm: track.bpm,
-          key_signature: track.key_signature,
-          tags: track.tags || [],
-          acousticReport: report
-        });
-
-        const formattedPack: PromoPackType = {
-          track_id: track.id,
-          youtube_copy: JSON.stringify(generated.youtube),
-          instagram_copy: generated.instagram || "",
-          generic_copy: JSON.stringify({
-            pitch: generated.generic || "",
-            analysis: generated.analysis || null,
-            acousticReport: report
-          })
-        };
-
-        // If connected to Supabase, update or insert in the database
-        if (activeSupabase) {
-          if (existingPack?.id) {
-            // Update
-            await activeSupabase
-              .from('promo_packs')
-              .update({
-                youtube_copy: formattedPack.youtube_copy,
-                instagram_copy: formattedPack.instagram_copy,
-                generic_copy: formattedPack.generic_copy
-              })
-              .eq('id', existingPack.id);
-            formattedPack.id = existingPack.id;
-          } else {
-            // Insert
-            const { data: inserted, error: insertError } = await activeSupabase
-              .from('promo_packs')
-              .insert({
-                track_id: track.id,
-                youtube_copy: formattedPack.youtube_copy,
-                instagram_copy: formattedPack.instagram_copy,
-                generic_copy: formattedPack.generic_copy
-              })
-              .select()
-              .single();
-
-            if (inserted && !insertError) {
-              formattedPack.id = inserted.id;
-            }
-          }
-        }
-
-        setPromoPack(formattedPack);
+        return;
       }
+
+      const report = await performWebAudioAnalysis(track, setAnalysisProgress);
+      setAcousticReport(report);
+      setAnalysisProgress('Enrolling sound registers via Gemini...');
+
+      const generated = await generatePromoPack({
+        name: track.name,
+        artist: track.artist,
+        bpm: track.bpm,
+        key_signature: track.key_signature,
+        tags: track.tags || [],
+        acousticReport: report,
+      });
+
+      const formattedPack: PromoPackType = {
+        track_id: track.id,
+        youtube_copy: JSON.stringify(generated.youtube),
+        instagram_copy: generated.instagram || '',
+        generic_copy: JSON.stringify({
+          pitch: generated.generic || '',
+          analysis: generated.analysis || null,
+          acousticReport: report,
+        }),
+      };
+
+      if (dataStore.configured) {
+        try {
+          const saved = await dataStore.putPromoPack(track.id, {
+            youtube_copy: formattedPack.youtube_copy,
+            instagram_copy: formattedPack.instagram_copy,
+            generic_copy: formattedPack.generic_copy,
+          });
+          formattedPack.id = saved.id;
+        } catch (error) {
+          console.warn('[PromoPack] Generated pack is available locally, but cloud save failed.', error);
+        }
+      }
+
+      setPromoPack(formattedPack);
     } catch (err) {
-      console.error("Promo pack load/generate error:", err);
+      console.error('Promo pack load/generate error:', err);
     } finally {
       setLoading(false);
       setRegenerating(false);
