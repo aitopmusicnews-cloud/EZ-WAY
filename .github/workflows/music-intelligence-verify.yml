@@ -104,6 +104,12 @@ jobs:
       - name: Stable media access tests
         run: node --experimental-strip-types --test src/services/mediaAccess.test.ts
 
+      - name: Track audio source refresh tests
+        run: node --experimental-strip-types --test src/services/trackAudioSource.test.ts
+
+      - name: Audio playback refresh regression
+        run: node --experimental-strip-types --test src/services/audioPlaybackRefresh.test.ts
+
       - name: Track bundle stable-media tests
         run: node --experimental-strip-types --test src/services/trackBundleMedia.test.ts
 
