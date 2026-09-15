@@ -30,6 +30,33 @@ test('refreshWorkspaceMediaSources refreshes every keyed workspace media family'
   assert.match(refreshed.profile!.avatar_url, /profiles%2F/);
 });
 
+test('keeps active local object URLs while their browser media data still exists', async () => {
+  let refreshCalls = 0;
+  const localBlob = new Blob(['local-audio'], { type: 'audio/wav' });
+  const workspace = {
+    tracks: [{
+      id: 't-local',
+      file_key: 'tracks/audio/t-local/master.wav',
+      file_url: 'blob:active-local-audio',
+      file_data: localBlob,
+    }],
+    playlists: [],
+    clients: [],
+    messages: [],
+    promoVideos: [],
+    profile: null,
+  };
+
+  const refreshed = await refreshWorkspaceMediaSources(workspace, async (input) => {
+    refreshCalls += 1;
+    return resolver(input);
+  });
+
+  assert.equal(refreshCalls, 0);
+  assert.equal(refreshed.tracks[0].file_url, 'blob:active-local-audio');
+  assert.equal(refreshed.tracks[0].file_data, localBlob);
+});
+
 test('sanitizeMediaForCache removes disposable URLs when a stable key exists', () => {
   const cached = sanitizeMediaForCache({
     file_key: 'tracks/audio/t1/a.wav',
