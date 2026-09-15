@@ -101,6 +101,21 @@ jobs:
       - name: EZ-WAY data store tests
         run: node --experimental-strip-types --test src/services/dataStore.test.ts
 
+      - name: Stable media access tests
+        run: node --experimental-strip-types --test src/services/mediaAccess.test.ts
+
+      - name: Track audio source refresh tests
+        run: node --experimental-strip-types --test src/services/trackAudioSource.test.ts
+
+      - name: Audio playback refresh regression
+        run: node --experimental-strip-types --test src/services/audioPlaybackRefresh.test.ts
+
+      - name: Workspace media refresh regression
+        run: node --experimental-strip-types --test src/services/workspaceMediaRefresh.test.ts
+
+      - name: MediaStore stable-media integration regression
+        run: node --experimental-strip-types --test src/services/mediaStoreStableMedia.test.ts
+
       - name: Track bundle stable-media tests
         run: node --experimental-strip-types --test src/services/trackBundleMedia.test.ts
 

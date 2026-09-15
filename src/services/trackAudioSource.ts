@@ -1,5 +1,6 @@
 import type { Track } from '../types.ts';
 import { getIdToken } from './auth.ts';
+import { createMediaAccessApiResolver, resolveMediaAccess } from './mediaAccess.ts';
 
 const cleanBase = (value: unknown): string => String(value ?? '').trim().replace(/\/+$/, '');
 
@@ -40,26 +41,33 @@ export async function refreshTrackAudioSource(
 ): Promise<Track> {
   if (track.file_data || !track.file_key) return track;
 
-  const apiBase = cleanBase(
-    options.apiBase === undefined ? getEnv('VITE_EZWAY_API_URL') : options.apiBase,
-  );
-  const token = options.token === undefined ? getIdToken() : options.token;
-  const fetchImpl = options.fetchImpl || globalThis.fetch?.bind(globalThis);
-  if (!apiBase || !token || !fetchImpl) return track;
-
   try {
-    const response = await fetchImpl(`${apiBase}/bootstrap`, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (!response.ok) throw new Error(`EZ-WAY source refresh failed (${response.status}).`);
-    const payload = await response.json() as { tracks?: Track[] };
-    const refreshed = (payload.tracks || []).find((candidate) => candidate.id === track.id);
-    if (!refreshed?.file_url || refreshed.file_url.startsWith('blob:')) return track;
-    return { ...track, ...refreshed };
+    const input = {
+      objectKey: track.file_key,
+      url: track.file_url || null,
+    };
+
+    const hasInjectedTransport = options.apiBase !== undefined
+      || options.token !== undefined
+      || options.fetchImpl !== undefined;
+
+    const resolved = hasInjectedTransport
+      ? await createMediaAccessApiResolver({
+          apiBase: cleanBase(
+            options.apiBase === undefined ? getEnv('VITE_EZWAY_API_URL') : options.apiBase,
+          ),
+          getToken: () => options.token === undefined ? getIdToken() : options.token,
+          restoreAuth: async () => false,
+          fetchImpl: options.fetchImpl || globalThis.fetch?.bind(globalThis),
+        })(input)
+      : await resolveMediaAccess(input);
+
+    if (!resolved.url || resolved.url.startsWith('blob:')) return track;
+    return {
+      ...track,
+      file_url: resolved.url,
+      file_key: resolved.objectKey || track.file_key,
+    };
   } catch (error) {
     console.warn('[AudioSource] Could not refresh track source; using the current source.', error);
     return track;
