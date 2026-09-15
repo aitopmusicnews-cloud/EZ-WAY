@@ -113,6 +113,9 @@ jobs:
       - name: Workspace media refresh regression
         run: node --experimental-strip-types --test src/services/workspaceMediaRefresh.test.ts
 
+      - name: MediaStore stable-media integration regression
+        run: node --experimental-strip-types --test src/services/mediaStoreStableMedia.test.ts
+
       - name: Track bundle stable-media tests
         run: node --experimental-strip-types --test src/services/trackBundleMedia.test.ts
 
