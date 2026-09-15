@@ -18,6 +18,10 @@ test('saved video preview resolves stable video, thumbnail, and track audio keys
   assert.match(previewSource, /video\.video_key/);
   assert.match(previewSource, /video\.thumbnail_key/);
   assert.match(previewSource, /refreshTrackAudioSource/);
+  assert.match(previewSource, /resolvedVideoUrl/);
+  assert.match(previewSource, /resolvedThumbnailUrl/);
+  assert.match(previewSource, /resolvedTrackAudioUrl/);
+  assert.match(previewSource, /isVideoSource/);
   assert.doesNotMatch(previewSource, /src=\{getProxyVideoUrl\(video\.video_url\)\}/);
   assert.doesNotMatch(previewSource, /src=\{track\.file_url\}/);
 });
