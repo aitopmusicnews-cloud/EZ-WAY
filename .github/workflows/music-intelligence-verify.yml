@@ -110,6 +110,9 @@ jobs:
       - name: Audio playback refresh regression
         run: node --experimental-strip-types --test src/services/audioPlaybackRefresh.test.ts
 
+      - name: Workspace media refresh regression
+        run: node --experimental-strip-types --test src/services/workspaceMediaRefresh.test.ts
+
       - name: Track bundle stable-media tests
         run: node --experimental-strip-types --test src/services/trackBundleMedia.test.ts
 
