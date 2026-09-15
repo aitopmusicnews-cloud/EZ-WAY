@@ -326,6 +326,18 @@ Resources:
             ApiId: !Ref EzwayHttpApi
             Path: /promo-videos/{id}
             Method: DELETE
+        PromoPacksGet:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /promo-packs/{trackId}
+            Method: GET
+        PromoPacksPut:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref EzwayHttpApi
+            Path: /promo-packs/{trackId}
+            Method: PUT
         UploadPresign:
           Type: HttpApi
           Properties:
