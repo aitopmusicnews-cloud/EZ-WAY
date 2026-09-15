@@ -71,7 +71,6 @@ import Shell from "./components/Shell";
 import AudioPlayer from "./components/AudioPlayer";
 import UploadZone from "./components/UploadZone";
 import TrackOptionsMenu from "./components/TrackOptionsMenu";
-import PromoPackModal from "./components/PromoPackModal";
 import EditTrackModal from "./components/EditTrackModal";
 import EditPlaylistModal from "./components/EditPlaylistModal";
 import AddTrackToPlaylistModal from "./components/AddTrackToPlaylistModal";
@@ -135,8 +134,6 @@ export default function App() {
   const [expandedTrackIds, setExpandedTrackIds] = useState<string[]>([]);
   const [clientSearchQuery, setClientSearchQuery] = useState("");
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
-  const [selectedTrackForPromo, setSelectedTrackForPromo] =
-    useState<Track | null>(null);
   const [editingTrack, setEditingTrack] = useState<Track | null>(null);
   const [viewingTrackDetails, setViewingTrackDetails] = useState<Track | null>(
     null,
@@ -2071,7 +2068,6 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
                       onShare={() => handleShare(track)}
                       onDownload={() => handleDownload(track)}
                       onDelete={() => handleDeleteTrack(track.id)}
-                      onCreatePromo={() => setSelectedTrackForPromo(track)}
                       onCreateVideo={() => handleNavigateToVideoMaker(track)}
                       onAddToPlaylist={(plId) =>
                         addTrackToPlaylist(track.id, plId)
@@ -2430,7 +2426,6 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
                           onShare={() => handleShare(track)}
                           onDownload={() => handleDownload(track)}
                           onDelete={() => handleDeleteTrack(track.id)}
-                          onCreatePromo={() => setSelectedTrackForPromo(track)}
                           onCreateVideo={() => handleNavigateToVideoMaker(track)}
                           onAddToPlaylist={(plId) =>
                             addTrackToPlaylist(track.id, plId)
@@ -2587,7 +2582,6 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
                       onShare={() => handleShare(track)}
                       onDownload={() => handleDownload(track)}
                       onDelete={() => handleDeleteTrack(track.id)}
-                      onCreatePromo={() => setSelectedTrackForPromo(track)}
                       onCreateVideo={() => handleNavigateToVideoMaker(track)}
                       onAddToPlaylist={(plId) =>
                         addTrackToPlaylist(track.id, plId)
@@ -3002,7 +2996,6 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
                           onShare={() => handleShare(track)}
                           onDownload={() => handleDownload(track)}
                           onDelete={() => handleDeleteTrack(track.id)}
-                          onCreatePromo={() => setSelectedTrackForPromo(track)}
                           onCreateVideo={() => handleNavigateToVideoMaker(track)}
                           onAddToPlaylist={(plId) =>
                             addTrackToPlaylist(track.id, plId)
@@ -5216,13 +5209,6 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
       />
 
       <AnimatePresence>
-        {selectedTrackForPromo && (
-          <PromoPackModal
-            key="promo-pack-modal"
-            track={selectedTrackForPromo}
-            onClose={() => setSelectedTrackForPromo(null)}
-          />
-        )}
         {editingTrack && (
           <EditTrackModal
             key="edit-track-modal"

@@ -195,46 +195,13 @@ async function bootstrap() {
 }
 
 async function diagnostics() {
-  const tables = ['tracks', 'playlists', 'clients', 'share_links', 'activities', 'messages', 'promo_videos', 'promo_packs', 'profiles', 'todos'];
+  const tables = ['tracks', 'playlists', 'clients', 'share_links', 'activities', 'messages', 'promo_videos', 'profiles', 'todos'];
   const counts = {};
   for (const table of tables) {
     const rows = await execute(`SELECT COUNT(*)::int AS count FROM ${table}`);
     counts[table] = Number(one(rows)?.count || 0);
   }
   return { tables: counts };
-}
-
-async function normalizePromoPackTrackId(trackId) {
-  return normalizeEntityCreate('promo_packs', {
-    id: randomUUID(),
-    track_id: trackId,
-  }).track_id;
-}
-
-async function getPromoPack(trackId) {
-  const validatedTrackId = await normalizePromoPackTrackId(trackId);
-  return one(await execute(
-    'SELECT * FROM promo_packs WHERE track_id = CAST(:track_id AS uuid) ORDER BY created_at DESC LIMIT 1',
-    [{ name: 'track_id', value: validatedTrackId }],
-  ));
-}
-
-async function putPromoPack(trackId, body) {
-  const item = normalizeEntityCreate('promo_packs', {
-    ...body,
-    id: randomUUID(),
-    track_id: trackId,
-  });
-  const rows = await execute(`
-    INSERT INTO promo_packs (id, track_id, youtube_copy, instagram_copy, generic_copy)
-    VALUES (CAST(:id AS uuid), CAST(:track_id AS uuid), :youtube_copy, :instagram_copy, :generic_copy)
-    ON CONFLICT (track_id) DO UPDATE SET
-      youtube_copy = EXCLUDED.youtube_copy,
-      instagram_copy = EXCLUDED.instagram_copy,
-      generic_copy = EXCLUDED.generic_copy
-    RETURNING *
-  `, params(item));
-  return one(rows);
 }
 
 async function loadShare(token) {
@@ -429,12 +396,6 @@ export const handler = async (event) => {
       if (!(await postPublicEvent(token, parseBody(event)))) return response(event, 404, { error: 'Share link not found or expired.' });
       return response(event, 204);
     }
-    const promoPackMatch = rawPath.match(/^\/promo-packs\/([^/]+)$/);
-  if (promoPackMatch) {
-    const trackId = String(pathParameters.trackId || promoPackMatch[1]).trim();
-    if (method === 'GET') return response(event, 200, await getPromoPack(trackId));
-    if (method === 'PUT') return response(event, 200, await putPromoPack(trackId, parseBody(event)));
-  }
     const createRoutes = new Map([
       ['/tracks', 'tracks'], ['/playlists', 'playlists'], ['/clients', 'clients'],
       ['/share-links', 'share_links'], ['/activities', 'activities'], ['/messages', 'messages'], ['/promo-videos', 'promo_videos'],

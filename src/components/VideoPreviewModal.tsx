@@ -3,7 +3,6 @@ import { X, Download, Share2, Trash2, AlertCircle, Youtube, Instagram, Facebook,
 import { motion, AnimatePresence } from 'motion/react';
 import { PromoVideo } from '../types';
 import { useMediaStore } from '../context/MediaStoreContext';
-import { generatePromoPack } from '../services/geminiService';
 
 interface VideoPreviewModalProps {
   video: PromoVideo;
@@ -39,42 +38,8 @@ export default function VideoPreviewModal({ video, onClose }: VideoPreviewModalP
   const [activePanel, setActivePanel] = useState<'meta' | 'share'>('meta');
   const [socialPlatform, setSocialPlatform] = useState<'youtube' | 'instagram' | 'facebook'>('youtube');
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [promoData, setPromoData] = useState<any>(null);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
 
-  useEffect(() => {
-    async function loadPromoData() {
-      try {
-        if (track) {
-          const data = await generatePromoPack(track);
-          setPromoData(data);
-        } else if (playlist) {
-          const simulatedTrack = {
-            name: playlist.name,
-            artist: "THE BEATZ WAY",
-            bpm: 120,
-            key_signature: "Am",
-            tags: ["Collection", "Beat Tape", "Release"]
-          };
-          const data = await generatePromoPack(simulatedTrack);
-          setPromoData(data);
-        } else {
-          const simulatedTrack = {
-            name: sourceName,
-            artist: "THE BEATZ WAY",
-            bpm: 125,
-            key_signature: "Cm",
-            tags: [video.style || "Urban", "Asset", "Promo"]
-          };
-          const data = await generatePromoPack(simulatedTrack);
-          setPromoData(data);
-        }
-      } catch (err) {
-        console.error("Error generating promo pack data:", err);
-      }
-    }
-    loadPromoData();
-  }, [track, playlist, video, sourceName]);
 
   const getProxyVideoUrl = (url?: string) => {
     if (!url) return '';
@@ -120,11 +85,11 @@ export default function VideoPreviewModal({ video, onClose }: VideoPreviewModalP
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  // Helper defaults if promoData is still fetching
-  const youtubeTitle = promoData?.youtube?.title || `🔥 ${sourceName} - Official Visualizer // (${video.style} style)`;
-  const youtubeDesc = promoData?.youtube?.description || `Presenting "${sourceName}" produced in professional ${video.style} aesthetic. \n\nStream/Download on all music platforms. Produced by THE BEATZ WAY.\n\n#beatzway #youtube #${video.style.replace(/\s+/g, '').toLowerCase()}`;
-  const instagramCaption = promoData?.instagram || `🔥 THE VIBE IS HERE: "${sourceName}" is officially live inside the promo portal. Handcrafted modern beats in custom ${video.style.toLowerCase()} style. \n\nStream full master now via the link in bio! 🔗 \n\n#reels #instamusic #producer #${video.style.replace(/\s+/g, '').toLowerCase()}`;
-  const facebookCaption = promoData?.facebook || `🔥 WATCH: "${sourceName}" is now streaming! Check out this high-fidelity master created in dynamic ${video.style.toLowerCase()} visualizer. \n\nStream/Download full version here inside the portal! 🔗 \n\n#beatzway #facebookreels #producer #${video.style.replace(/\s+/g, '').toLowerCase()}`;
+  // Stable social-copy defaults for the video publishing panel.
+  const youtubeTitle = `🔥 ${sourceName} - Official Visualizer // (${video.style} style)`;
+  const youtubeDesc = `Presenting "${sourceName}" produced in professional ${video.style} aesthetic. \n\nStream/Download on all music platforms. Produced by THE BEATZ WAY.\n\n#beatzway #youtube #${video.style.replace(/\s+/g, '').toLowerCase()}`;
+  const instagramCaption = `🔥 THE VIBE IS HERE: "${sourceName}" is officially live inside the promo portal. Handcrafted modern beats in custom ${video.style.toLowerCase()} style. \n\nStream full master now via the link in bio! 🔗 \n\n#reels #instamusic #producer #${video.style.replace(/\s+/g, '').toLowerCase()}`;
+  const facebookCaption = `🔥 WATCH: "${sourceName}" is now streaming! Check out this high-fidelity master created in dynamic ${video.style.toLowerCase()} visualizer. \n\nStream/Download full version here inside the portal! 🔗 \n\n#beatzway #facebookreels #producer #${video.style.replace(/\s+/g, '').toLowerCase()}`;
 
   const openExternalPublish = (url: string) => {
     window.open(url, '_blank');

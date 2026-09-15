@@ -225,13 +225,6 @@ export function normalizeEntityCreate(entity, body = {}) {
         title: optionalText(body.title, 1000),
       };
     }
-    case 'promo_packs': return {
-      id: requireUuid(body.id),
-      track_id: requireUuid(body.track_id, 'track_id'),
-      youtube_copy: optionalText(body.youtube_copy, 200000),
-      instagram_copy: optionalText(body.instagram_copy, 200000),
-      generic_copy: optionalText(body.generic_copy, 200000),
-    };
     case 'profiles': return {
       id: requireUuid(body.id),
       name: optionalText(body.name, 500) || '',

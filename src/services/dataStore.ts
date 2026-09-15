@@ -42,14 +42,6 @@ export interface DiagnosticsPayload {
   tables: Record<string, number>;
 }
 
-export interface PromoPackPayload {
-  id: string;
-  track_id: string;
-  youtube_copy?: string | null;
-  instagram_copy?: string | null;
-  generic_copy?: string | null;
-  created_at?: string;
-}
 
 export class DataStoreError extends Error {
   status: number;
@@ -169,7 +161,7 @@ export function createDataStoreClient(options: ClientOptions) {
       createClient: configurationError, updateClient: configurationError, deleteClient: configurationError,
       createShareLink: configurationError, deleteShareLink: configurationError, createActivity: configurationError,
       createMessage: configurationError, putProfile: configurationError, createPromoVideo: configurationError,
-      deletePromoVideo: configurationError, getPromoPack: configurationError, putPromoPack: configurationError,
+      deletePromoVideo: configurationError,
       uploadFile: configurationError, refreshMediaUrl: configurationError, getPublicShare: configurationError,
       getPublicShareMessages: configurationError, uploadPublicShareAttachment: configurationError,
       postPublicShareEvent: configurationError,
@@ -292,9 +284,6 @@ export function createDataStoreClient(options: ClientOptions) {
     createPromoVideo: (video: PromoVideo) => request<PromoVideo>('/promo-videos', jsonInit('POST', stripBrowserFields(video))),
     deletePromoVideo: (id: string) => request<void>(`/promo-videos/${encoded(id)}`, { method: 'DELETE' }),
 
-    getPromoPack: (trackId: string) => request<PromoPackPayload | null>(`/promo-packs/${encoded(trackId)}`),
-    putPromoPack: (trackId: string, pack: Pick<PromoPackPayload, 'youtube_copy' | 'instagram_copy' | 'generic_copy'>) =>
-      request<PromoPackPayload>(`/promo-packs/${encoded(trackId)}`, jsonInit('PUT', pack)),
 
     async uploadFile(category: string, relatedId: string, file: File): Promise<{ url: string; objectKey: string }> {
       const presign = await request<{
