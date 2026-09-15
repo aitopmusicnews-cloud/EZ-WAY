@@ -1,0 +1,85 @@
+name: Repair Promo Pack removal boundary
+
+on:
+  push:
+    branches:
+      - cleanup/remove-promo-pack
+    paths:
+      - .github/workflows/repair-promo-removal.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout cleanup branch
+        uses: actions/checkout@v4
+        with:
+          ref: cleanup/remove-promo-pack
+          fetch-depth: 0
+
+      - name: Restore current main server and remove only Promo Pack
+        shell: bash
+        run: |
+          git fetch origin main
+          git show origin/main:server.ts > server.ts
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('server.ts')
+          text = p.read_text()
+
+          helper_start = '  // Helper function for high-fidelity genre-specific mock promo packs\n'
+          endpoint_start = '  // API - Generate Promo Pack\n'
+          youtube_start = '  // ==========================================\n  // YOUTUBE HUB & GOOGLE API INTEGRATION PROXIES\n'
+
+          helper_i = text.find(helper_start)
+          endpoint_i = text.find(endpoint_start)
+          youtube_i = text.find(youtube_start)
+
+          if helper_i == -1 or endpoint_i == -1 or youtube_i == -1:
+              raise SystemExit(f'Boundary missing: helper={helper_i}, endpoint={endpoint_i}, youtube={youtube_i}')
+          if not (helper_i < endpoint_i < youtube_i):
+              raise SystemExit('Promo Pack boundaries are not in the expected order')
+
+          # Keep everything before the Promo Pack helper, and everything from the
+          # independent YouTube Hub onward. This removes only the retired feature.
+          p.write_text(text[:helper_i] + text[youtube_i:])
+          PY
+
+      - name: Prove active integrations survived and Promo Pack did not
+        shell: bash
+        run: |
+          grep -q 'YouTube Music SEO assistant specializing in Lyric Channels' server.ts
+          grep -q 'app.post("/api/youtube/generate-meta"' server.ts
+          grep -q 'app.get("/api/spotify/state"' server.ts
+          ! grep -E 'getMockPromoPack|/api/generate-promo|high-fidelity genre-specific mock promo packs' server.ts
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: YouTube Lyrics SEO regression
+        run: node --experimental-strip-types --test src/services/youtubeLyricsSeo.test.ts
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit repaired server cleanup
+        shell: bash
+        run: |
+          git config user.name "aitopmusicnews-cloud"
+          git config user.email "aitopmusicnews@gmail.com"
+          git add server.ts
+          git commit -m "Preserve active hubs while removing Promo Pack"
+          git push origin HEAD:cleanup/remove-promo-pack
