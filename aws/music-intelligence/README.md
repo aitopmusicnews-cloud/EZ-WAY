@@ -1,6 +1,6 @@
 # EZ-WAY Music Intelligence on AWS
 
-This folder replaces the new analyzer's Supabase `track_analysis` dependency with an AWS-native storage path.
+This folder provides the AWS-native storage path for Music Intelligence analysis records.
 
 ## What AWS stores
 
@@ -68,4 +68,4 @@ Use the stack output `MusicIntelligenceApiBase` from an authenticated EZ-WAY bac
 4. Backfill existing tracks by running Music Intelligence once per unique audio fingerprint.
 5. Move audio storage to S3 separately when the wider EZ-WAY AWS migration reaches file storage.
 
-This keeps the analyzer profile contract stable while allowing Supabase, file storage, and compute to be migrated independently.
+This keeps the analyzer profile contract stable while storage and compute can evolve independently.
