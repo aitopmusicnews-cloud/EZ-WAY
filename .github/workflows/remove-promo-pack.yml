@@ -1,0 +1,128 @@
+name: Remove unused Promo Pack feature
+
+on:
+  push:
+    branches:
+      - cleanup/remove-promo-pack
+    paths:
+      - .github/workflows/remove-promo-pack.yml
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout cleanup branch
+        uses: actions/checkout@v4
+        with:
+          ref: cleanup/remove-promo-pack
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Remove Promo Pack runtime code
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'Expected text not found in {path}: {old[:100]!r}')
+              p.write_text(text.replace(old, new))
+
+          replace('src/App.tsx', 'import PromoPackModal from "./components/PromoPackModal";\n', '')
+          replace('src/App.tsx', '  const [selectedTrackForPromo, setSelectedTrackForPromo] =\n    useState<Track | null>(null);\n', '')
+          replace('src/App.tsx', '                      onCreatePromo={() => setSelectedTrackForPromo(track)}\n', '')
+          replace('src/App.tsx', '                          onCreatePromo={() => setSelectedTrackForPromo(track)}\n', '')
+          replace('src/App.tsx', '''        {selectedTrackForPromo && (\n          <PromoPackModal\n            key="promo-pack-modal"\n            track={selectedTrackForPromo}\n            onClose={() => setSelectedTrackForPromo(null)}\n          />\n        )}\n''', '')
+
+          replace('src/components/TrackOptionsMenu.tsx', '  Plus,\n', '')
+          replace('src/components/TrackOptionsMenu.tsx', '  onCreatePromo: () => void;\n', '')
+          replace('src/components/TrackOptionsMenu.tsx', '  onCreatePromo,\n', '')
+          replace('src/components/TrackOptionsMenu.tsx', '''            <button onClick={() => { onCreatePromo(); setIsOpen(false); }} className="w-full flex items-center gap-3 px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-zinc-900 rounded-xl transition-colors">\n              <Plus className="w-3.5 h-3.5" /> Marketing Pack\n            </button>\n''', '')
+
+          p = Path('src/services/dataStore.ts')
+          text = p.read_text()
+          text = re.sub(r'\nexport interface PromoPackPayload \{.*?\n\}\n', '\n', text, flags=re.S)
+          text = text.replace('      deletePromoVideo: configurationError, getPromoPack: configurationError, putPromoPack: configurationError,\n', '      deletePromoVideo: configurationError,\n')
+          text = re.sub(r"\n    getPromoPack: \(trackId: string\) => request<PromoPackPayload \| null>\(`/promo-packs/\$\{encoded\(trackId\)\}`\),\n    putPromoPack: \(trackId: string, pack: Pick<PromoPackPayload, 'youtube_copy' \| 'instagram_copy' \| 'generic_copy'>\) =>\n      request<PromoPackPayload>\(`/promo-packs/\$\{encoded\(trackId\)\}`\, jsonInit\('PUT', pack\)\),\n", '\n', text)
+          p.write_text(text)
+
+          p = Path('aws/app-data/api/contract.mjs')
+          text = p.read_text()
+          text = re.sub(r"\n    case 'promo_packs': return \{.*?\n    \};", '', text, flags=re.S)
+          p.write_text(text)
+
+          p = Path('aws/app-data/api/contract.test.mjs')
+          text = p.read_text()
+          text = re.sub(r"\n\ntest\('promo packs validate track ownership keys and copy payloads'.*?\n\}\);\n?", '\n', text, flags=re.S)
+          p.write_text(text)
+
+          p = Path('aws/app-data/api/handler.mjs')
+          text = p.read_text()
+          text = text.replace("'messages', 'promo_videos', 'promo_packs', 'profiles'", "'messages', 'promo_videos', 'profiles'")
+          text = re.sub(r'\nasync function normalizePromoPackTrackId\(trackId\) \{.*?\n\}\n\nasync function loadShare', '\nasync function loadShare', text, flags=re.S)
+          text = re.sub(r'\n    const promoPackMatch = rawPath\.match\(/\^\\/promo-packs.*?\n  \}', '', text, flags=re.S)
+          p.write_text(text)
+
+          p = Path('src/services/geminiService.ts')
+          text = p.read_text()
+          text = re.sub(r'\nexport async function generatePromoPack\(trackInfo: any\) \{.*\Z', '\n', text, flags=re.S)
+          p.write_text(text)
+
+          p = Path('server.ts')
+          text = p.read_text()
+          start = text.find('  // API - Generate Promo Pack\n')
+          if start == -1:
+              raise SystemExit('Promo Pack server endpoint marker not found')
+          next_marker = text.find('\n  // API - ', start + 10)
+          if next_marker == -1:
+              raise SystemExit('Could not find next API marker after Promo Pack endpoint')
+          text = text[:start] + text[next_marker + 1:]
+          p.write_text(text)
+
+          replace('.github/workflows/music-intelligence-verify.yml', '''      - name: Promo Pack AWS persistence regression\n        run: node --experimental-strip-types --test src/services/promoPackAws.test.ts\n\n''', '')
+          PY
+
+          rm -f src/components/PromoPackModal.tsx src/services/promoPackAws.test.ts
+
+      - name: Verify dead feature references are gone
+        shell: bash
+        run: |
+          ! grep -R -n -E 'PromoPackModal|selectedTrackForPromo|onCreatePromo|generatePromoPack|/api/generate-promo|/promo-packs|Promo Pack AWS persistence|Marketing Pack' src server.ts aws/app-data/api .github/workflows/music-intelligence-verify.yml
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install AWS app-data Lambda dependencies
+        run: npm install --prefix aws/app-data/api --ignore-scripts --no-audit --no-fund
+
+      - name: AWS app-data tests
+        run: node --test aws/app-data/api/contract.test.mjs aws/app-data/api/rows.test.mjs aws/app-data/api/storage.test.mjs
+
+      - name: Data store tests
+        run: node --experimental-strip-types --test src/services/dataStore.test.ts
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit cleanup
+        shell: bash
+        run: |
+          git config user.name "aitopmusicnews-cloud"
+          git config user.email "aitopmusicnews@gmail.com"
+          git add -A
+          git commit -m "Remove unused Promo Pack feature"
+          git push origin HEAD:cleanup/remove-promo-pack
