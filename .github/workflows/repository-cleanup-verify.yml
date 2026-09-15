@@ -39,3 +39,5 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+# Re-run after AWS-only source migration.
