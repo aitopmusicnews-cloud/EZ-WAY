@@ -6,7 +6,6 @@ import {
   Download,
   Trash2,
   Video,
-  Plus,
   Check,
   Info,
   Mic2,
@@ -29,7 +28,6 @@ interface TrackOptionsMenuProps {
   onShare: () => void;
   onDownload: () => void;
   onDelete: () => void;
-  onCreatePromo: () => void;
   onCreateVideo: () => void;
   onAddToPlaylist: (id: string) => void;
   playlists: Playlist[];
@@ -58,7 +56,6 @@ export default function TrackOptionsMenu({
   onShare,
   onDownload,
   onDelete,
-  onCreatePromo,
   onCreateVideo,
   onAddToPlaylist,
   playlists,
@@ -163,9 +160,6 @@ export default function TrackOptionsMenu({
             <div className="h-px bg-zinc-900 mx-2 my-1" />
             <button onClick={() => { onShare(); setIsOpen(false); }} className="w-full flex items-center gap-3 px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-zinc-900 rounded-xl transition-colors">
               <Share2 className="w-3.5 h-3.5 text-orange-500" /> Generate Link
-            </button>
-            <button onClick={() => { onCreatePromo(); setIsOpen(false); }} className="w-full flex items-center gap-3 px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-zinc-900 rounded-xl transition-colors">
-              <Plus className="w-3.5 h-3.5" /> Marketing Pack
             </button>
             <button onClick={() => { onCreateVideo(); setIsOpen(false); }} className="w-full flex items-center gap-3 px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-zinc-900 rounded-xl transition-colors">
               <Video className="w-3.5 h-3.5" /> Generate Video

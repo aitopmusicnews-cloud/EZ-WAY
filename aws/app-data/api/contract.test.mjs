@@ -88,19 +88,3 @@ test('public comments can carry token-scoped attachment metadata', () => {
   assert.equal(event.attachment_size, 4096);
 });
 
-
-test('promo packs validate track ownership keys and copy payloads', () => {
-  const pack = normalizeEntityCreate('promo_packs', {
-    id: '00000000-0000-4000-8000-000000000020',
-    track_id: '00000000-0000-4000-8000-000000000021',
-    youtube_copy: '{"title":"Launch"}',
-    instagram_copy: 'Caption',
-    generic_copy: '{"pitch":"Pitch"}',
-  });
-  assert.equal(pack.track_id, '00000000-0000-4000-8000-000000000021');
-  assert.equal(pack.instagram_copy, 'Caption');
-  assert.throws(() => normalizeEntityCreate('promo_packs', {
-    id: '00000000-0000-4000-8000-000000000020',
-    track_id: 'not-a-uuid',
-  }), /track_id must be a UUID/i);
-});
