@@ -56,6 +56,20 @@ jobs:
               raise SystemExit(f'Expected one Marketing Pack menu action, found {menu_count}')
           menu.write_text(text)
 
+          preview = Path('src/components/VideoPreviewModal.tsx')
+          text = preview.read_text()
+          text = text.replace("import { generatePromoPack } from '../services/geminiService';\n", '')
+          text = text.replace('  const [promoData, setPromoData] = useState<any>(null);\n', '')
+          text, effect_count = re.subn(r'\n  useEffect\(\(\) => \{\n    async function loadPromoData\(\) \{.*?\n  \}, \[track, playlist, video, sourceName\]\);\n', '\n', text, flags=re.S)
+          if effect_count != 1:
+              raise SystemExit(f'Expected one Video Preview promo-data effect, found {effect_count}')
+          text = text.replace('  // Helper defaults if promoData is still fetching\n', '  // Stable social-copy defaults for the video publishing panel.\n')
+          text = text.replace('const youtubeTitle = promoData?.youtube?.title || ', 'const youtubeTitle = ')
+          text = text.replace('const youtubeDesc = promoData?.youtube?.description || ', 'const youtubeDesc = ')
+          text = text.replace('const instagramCaption = promoData?.instagram || ', 'const instagramCaption = ')
+          text = text.replace('const facebookCaption = promoData?.facebook || ', 'const facebookCaption = ')
+          preview.write_text(text)
+
           store = Path('src/services/dataStore.ts')
           text = store.read_text()
           text, interface_count = re.subn(r'\nexport interface PromoPackPayload \{.*?\n\}\n', '\n', text, flags=re.S)
