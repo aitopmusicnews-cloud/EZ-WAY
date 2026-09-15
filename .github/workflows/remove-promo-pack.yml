@@ -32,15 +32,6 @@ jobs:
           from pathlib import Path
           import re
 
-          def sub_file(path, pattern, replacement='', flags=0, minimum=1):
-              p = Path(path)
-              text = p.read_text()
-              updated, count = re.subn(pattern, replacement, text, flags=flags)
-              if count < minimum:
-                  raise SystemExit(f'Expected at least {minimum} match(es) in {path}: {pattern}')
-              p.write_text(updated)
-              return count
-
           app = Path('src/App.tsx')
           text = app.read_text()
           text = text.replace('import PromoPackModal from "./components/PromoPackModal";\n', '')
@@ -111,12 +102,11 @@ jobs:
           server = Path('server.ts')
           text = server.read_text()
           start = text.find('  // API - Generate Promo Pack\n')
-          if start == -1:
-              raise SystemExit('Promo Pack server endpoint marker not found')
-          next_marker = text.find('\n  // API - ', start + 10)
-          if next_marker == -1:
-              raise SystemExit('Could not find next API marker after Promo Pack endpoint')
-          server.write_text(text[:start] + text[next_marker + 1:])
+          end_marker = '  // Vite middleware for development vs static asset serving for production\n'
+          end = text.find(end_marker, start)
+          if start == -1 or end == -1:
+              raise SystemExit('Could not locate Promo Pack endpoint boundaries in server.ts')
+          server.write_text(text[:start] + text[end:])
 
           ci = Path('.github/workflows/music-intelligence-verify.yml')
           text = ci.read_text()
