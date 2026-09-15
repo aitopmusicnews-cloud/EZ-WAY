@@ -2,6 +2,8 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { v4 as uuidv4 } from 'uuid';
 import type { Track, Playlist, Client, Activity, ShareLink, UserProfile, Message, MessageAttachment, PromoVideo } from '@/src/types';
 import { dataStore, uploadMediaForWorkspace } from '@/src/services/dataStore';
+import { resolveMediaAccess } from '@/src/services/mediaAccess';
+import { refreshWorkspaceMediaSources, sanitizeMediaForCache } from '@/src/services/workspaceMediaRefresh';
 
 interface MediaStoreContextType {
   tracks: Track[];
@@ -103,6 +105,7 @@ const uploadCategory = (bucket: string) => {
 };
 
 const isTemporaryUrl = (value: unknown) => typeof value === 'string' && (value.startsWith('blob:') || value.startsWith('data:'));
+const MEDIA_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000;
 
 export function MediaStoreProvider({ children }: { children: React.ReactNode }) {
   const [tracks, setTracks] = useState<Track[]>(() => readJson('ogbeatz_tracks', []));
@@ -130,6 +133,23 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
   }, []);
   const removeToast = (id: string) => setToasts((prev) => prev.filter((toast) => toast.id !== id));
 
+  const refreshCurrentWorkspaceMedia = useCallback(async () => {
+    const refreshed = await refreshWorkspaceMediaSources({
+      tracks,
+      playlists,
+      clients,
+      messages,
+      promoVideos,
+      profile,
+    }, resolveMediaAccess);
+    setTracks(refreshed.tracks as Track[]);
+    setPlaylists(refreshed.playlists as Playlist[]);
+    setClients(refreshed.clients as Client[]);
+    setMessages(refreshed.messages as Message[]);
+    setPromoVideos(refreshed.promoVideos as PromoVideo[]);
+    setProfile(refreshed.profile as UserProfile | null);
+  }, [tracks, playlists, clients, messages, promoVideos, profile]);
+
   const withPendingKeys = <T extends Record<string, any>>(input: T): T & Record<string, any> => {
     const output: Record<string, any> = { ...input };
     const pairs = [
@@ -151,14 +171,14 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     if (loading) return;
     try {
-      localStorage.setItem('ogbeatz_tracks', JSON.stringify(tracks));
-      localStorage.setItem('ogbeatz_playlists', JSON.stringify(playlists));
-      localStorage.setItem('ogbeatz_clients', JSON.stringify(clients));
+      localStorage.setItem('ogbeatz_tracks', JSON.stringify(sanitizeMediaForCache(tracks)));
+      localStorage.setItem('ogbeatz_playlists', JSON.stringify(sanitizeMediaForCache(playlists)));
+      localStorage.setItem('ogbeatz_clients', JSON.stringify(sanitizeMediaForCache(clients)));
       localStorage.setItem('ogbeatz_activities', JSON.stringify(activities));
       localStorage.setItem('ogbeatz_share_links', JSON.stringify(shareLinks));
-      localStorage.setItem('ogbeatz_messages', JSON.stringify(messages));
-      localStorage.setItem('ogbeatz_promo_videos', JSON.stringify(promoVideos));
-      if (profile) localStorage.setItem('ogbeatz_profile', JSON.stringify(profile));
+      localStorage.setItem('ogbeatz_messages', JSON.stringify(sanitizeMediaForCache(messages)));
+      localStorage.setItem('ogbeatz_promo_videos', JSON.stringify(sanitizeMediaForCache(promoVideos)));
+      if (profile) localStorage.setItem('ogbeatz_profile', JSON.stringify(sanitizeMediaForCache(profile)));
     } catch (error) {
       console.warn('[MediaStore] Local cache write failed', error);
     }
@@ -198,7 +218,23 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
       } catch (error) {
         console.warn('[MediaStore] AWS bootstrap unavailable; retaining local cache', error);
         setConnected(false);
-        setPromoVideos(await restorePromoVideoUrls(promoVideos));
+        const cachedVideos = await restorePromoVideoUrls(promoVideos);
+        const refreshedCache = await refreshWorkspaceMediaSources({
+          tracks,
+          playlists,
+          clients,
+          messages,
+          promoVideos: cachedVideos,
+          profile,
+        }, resolveMediaAccess);
+        if (!cancelled) {
+          setTracks(refreshedCache.tracks as Track[]);
+          setPlaylists(refreshedCache.playlists as Playlist[]);
+          setClients(refreshedCache.clients as Client[]);
+          setMessages(refreshedCache.messages as Message[]);
+          setPromoVideos(refreshedCache.promoVideos as PromoVideo[]);
+          setProfile(refreshedCache.profile as UserProfile | null);
+        }
         setLoadingStatusText('Local fallback cache active.');
       } finally {
         if (!cancelled) {
@@ -210,6 +246,27 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
     void init();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (loading || publicShareLocation()) return;
+    let disposed = false;
+    const refresh = () => {
+      if (disposed) return;
+      void refreshCurrentWorkspaceMedia().catch((error) => {
+        console.warn('[MediaStore] Background media URL refresh failed', error);
+      });
+    };
+    const intervalId = window.setInterval(refresh, MEDIA_REFRESH_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [loading, refreshCurrentWorkspaceMedia]);
 
   const addActivity = async (activity: Partial<Activity>) => {
     const candidate: Activity = {
