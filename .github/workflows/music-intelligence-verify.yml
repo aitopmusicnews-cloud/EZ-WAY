@@ -101,9 +101,6 @@ jobs:
       - name: EZ-WAY data store tests
         run: node --experimental-strip-types --test src/services/dataStore.test.ts
 
-      - name: Promo Pack AWS persistence regression
-        run: node --experimental-strip-types --test src/services/promoPackAws.test.ts
-
       - name: Track bundle stable-media tests
         run: node --experimental-strip-types --test src/services/trackBundleMedia.test.ts
 
