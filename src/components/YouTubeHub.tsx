@@ -175,6 +175,7 @@ export default function YouTubeHub(props: YouTubeHubProps) {
         cacheYouTubeSEOResearch(seed, {
           suggestions: local.suggestions,
           competitorTags: local.competitor_tags,
+          rankedTags: local.ranked_tags,
         });
         if (!local.warning) return;
         if (local.warning !== 'youtube_api_key_missing') {
