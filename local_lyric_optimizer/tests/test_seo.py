@@ -137,7 +137,7 @@ def test_competitor_tags_use_top_ten_relevance_search_and_snippet_tags():
     assert videos_call[1]["id"] == "one,two"
 
 
-def test_lyric_foundation_tags_rank_before_repeated_competitor_and_genre_tags():
+def test_lyric_foundation_tags_rank_before_repeated_competitor_and_genre_tags_without_live_context():
     result = rank_tags(
         ["Synth Pop", "Lyrics", "Synth Pop", "Official Video", "Sing Along", "Night Drive"],
         genre="pop",
@@ -149,14 +149,16 @@ def test_lyric_foundation_tags_rank_before_repeated_competitor_and_genre_tags():
     assert len(result) == len({tag.casefold() for tag in result})
 
 
-def test_missing_api_key_returns_partial_research_instead_of_crashing():
+def test_missing_api_key_returns_live_partial_research_instead_of_crashing():
     session = FakeSession()
     result = research_lyric_seo("Blinding Lights", genre="pop", api_key="", session=session)
 
     assert result["queries"] == build_modifier_queries("Blinding Lights")
     assert result["suggestions"]
     assert result["competitor_tags"] == []
-    assert result["ranked_tags"][: len(FOUNDATION_LYRIC_TAGS)] == list(FOUNDATION_LYRIC_TAGS)
+    ranked = [tag.casefold() for tag in result["ranked_tags"]]
+    assert set(FOUNDATION_LYRIC_TAGS).issubset(set(ranked))
+    assert ranked.index("blinding lights lyrics official") < ranked.index("lyrics")
     assert result["warning"] == "youtube_api_key_missing"
     assert not any("youtube/v3/search" in call[0] for call in session.calls)
 
@@ -170,6 +172,6 @@ def test_research_promotes_song_specific_live_searches_ahead_of_generic_tags():
         session=session,
     )
 
-    top = [tag.casefold() for tag in result["ranked_tags"][:5]]
-    assert "nova rae after midnight lyrics official" in top
-    assert top.index("nova rae after midnight lyrics official") < top.index("lyrics")
+    ranked = [tag.casefold() for tag in result["ranked_tags"]]
+    assert "nova rae after midnight lyrics official" in ranked[:5]
+    assert ranked.index("nova rae after midnight lyrics official") < ranked.index("lyrics")
