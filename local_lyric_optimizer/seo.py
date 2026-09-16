@@ -45,6 +45,14 @@ def _dedupe_preserving_order(values: list[str]) -> list[str]:
     return result
 
 
+def _suggestion_text(item: Any) -> str:
+    if isinstance(item, str):
+        return item
+    if isinstance(item, (list, tuple)) and item:
+        return str(item[0])
+    return ""
+
+
 def fetch_suggestions(seed: str, *, session: Any = requests) -> list[str]:
     suggestions: list[str] = []
     for query in build_modifier_queries(seed):
@@ -58,10 +66,19 @@ def fetch_suggestions(seed: str, *, session: Any = requests) -> list[str]:
             payload = response.json()
             batch = payload[1] if isinstance(payload, list) and len(payload) > 1 else []
             if isinstance(batch, list):
-                suggestions.extend(str(item) for item in batch)
+                suggestions.extend(
+                    text
+                    for item in batch
+                    if (text := _suggestion_text(item).strip())
+                )
         except Exception:
             continue
     return _dedupe_preserving_order(suggestions)
+
+
+def get_current_youtube_searches(seed_keyword: str, *, session: Any = requests) -> list[str]:
+    """Return live YouTube-scoped autocomplete terms for a lyric SEO seed."""
+    return fetch_suggestions(seed_keyword, session=session)
 
 
 def fetch_competitor_tags(seed: str, api_key: str, *, session: Any = requests) -> list[str]:
@@ -113,6 +130,16 @@ def fetch_competitor_tags(seed: str, api_key: str, *, session: Any = requests) -
         return []
 
 
+def get_live_competitor_tags(
+    api_key: str,
+    seed_keyword: str,
+    *,
+    session: Any = requests,
+) -> list[str]:
+    """Return live tags from the top relevant YouTube lyric-video competitors."""
+    return fetch_competitor_tags(seed_keyword, api_key, session=session)
+
+
 def rank_tags(competitor_tags: list[str], genre: str = "") -> list[str]:
     foundation = list(FOUNDATION_LYRIC_TAGS)
     foundation_keys = {tag.casefold() for tag in foundation}
@@ -152,9 +179,13 @@ def research_lyric_seo(
     session: Any = requests,
 ) -> dict[str, Any]:
     queries = build_modifier_queries(seed)
-    suggestions = fetch_suggestions(seed, session=session)
+    suggestions = get_current_youtube_searches(seed, session=session)
     clean_key = str(api_key or "").strip()
-    competitor_tags = fetch_competitor_tags(seed, clean_key, session=session) if clean_key else []
+    competitor_tags = (
+        get_live_competitor_tags(clean_key, seed, session=session)
+        if clean_key
+        else []
+    )
     warning = None if clean_key else "youtube_api_key_missing"
     return {
         "queries": queries,
