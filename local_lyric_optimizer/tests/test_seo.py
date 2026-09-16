@@ -159,3 +159,17 @@ def test_missing_api_key_returns_partial_research_instead_of_crashing():
     assert result["ranked_tags"][: len(FOUNDATION_LYRIC_TAGS)] == list(FOUNDATION_LYRIC_TAGS)
     assert result["warning"] == "youtube_api_key_missing"
     assert not any("youtube/v3/search" in call[0] for call in session.calls)
+
+
+def test_research_promotes_song_specific_live_searches_ahead_of_generic_tags():
+    session = FakeSession()
+    result = research_lyric_seo(
+        "Nova Rae After Midnight",
+        genre="rnb",
+        api_key="",
+        session=session,
+    )
+
+    top = [tag.casefold() for tag in result["ranked_tags"][:5]]
+    assert "nova rae after midnight lyrics official" in top
+    assert top.index("nova rae after midnight lyrics official") < top.index("lyrics")
