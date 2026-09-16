@@ -32,7 +32,7 @@ test('keyword research expands a seed into lyric-search autocomplete modifiers',
   ]);
 });
 
-test('lyric tag ranking keeps foundational lyric intent ahead of competitor and genre tags', () => {
+test('legacy lyric tag ranking keeps foundational intent for callers without song context', () => {
   const rankTags = (seoCore as any).rankLyricSeoTags;
   assert.equal(typeof rankTags, 'function');
   const ranked = rankTags(
@@ -82,8 +82,10 @@ test('SEO package is structured for full-track lyric videos and keeps all lyrics
   assert.match(pkg.description, /Vocalist\(s\): \[Vocalists\]/);
 
   const tags = pkg.tags.split(', ').map((tag: string) => tag.toLowerCase());
-  assert.deepEqual(tags.slice(0, 5), ['lyrics', 'lyric video', 'lyrics video', 'sing along', 'clean lyrics']);
+  assert.equal(tags[0], 'the weeknd blinding lights lyrics');
+  assert.ok(tags.indexOf('blinding lights lyrics meaning') < tags.indexOf('lyrics'));
   assert.ok(tags.includes('synth pop lyrics'));
+  assert.ok(tags.includes('lyric video'));
   assert.match(pkg.keywords, /blinding lights lyrics meaning/i);
 });
 
@@ -165,11 +167,13 @@ test('browser SEO research queries YouTube autocomplete modifiers and top lyric-
   assert.deepEqual(result.competitorTags, ['lyrics', 'synth pop', 'sing along']);
 });
 
-test('YouTube Hub prefers the local lyric optimizer and retains OAuth research fallback', () => {
+test('YouTube Hub uses local ranked SEO terms and retains OAuth research fallback', () => {
   const hubPath = fileURLToPath(new URL('../components/YouTubeHub.tsx', import.meta.url));
   const source = readFileSync(hubPath, 'utf8');
   assert.match(source, /researchLocalLyricSeo/);
   assert.match(source, /competitor_tags/);
+  assert.match(source, /ranked_tags/);
+  assert.match(source, /rankedTags/);
   assert.match(source, /youtube_api_key_missing/);
   assert.match(source, /seo-research/);
   assert.match(source, /Local optimizer unavailable; using OAuth research/);
