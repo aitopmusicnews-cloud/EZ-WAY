@@ -20,6 +20,7 @@ export interface YouTubeSEOPackage {
 export interface YouTubeLyricSEOResearch {
   suggestions: string[];
   competitorTags: string[];
+  rankedTags?: string[];
 }
 
 export interface YouTubeSEOOptions {
@@ -30,6 +31,7 @@ export interface YouTubeSEOOptions {
   instagramHandle?: string;
   autocompleteSuggestions?: string[];
   competitorTags?: string[];
+  rankedTags?: string[];
 }
 
 export const LYRIC_FOUNDATION_TAGS = [
@@ -88,6 +90,7 @@ export const cacheYouTubeSEOResearch = (seed: string, research: Partial<YouTubeL
   seoResearchCache.set(key, {
     suggestions: uniquePhrases(research.suggestions || []),
     competitorTags: uniquePhrases(research.competitorTags || []).map((tag) => tag.toLowerCase()),
+    rankedTags: uniquePhrases(research.rankedTags || []).map((tag) => tag.toLowerCase()),
   });
 };
 
@@ -108,8 +111,9 @@ export const buildLyricAutocompleteQueries = (seedKeyword: string): string[] => 
 };
 
 /**
- * Rank public tags discovered on lyric-video search results. Foundational lyric
- * intent always wins, then repeated competitor tags, then genre terms.
+ * Legacy/direct ranking helper. Foundation intent remains first for callers that
+ * only provide competitor/genre terms. generateYouTubeSEO performs the richer
+ * song-specific ranking when track and live-search context are available.
  */
 export const rankLyricSeoTags = (
   competitorTags: string[] = [],
@@ -145,7 +149,7 @@ const inferGenreKeywords = (tags: string[]): string[] => {
   for (const [key, kws] of Object.entries(GENRE_MAP)) {
     if (lower.some((t) => t.includes(key))) found.push(...kws);
   }
-  return found.length ? uniquePhrases(found) : ['original music', 'new music', 'independent artist'];
+  return found.length ? uniquePhrases(found) : ['original music', 'independent artist'];
 };
 
 const inferPrimaryGenre = (tags: string[]): string => {
@@ -163,6 +167,109 @@ const stripLrcTimestamps = (lyrics: string): string => lyrics
   .trim();
 
 const hashtag = (value: string): string => value.replace(/[^a-zA-Z0-9]/g, '');
+
+const LIVE_INTENT_WEIGHTS: Array<[RegExp, number]> = [
+  [/\blyrics?\b/i, 20],
+  [/\blyric video\b/i, 18],
+  [/\bmeaning\b/i, 14],
+  [/\bkaraoke\b/i, 12],
+  [/\bclean lyrics?\b/i, 10],
+  [/\bsing along\b/i, 8],
+  [/\bofficial\b/i, 5],
+];
+
+const scoreSongSpecificPhrase = (
+  phrase: string,
+  name: string,
+  artist: string,
+): number => {
+  const value = normalizeTag(phrase);
+  const title = normalizeTag(name);
+  const performer = normalizeTag(artist);
+  const fullSeed = normalizeTag(`${artist} ${name}`);
+  if (!value || !title) return -1;
+
+  const containsFullSeed = Boolean(fullSeed && value.includes(fullSeed));
+  const containsTitle = value.includes(title);
+  const containsArtist = Boolean(performer && value.includes(performer));
+  if (!containsFullSeed && !containsTitle) return -1;
+
+  let score = containsFullSeed ? 60 : 35;
+  if (containsArtist) score += 8;
+  for (const [pattern, weight] of LIVE_INTENT_WEIGHTS) {
+    if (pattern.test(value)) score += weight;
+  }
+  if (value === `${fullSeed} lyrics`) score += 100;
+  return score;
+};
+
+const rankSongSpecificPhrases = (
+  values: string[],
+  name: string,
+  artist: string,
+): string[] => uniquePhrases(values)
+  .map((value, index) => ({
+    value: normalizeTag(value),
+    index,
+    score: scoreSongSpecificPhrase(value, name, artist),
+  }))
+  .filter((entry) => entry.score >= 0)
+  .sort((a, b) => (b.score - a.score) || (a.index - b.index))
+  .map((entry) => entry.value);
+
+const rankCompetitorTerms = (competitorTags: string[]): string[] => {
+  const foundation = new Set(LYRIC_FOUNDATION_TAGS.map(normalizeTag));
+  const weak = new Set(['music', 'video', 'audio']);
+  const counts = new Map<string, { count: number; first: number }>();
+
+  competitorTags.forEach((raw, index) => {
+    const tag = normalizeTag(raw);
+    if (!tag || foundation.has(tag) || weak.has(tag)) return;
+    const current = counts.get(tag);
+    counts.set(tag, current
+      ? { ...current, count: current.count + 1 }
+      : { count: 1, first: index });
+  });
+
+  return Array.from(counts.entries())
+    .sort((a, b) => (b[1].count - a[1].count) || (a[1].first - b[1].first))
+    .map(([tag]) => tag);
+};
+
+const LYRIC_STOP_WORDS = new Set([
+  'about', 'after', 'again', 'against', 'along', 'also', 'because', 'been', 'before',
+  'being', 'between', 'could', 'every', 'from', 'have', 'into', 'just', 'more', 'most',
+  'never', 'only', 'other', 'over', 'should', 'some', 'than', 'that', 'their', 'them',
+  'then', 'there', 'these', 'they', 'this', 'those', 'through', 'under', 'very', 'want',
+  'were', 'what', 'when', 'where', 'which', 'while', 'with', 'would', 'your', 'youre',
+  'lyrics', 'lyric', 'video', 'official', 'music', 'song',
+]);
+
+const extractLyricThemes = (lyrics: string, name: string, artist: string): string[] => {
+  const excluded = new Set([
+    ...LYRIC_STOP_WORDS,
+    ...normalizeTag(name).match(/[a-z0-9']+/g) || [],
+    ...normalizeTag(artist).match(/[a-z0-9']+/g) || [],
+  ]);
+  const counts = new Map<string, { count: number; first: number }>();
+  const words = stripLrcTimestamps(lyrics)
+    .toLowerCase()
+    .match(/[a-z][a-z']{3,}/g) || [];
+
+  words.forEach((word, index) => {
+    if (excluded.has(word)) return;
+    const current = counts.get(word);
+    counts.set(word, current
+      ? { ...current, count: current.count + 1 }
+      : { count: 1, first: index });
+  });
+
+  return Array.from(counts.entries())
+    .filter(([, data]) => data.count >= 2)
+    .sort((a, b) => (b[1].count - a[1].count) || (a[1].first - b[1].first))
+    .slice(0, 6)
+    .map(([word]) => word);
+};
 
 export function buildLyricDescriptionSystemPrompt(
   songTitle: string,
@@ -199,7 +306,6 @@ export function generateYouTubeSEO(
   const genreKws = inferGenreKeywords(trackTags);
   const primaryGenre = inferPrimaryGenre(trackTags);
   const style = normalizePhrase(options.videoStyle) || 'Official Lyric Video';
-  const year = new Date().getFullYear();
 
   const seed = buildYouTubeSEOSeed(name, artist);
   const cached = seoResearchCache.get(researchKey(seed));
@@ -211,43 +317,57 @@ export function generateYouTubeSEO(
     ...(options.competitorTags || []),
     ...(cached?.competitorTags || []),
   ]);
+  const localRankedTags = uniquePhrases([
+    ...(options.rankedTags || []),
+    ...(cached?.rankedTags || []),
+  ]);
 
-  const title = `${artist} - ${name} (${style}) [${primaryGenre}] ${year}`
+  const exactSongSearch = normalizeTag(`${artist} ${name} lyrics`);
+  const liveSongTerms = rankSongSpecificPhrases([
+    exactSongSearch,
+    ...suggestions,
+    ...localRankedTags,
+  ], name, artist);
+  const competitorRanked = rankCompetitorTerms(competitorTags);
+  const lyricThemes = extractLyricThemes(track.lyrics || '', name, artist);
+
+  const title = `${artist} - ${name} (${style})`
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 100);
 
-  const rankedResearchTags = rankLyricSeoTags(competitorTags, genreKws);
   const tagList = uniquePhrases([
-    ...rankedResearchTags,
+    ...liveSongTerms,
+    ...competitorRanked,
     `${name} lyrics`,
-    `${artist} ${name} lyrics`,
-    `${artist} lyrics`,
     `${name} lyric video`,
-    ...suggestions.filter((suggestion) => /lyric|karaoke|sing along/i.test(suggestion)),
+    `${artist} lyrics`,
+    ...lyricThemes,
+    ...LYRIC_FOUNDATION_TAGS,
+    ...genreKws,
     ...trackTags,
     primaryGenre,
     style.toLowerCase(),
     'official lyrics',
-    'new music',
-    `${year} music`,
-    bpm,
-    key,
   ])
+    .map((tag) => tag.toLowerCase())
     .slice(0, 30)
     .join(', ');
 
   const keywords = uniquePhrases([
+    ...liveSongTerms,
     `${name} lyrics`,
-    `${artist} ${name} lyrics`,
     `${name} lyric video`,
     `${name} karaoke`,
     `${name} clean lyrics`,
-    ...suggestions,
-    ...rankedResearchTags,
+    ...lyricThemes,
+    ...competitorRanked,
+    ...genreKws,
     primaryGenre,
     ...trackTags.slice(0, 5),
+    ...LYRIC_FOUNDATION_TAGS,
   ])
+    .map((term) => term.toLowerCase())
     .slice(0, 30)
     .join(', ');
 
@@ -259,10 +379,13 @@ export function generateYouTubeSEO(
   const apple = normalizePhrase(options.appleLink) || '[Apple Music link]';
   const amazon = normalizePhrase(options.amazonLink) || amazonMusicLinkOverride || '[Amazon Music link]';
   const fullLyrics = stripLrcTimestamps(track.lyrics || '') || '[PASTE_LYRICS_HERE]';
+  const themeHook = lyricThemes.length
+    ? `Built around ${lyricThemes.slice(0, 2).join(' and ')}, this ${primaryGenre} lyric video keeps the words front and center.`
+    : `Sing along with the official lyric video and experience every line of this ${primaryGenre} track.`;
 
   const description = [
     `🎵 ${name} — ${artist} | ${primaryGenre}`,
-    `Sing along with the official lyric video and experience every line of this ${primaryGenre} track.`,
+    themeHook,
     '',
     '🎧 STREAM / DOWNLOAD',
     `Spotify: ${spotify}`,
