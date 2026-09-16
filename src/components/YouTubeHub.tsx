@@ -168,10 +168,11 @@ export default function YouTubeHub(props: YouTubeHubProps) {
     if (!track) return Promise.resolve();
     const seed = buildYouTubeSEOSeed(track.name, track.artist);
     const primaryGenre = String(track.tags?.[0] || '').trim();
+    const lyrics = String(track.lyrics || '').trim();
 
     const task = (async () => {
       try {
-        const local = await researchLocalLyricSeo(seed, primaryGenre);
+        const local = await researchLocalLyricSeo(seed, primaryGenre, lyrics);
         cacheYouTubeSEOResearch(seed, {
           suggestions: local.suggestions,
           competitorTags: local.competitor_tags,

@@ -24,6 +24,7 @@ export interface LocalLyricSeoResearch {
   suggestions: string[];
   competitor_tags: string[];
   ranked_tags: string[];
+  lyric_themes?: string[];
   warning: string | null;
 }
 
@@ -53,34 +54,25 @@ export interface LocalLyricOptimizerOptions {
 }
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8765';
-const SERVICE_UNAVAILABLE_MESSAGE = 'Local Lyrics Service is not running on this computer. Start it, then try again.';
+const SERVICE_UNAVAILABLE_MESSAGE = 'Lyric Optimizer Service is unavailable.';
 
 const runtimeBaseUrl = (): string => {
   const configured = String((import.meta as any).env?.VITE_LOCAL_LYRIC_OPTIMIZER_URL || '').trim();
   return configured || DEFAULT_BASE_URL;
 };
 
-const normalizeLoopbackBaseUrl = (value: string): string => {
+const normalizeBaseUrl = (value: string): string => {
   const raw = String(value || '').trim().replace(/\/+$/, '');
-  let parsed: URL;
   try {
-    parsed = new URL(raw);
+    new URL(raw); // validate it's a real URL
   } catch {
-    throw new Error('Local Lyrics Service URL must be a valid loopback URL.');
-  }
-
-  const host = parsed.hostname.toLowerCase();
-  if (!['127.0.0.1', 'localhost', '::1'].includes(host)) {
-    throw new Error('Local Lyrics Service URL must use a loopback host (127.0.0.1, localhost, or ::1).');
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('Local Lyrics Service URL must use HTTP or HTTPS on a loopback host.');
+    throw new Error('Lyric Optimizer URL must be a valid URL.');
   }
   return raw;
 };
 
 const resolveOptions = (options: LocalLyricOptimizerOptions = {}) => ({
-  baseUrl: normalizeLoopbackBaseUrl(options.baseUrl || runtimeBaseUrl()),
+  baseUrl: normalizeBaseUrl(options.baseUrl || runtimeBaseUrl()),
   fetchImpl: options.fetchImpl || fetch,
 });
 
@@ -92,10 +84,10 @@ const responseError = async (response: Response): Promise<Error> => {
       const detail = body?.detail ?? body?.message ?? body?.error;
       if (typeof detail === 'string' && detail.trim()) return new Error(detail.trim());
     } catch {
-      return new Error(text.trim() || `Local Lyrics Service returned ${response.status}.`);
+      return new Error(text.trim() || `Lyric Optimizer returned ${response.status}.`);
     }
   }
-  return new Error(`Local Lyrics Service returned ${response.status}.`);
+  return new Error(`Lyric Optimizer returned ${response.status}.`);
 };
 
 const requestJson = async <T>(
@@ -109,21 +101,16 @@ const requestJson = async <T>(
     response = await fetchImpl(`${baseUrl}${path}`, init);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    const permissionHint = /cors|permission|private network|local network|access/i.test(detail)
-      ? ' Allow loopback/local-network access in the browser, then try again.'
-      : '';
-    throw new Error(`${SERVICE_UNAVAILABLE_MESSAGE}${permissionHint}`);
+    throw new Error(`${SERVICE_UNAVAILABLE_MESSAGE} ${detail}`);
   }
-
   if (!response.ok) throw await responseError(response);
   return response.json() as Promise<T>;
 };
 
 export const checkLocalLyricOptimizer = async (
   options: LocalLyricOptimizerOptions = {},
-): Promise<LocalLyricOptimizerHealth> => requestJson<LocalLyricOptimizerHealth>('/health', {
-  method: 'GET',
-}, options);
+): Promise<LocalLyricOptimizerHealth> =>
+  requestJson('/health', { method: 'GET' }, options);
 
 export const transcribeLyricsFile = async (
   file: File,
@@ -131,27 +118,35 @@ export const transcribeLyricsFile = async (
 ): Promise<LocalLyricTranscript> => {
   const form = new FormData();
   form.append('file', file, file.name);
-  return requestJson<LocalLyricTranscript>('/lyrics/transcribe', {
-    method: 'POST',
-    body: form,
-  }, options);
+  return requestJson('/lyrics/transcribe', { method: 'POST', body: form }, options);
 };
 
 export const researchLocalLyricSeo = async (
   seed: string,
   genre = '',
+  lyrics = '',
   options: LocalLyricOptimizerOptions = {},
-): Promise<LocalLyricSeoResearch> => requestJson<LocalLyricSeoResearch>('/seo/research', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ seed, genre }),
-}, options);
+): Promise<LocalLyricSeoResearch> =>
+  requestJson(
+    '/seo/research',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seed, genre, lyrics }),
+    },
+    options,
+  );
 
 export const buildLocalLyricDescription = async (
   input: LocalLyricDescriptionInput,
   options: LocalLyricOptimizerOptions = {},
-): Promise<LocalLyricDescriptionResult> => requestJson<LocalLyricDescriptionResult>('/seo/description-prompt', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(input),
-}, options);
+): Promise<LocalLyricDescriptionResult> =>
+  requestJson(
+    '/seo/description-prompt',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    },
+    options,
+  );

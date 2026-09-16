@@ -21,6 +21,7 @@ _CHUNK_SIZE = 1024 * 1024
 class SeoResearchRequest(BaseModel):
     seed: str
     genre: str = ""
+    lyrics: str = ""  # Optional: track lyrics for theme-based SEO enrichment
 
 
 class DescriptionPromptRequest(BaseModel):
@@ -198,6 +199,7 @@ def create_app(
         return research_lyric_seo(
             seed,
             genre=request.genre,
+            lyrics=request.lyrics,
             api_key=service.youtube_api_key,
         )
 
