@@ -47,7 +47,7 @@ interface MediaStoreContextType {
 }
 
 const PROFILE_FALLBACK: UserProfile = {
-  id: 'cb9fba24-8141-cfa3-bdf2-cd9e11fcbcba',
+  id: 'cb9fba24-8141-4fa3-bdf2-cd9e11fcbcba',
   name: 'THE BEATZ WAY Admin',
   artist_name: 'THE BEATZ WAY',
   email: 'cdtfullsail@gmail.com',
@@ -657,7 +657,6 @@ export function MediaStoreProvider({ children }: { children: React.ReactNode }) 
       throw error;
     }
   };
-
   const incrementShareLinkAccess = async (id: string) => {
     if (publicShareLocation()) return;
     setShareLinks((prev) => prev.map((link) => link.id === id ? { ...link, access_count: (link.access_count || 0) + 1 } : link));
