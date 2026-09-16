@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from pathlib import Path
 import tempfile
 from typing import Any
@@ -12,10 +11,9 @@ from pydantic import BaseModel
 from .config import OptimizerConfig, ServiceConfig
 from .description import DescriptionInput, build_description_prompt, build_description_skeleton
 from .seo import research_lyric_seo
-from .transcriber import FasterWhisperTranscriber, TranscriptionResult
+from .transcriber import TranscriptionResult
 
-
-SERVICE_NAME = "ezway-local-lyric-optimizer"
+SERVICE_NAME = "ezway-lyric-optimizer"
 _ALLOWED_SUFFIXES = {".mp3", ".wav"}
 _CHUNK_SIZE = 1024 * 1024
 
@@ -68,9 +66,11 @@ async def _save_upload(upload: UploadFile, max_bytes: int, suffix: str) -> Path:
                     break
                 total += len(chunk)
                 if total > max_bytes:
-                    raise HTTPException(status_code=413, detail="Audio file exceeds the configured upload limit.")
+                    raise HTTPException(
+                        status_code=413,
+                        detail="Audio file exceeds the configured upload limit.",
+                    )
                 temp_file.write(chunk)
-
         if total == 0:
             raise HTTPException(status_code=422, detail="Audio file is empty.")
         return temp_path
@@ -82,18 +82,39 @@ async def _save_upload(upload: UploadFile, max_bytes: int, suffix: str) -> Path:
         await upload.close()
 
 
+def _build_transcriber(optimizer: OptimizerConfig, service: ServiceConfig) -> Any:
+    """
+    Return the appropriate transcriber based on environment.
+    - If TRANSCRIBE_S3_BUCKET is set, use AWSTranscriber (Amazon Transcribe).
+    - Otherwise fall back to FasterWhisperTranscriber (local only).
+    """
+    if service.transcribe_bucket:
+        from .aws_transcriber import AWSTranscriber
+        return AWSTranscriber(
+            optimizer,
+            bucket=service.transcribe_bucket,
+            region=service.aws_region,
+        )
+    # Local fallback — will fail if faster-whisper is not installed
+    try:
+        from .transcriber import FasterWhisperTranscriber
+        return FasterWhisperTranscriber(optimizer)
+    except ImportError:
+        return None
+
+
 def create_app(
     *,
     optimizer_config: OptimizerConfig | None = None,
     service_config: ServiceConfig | None = None,
-    transcriber: FasterWhisperTranscriber | Any | None = None,
+    transcriber: Any | None = None,
 ) -> FastAPI:
     optimizer = optimizer_config or OptimizerConfig.from_env()
     service = service_config or ServiceConfig.from_env()
-    lyric_transcriber = transcriber or FasterWhisperTranscriber(optimizer)
-    allowed_origins = {origin.rstrip("/") for origin in service.allowed_origins}
+    lyric_transcriber = transcriber or _build_transcriber(optimizer, service)
 
-    app = FastAPI(title="EZ-WAY Local Lyric Optimizer")
+    app = FastAPI(title="EZ-WAY Lyric Optimizer")
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(service.allowed_origins),
@@ -105,10 +126,11 @@ def create_app(
     @app.middleware("http")
     async def enforce_browser_origin(request: Request, call_next):
         origin = request.headers.get("origin")
-        if origin and origin.rstrip("/") not in allowed_origins:
+        allowed = {o.rstrip("/") for o in service.allowed_origins}
+        if origin and origin.rstrip("/") not in allowed:
             return JSONResponse(
                 status_code=403,
-                content={"detail": "Origin is not allowed to use the local lyric service."},
+                content={"detail": "Origin is not allowed to use this service."},
             )
         return await call_next(request)
 
@@ -118,9 +140,13 @@ def create_app(
 
     @app.get("/health")
     def health() -> dict[str, Any]:
+        transcriber_type = (
+            type(lyric_transcriber).__name__ if lyric_transcriber else "unavailable"
+        )
         return {
             "ok": True,
             "service": SERVICE_NAME,
+            "transcriber": transcriber_type,
             "model": optimizer.model_size,
             "device": optimizer.device,
             "compute_type": optimizer.compute_type,
@@ -131,23 +157,33 @@ def create_app(
         file: UploadFile = File(...),
         language: str = Form(""),
     ) -> dict[str, Any]:
+        if lyric_transcriber is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Transcription is not configured. Set TRANSCRIBE_S3_BUCKET to enable it.",
+            )
         suffix = Path(file.filename or "").suffix.lower()
         if suffix not in _ALLOWED_SUFFIXES:
-            raise HTTPException(status_code=415, detail="Only MP3 or WAV audio files are supported.")
-
+            raise HTTPException(
+                status_code=415,
+                detail="Only MP3 or WAV audio files are supported.",
+            )
         max_bytes = service.max_upload_mb * 1024 * 1024
         temp_path = await _save_upload(file, max_bytes, suffix)
         try:
             try:
-                result = lyric_transcriber.transcribe(temp_path, language.strip() or None)
+                result = lyric_transcriber.transcribe(
+                    temp_path, language.strip() or None
+                )
             except Exception as exc:
                 raise HTTPException(
                     status_code=503,
-                    detail="Local lyric model could not transcribe this file.",
+                    detail="Lyric transcription failed.",
                 ) from exc
-
             if not result.text.strip():
-                raise HTTPException(status_code=422, detail="No usable lyrics were detected.")
+                raise HTTPException(
+                    status_code=422, detail="No usable lyrics were detected."
+                )
             return _serialize_result(result)
         finally:
             temp_path.unlink(missing_ok=True)
@@ -156,7 +192,9 @@ def create_app(
     def seo_research(request: SeoResearchRequest) -> dict[str, Any]:
         seed = " ".join(request.seed.split()).strip()
         if not seed:
-            raise HTTPException(status_code=422, detail="SEO research requires a seed keyword.")
+            raise HTTPException(
+                status_code=422, detail="SEO research requires a seed keyword."
+            )
         return research_lyric_seo(
             seed,
             genre=request.genre,
