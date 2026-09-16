@@ -1,3 +1,4 @@
+from local_lyric_optimizer import seo as seo_module
 from local_lyric_optimizer.seo import (
     FOUNDATION_LYRIC_TAGS,
     build_modifier_queries,
@@ -97,6 +98,24 @@ def test_autocomplete_extracts_text_from_nested_youtube_suggestion_entries():
         "Blinding Lights karaoke",
     ]
     assert not any(suggestion.startswith("[") for suggestion in suggestions)
+
+
+def test_public_live_search_helper_uses_youtube_scoped_autocomplete():
+    assert hasattr(seo_module, "get_current_youtube_searches")
+    session = FakeSession()
+    suggestions = seo_module.get_current_youtube_searches("Blinding Lights", session=session)
+    assert suggestions[:2] == ["Blinding Lights official", "Blinding Lights live"]
+    assert any("suggestqueries.google.com" in call[0] for call in session.calls)
+
+
+def test_public_competitor_tag_helper_uses_real_youtube_data_api_calls():
+    assert hasattr(seo_module, "get_live_competitor_tags")
+    session = FakeSession()
+    tags = seo_module.get_live_competitor_tags("test-key", "Blinding Lights", session=session)
+    assert "Synth Pop" in tags
+    assert "Night Drive" in tags
+    assert any(call[0].endswith("/search") for call in session.calls)
+    assert any(call[0].endswith("/videos") for call in session.calls)
 
 
 def test_competitor_tags_use_top_ten_relevance_search_and_snippet_tags():
