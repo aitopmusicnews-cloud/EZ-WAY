@@ -578,11 +578,7 @@ Based on this, generate:
     if (passedOrigin && passedOrigin.startsWith("http")) {
       result = passedOrigin;
     }
-    // 2. Try process.env.RENDER_EXTERNAL_URL
-    else if (process.env.RENDER_EXTERNAL_URL) {
-      result = process.env.RENDER_EXTERNAL_URL;
-    }
-    // 3. Try to extract from referer header
+    // 2. Try to extract from referer header
     else if (req.headers.referer) {
       try {
         const parsed = new URL(req.headers.referer).origin;
@@ -602,8 +598,8 @@ Based on this, generate:
 
       // If we detect local/internal binding in production, fallback to a sensible production domain
       if (resolved.includes("localhost") || resolved.includes("127.0.0.1")) {
-        if (process.env.NODE_ENV === "production" || process.env.RENDER === "true") {
-          result = process.env.RENDER_EXTERNAL_URL || "https://ogbeatzplaylistmanager.onrender.com";
+        if (process.env.NODE_ENV === "production") {
+          result = "https://ezwaypro.theartistcut.com";
         } else {
           result = resolved;
         }
@@ -631,8 +627,7 @@ Based on this, generate:
     const oClientId = process.env.GOOGLE_CLIENT_ID || "";
     const origin = getResolvedOrigin(req, req.query.origin as string);
     
-    const isRenderCallback = origin.includes("onrender.com") || origin.includes("ogbeatzplaylistmanager");
-    const callbackPath = isRenderCallback ? "/auth/callback" : "/api/youtube/callback";
+    const callbackPath = "/api/youtube/callback";
     const redirectUri = `${origin}${callbackPath}`;
 
     if (!oClientId || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -664,8 +659,7 @@ Based on this, generate:
 
     // Recover target origin from state parameter if present, otherwise fallback
     const origin = getResolvedOrigin(req, (state && typeof state === "string") ? state : undefined);
-    const isRenderCallback = origin.includes("onrender.com") || origin.includes("ogbeatzplaylistmanager") || req.path.includes("/auth/callback");
-    const callbackPath = isRenderCallback ? "/auth/callback" : "/api/youtube/callback";
+    const callbackPath = "/api/youtube/callback";
     const redirectUri = `${origin}${callbackPath}`;
 
     if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -2040,7 +2034,6 @@ Return valid JSON with the single key: 'replyText'.`;
   // Vite middleware for development vs static asset serving for production
   const distPath = path.join(process.cwd(), "dist");
   const isProductionMode = process.env.NODE_ENV === "production" || 
-                           process.env.RENDER === "true" || 
                            fs.existsSync(distPath);
 
   if (!isProductionMode) {

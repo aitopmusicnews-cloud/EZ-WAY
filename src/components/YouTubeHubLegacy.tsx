@@ -335,8 +335,6 @@ export default function YouTubeHub({ addToast, initialVideoId, onClearInitialVid
                 if (
                     origin !== window.location.origin &&
                     !origin.endsWith(".run.app") &&
-                    !origin.endsWith(".onrender.com") &&
-                    !origin.includes("ogbeatzplaylistmanager.onrender.com") &&
                     !origin.includes("localhost")
                 ) {
                     return;
