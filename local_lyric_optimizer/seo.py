@@ -45,6 +45,14 @@ def _dedupe_preserving_order(values: list[str]) -> list[str]:
     return result
 
 
+def _suggestion_text(item: Any) -> str:
+    if isinstance(item, str):
+        return item
+    if isinstance(item, (list, tuple)) and item:
+        return str(item[0])
+    return ""
+
+
 def fetch_suggestions(seed: str, *, session: Any = requests) -> list[str]:
     suggestions: list[str] = []
     for query in build_modifier_queries(seed):
@@ -58,7 +66,11 @@ def fetch_suggestions(seed: str, *, session: Any = requests) -> list[str]:
             payload = response.json()
             batch = payload[1] if isinstance(payload, list) and len(payload) > 1 else []
             if isinstance(batch, list):
-                suggestions.extend(str(item) for item in batch)
+                suggestions.extend(
+                    text
+                    for item in batch
+                    if (text := _suggestion_text(item).strip())
+                )
         except Exception:
             continue
     return _dedupe_preserving_order(suggestions)
