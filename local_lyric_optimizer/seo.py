@@ -23,6 +23,17 @@ FOUNDATION_LYRIC_TAGS = (
     "official lyrics",
 )
 
+_INTENT_WEIGHTS = {
+    "lyrics": 10,
+    "lyric video": 9,
+    "karaoke": 8,
+    "meaning": 7,
+    "clean lyrics": 7,
+    "sing along": 6,
+    "official": 4,
+    "live": 2,
+}
+
 
 def build_modifier_queries(seed: str) -> list[str]:
     clean_seed = " ".join(str(seed or "").split()).strip()
@@ -160,12 +171,11 @@ def get_live_competitor_tags(
     return fetch_competitor_tags(seed_keyword, api_key, session=session)
 
 
-def rank_tags(competitor_tags: list[str], genre: str = "") -> list[str]:
-    foundation = list(FOUNDATION_LYRIC_TAGS)
-    foundation_keys = {tag.casefold() for tag in foundation}
-
+def _rank_competitor_tags(competitor_tags: list[str]) -> list[str]:
+    foundation_keys = {tag.casefold() for tag in FOUNDATION_LYRIC_TAGS}
     normalized: list[str] = []
     first_index: dict[str, int] = {}
+
     for raw_tag in competitor_tags or []:
         cleaned = " ".join(str(raw_tag or "").split()).strip().lower()
         key = cleaned.casefold()
@@ -180,16 +190,66 @@ def rank_tags(competitor_tags: list[str], genre: str = "") -> list[str]:
     for tag in normalized:
         display_by_key.setdefault(tag.casefold(), tag)
 
-    competitor_ranked = [
+    return [
         display_by_key[key]
         for key in sorted(counts, key=lambda value: (-counts[value], first_index[value]))
     ]
 
-    result = foundation + competitor_ranked
+
+def _rank_live_suggestions(seed: str, suggestions: list[str]) -> list[str]:
+    clean_seed = " ".join(str(seed or "").lower().split()).strip()
+    seed_tokens = set(re.findall(r"[a-z0-9']+", clean_seed))
+    ranked: list[tuple[int, int, str]] = []
+
+    for index, raw in enumerate(suggestions or []):
+        phrase = " ".join(str(raw or "").lower().split()).strip()
+        if not phrase:
+            continue
+        phrase_tokens = set(re.findall(r"[a-z0-9']+", phrase))
+        overlap = len(seed_tokens & phrase_tokens)
+        contains_seed = bool(clean_seed and clean_seed in phrase)
+        minimum_overlap = min(2, len(seed_tokens))
+        if not contains_seed and overlap < minimum_overlap:
+            continue
+
+        score = overlap * 3 + (12 if contains_seed else 0)
+        for marker, weight in _INTENT_WEIGHTS.items():
+            if marker in phrase:
+                score += weight
+        ranked.append((score, index, phrase))
+
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    return _dedupe_preserving_order([phrase for _, _, phrase in ranked])
+
+
+def rank_tags(
+    competitor_tags: list[str],
+    genre: str = "",
+    *,
+    seed: str = "",
+    suggestions: list[str] | None = None,
+) -> list[str]:
+    """
+    Rank SEO terms. Without live context this preserves the legacy foundation-first
+    ordering. With a seed/suggestions, real song-specific searches are promoted.
+    """
+    foundation = list(FOUNDATION_LYRIC_TAGS)
+    competitor_ranked = _rank_competitor_tags(competitor_tags)
     clean_genre = " ".join(str(genre or "").split()).strip().lower()
-    if clean_genre and clean_genre.casefold() not in {tag.casefold() for tag in result}:
-        result.append(clean_genre)
-    return result
+
+    if not seed and not suggestions:
+        result = foundation + competitor_ranked
+        if clean_genre and clean_genre.casefold() not in {tag.casefold() for tag in result}:
+            result.append(clean_genre)
+        return result
+
+    live_ranked = _rank_live_suggestions(seed, suggestions or [])
+    return _dedupe_preserving_order([
+        *live_ranked,
+        *competitor_ranked,
+        *foundation,
+        *([clean_genre] if clean_genre else []),
+    ])
 
 
 def research_lyric_seo(
@@ -212,7 +272,12 @@ def research_lyric_seo(
         "queries": queries,
         "suggestions": suggestions,
         "competitor_tags": competitor_tags,
-        "ranked_tags": rank_tags(competitor_tags, genre),
+        "ranked_tags": rank_tags(
+            competitor_tags,
+            genre,
+            seed=seed,
+            suggestions=suggestions,
+        ),
         "warning": warning,
     }
 
