@@ -7,7 +7,7 @@ from typing import List, Tuple, Optional, Dict
 # =====================================================================
 # CONFIGURATION & CREDENTIALS
 # =====================================================================
-API_KEY = ""  # Replace with your actual YouTube Data API key
+API_KEY = "AIzaSyDMdPJ67OqkGioK3BqbHV4ZjqzhwUAuHqk"  # Replace with your actual YouTube Data API key
 
 def get_current_youtube_searches(seed_keyword: str) -> List[str]:
     """
