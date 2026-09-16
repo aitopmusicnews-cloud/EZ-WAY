@@ -45,6 +45,22 @@ class FakeSession:
         raise AssertionError(f"unexpected URL: {url}")
 
 
+class NestedAutocompleteSession:
+    def __init__(self):
+        self.calls = []
+
+    def get(self, url, *, params=None, timeout=None):
+        self.calls.append((url, params, timeout))
+        query = params["q"]
+        return FakeResponse([
+            query,
+            [
+                [f"{query} official lyrics", 0, []],
+                [f"{query} karaoke", 0, []],
+            ],
+        ])
+
+
 def test_modifier_queries_are_lyric_focused():
     assert build_modifier_queries("Blinding Lights") == [
         "Blinding Lights",
@@ -70,6 +86,17 @@ def test_autocomplete_queries_youtube_scope_and_dedupes_in_order():
     assert all(call[1]["client"] == "firefox" for call in autocomplete_calls)
     assert all(call[1]["ds"] == "yt" for call in autocomplete_calls)
     assert all(call[2] == 5 for call in autocomplete_calls)
+
+
+def test_autocomplete_extracts_text_from_nested_youtube_suggestion_entries():
+    session = NestedAutocompleteSession()
+    suggestions = fetch_suggestions("Blinding Lights", session=session)
+
+    assert suggestions[:2] == [
+        "Blinding Lights official lyrics",
+        "Blinding Lights karaoke",
+    ]
+    assert not any(suggestion.startswith("[") for suggestion in suggestions)
 
 
 def test_competitor_tags_use_top_ten_relevance_search_and_snippet_tags():
