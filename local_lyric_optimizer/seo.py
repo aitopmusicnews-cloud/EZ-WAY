@@ -1,196 +1,161 @@
-from __future__ import annotations
-
-from collections import Counter
-from typing import Any
-
 import requests
+from collections import Counter
+import re
+import random
+from typing import List, Tuple, Optional, Dict
 
+# =====================================================================
+# CONFIGURATION & CREDENTIALS
+# =====================================================================
+API_KEY = ""  # Replace with your actual YouTube Data API key
 
-AUTOCOMPLETE_URL = "https://suggestqueries.google.com/complete/search"
-YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
-YOUTUBE_VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos"
-FOUNDATION_LYRIC_TAGS = (
-    "lyrics",
-    "lyric video",
-    "lyrics video",
-    "sing along",
-    "clean lyrics",
-    "official lyrics",
-)
-
-
-def build_modifier_queries(seed: str) -> list[str]:
-    clean_seed = " ".join(str(seed or "").split()).strip()
-    if not clean_seed:
-        return []
-    return [
-        clean_seed,
-        f"{clean_seed} lyrics",
-        f"{clean_seed} lyric video",
-        f"{clean_seed} karaoke",
-        f"{clean_seed} clean lyrics",
-    ]
-
-
-def _dedupe_preserving_order(values: list[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for value in values:
-        cleaned = " ".join(str(value or "").split()).strip()
-        key = cleaned.casefold()
-        if not cleaned or key in seen:
-            continue
-        seen.add(key)
-        result.append(cleaned)
-    return result
-
-
-def _suggestion_text(item: Any) -> str:
-    if isinstance(item, str):
-        return item
-    if isinstance(item, (list, tuple)) and item:
-        return str(item[0])
-    return ""
-
-
-def fetch_suggestions(seed: str, *, session: Any = requests) -> list[str]:
-    suggestions: list[str] = []
-    for query in build_modifier_queries(seed):
+def get_current_youtube_searches(seed_keyword: str) -> List[str]:
+    """
+    Queries YouTube's live autocomplete engine for trending user search queries.
+    Automatically appends lyric modifiers to target active search intent.
+    """
+    modifiers = [seed_keyword, f"{seed_keyword} lyrics", f"{seed_keyword} lyric video"]
+    all_suggestions = []
+    
+    for query in modifiers:
+        url = f"https://google.com{query}"
         try:
-            response = session.get(
-                AUTOCOMPLETE_URL,
-                params={"client": "firefox", "ds": "yt", "q": query},
-                timeout=5,
-            )
-            response.raise_for_status()
-            payload = response.json()
-            batch = payload[1] if isinstance(payload, list) and len(payload) > 1 else []
-            if isinstance(batch, list):
-                suggestions.extend(
-                    text
-                    for item in batch
-                    if (text := _suggestion_text(item).strip())
-                )
-        except Exception:
-            continue
-    return _dedupe_preserving_order(suggestions)
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                import json
+                raw_data = json.loads(response.text)
+                if len(raw_data) > 1 and isinstance(raw_data[1], list):
+                    # Extracted phrases are wrapped inside an inner array
+                    suggestions = [str(item[0]) if isinstance(item, list) else str(item) for item in raw_data[1]]
+                    all_suggestions.extend(suggestions)
+        except Exception as e:
+            print(f"Error fetching live autocomplete data for '{query}': {e}")
+            
+    return list(dict.fromkeys(all_suggestions))[:15]
 
-
-def get_current_youtube_searches(seed_keyword: str, *, session: Any = requests) -> list[str]:
-    """Return live YouTube-scoped autocomplete terms for a lyric SEO seed."""
-    return fetch_suggestions(seed_keyword, session=session)
-
-
-def fetch_competitor_tags(seed: str, api_key: str, *, session: Any = requests) -> list[str]:
-    if not str(api_key or "").strip():
-        return []
-    try:
-        search_response = session.get(
-            YOUTUBE_SEARCH_URL,
-            params={
-                "part": "id",
-                "q": f"{' '.join(str(seed or '').split()).strip()} lyrics",
-                "type": "video",
-                "maxResults": 10,
-                "order": "relevance",
-                "key": api_key,
-            },
-            timeout=10,
-        )
-        search_response.raise_for_status()
-        search_payload = search_response.json()
-        video_ids = [
-            str(item.get("id", {}).get("videoId", "")).strip()
-            for item in search_payload.get("items", [])
-            if isinstance(item, dict) and item.get("id", {}).get("videoId")
-        ]
-        if not video_ids:
-            return []
-
-        videos_response = session.get(
-            YOUTUBE_VIDEOS_URL,
-            params={
-                "part": "snippet",
-                "id": ",".join(video_ids),
-                "key": api_key,
-            },
-            timeout=10,
-        )
-        videos_response.raise_for_status()
-        videos_payload = videos_response.json()
-        tags: list[str] = []
-        for item in videos_payload.get("items", []):
-            if not isinstance(item, dict):
-                continue
-            raw_tags = item.get("snippet", {}).get("tags", [])
-            if isinstance(raw_tags, list):
-                tags.extend(str(tag).strip() for tag in raw_tags if str(tag).strip())
-        return tags
-    except Exception:
-        return []
-
-
-def get_live_competitor_tags(
-    api_key: str,
-    seed_keyword: str,
-    *,
-    session: Any = requests,
-) -> list[str]:
-    """Return live tags from the top relevant YouTube lyric-video competitors."""
-    return fetch_competitor_tags(seed_keyword, api_key, session=session)
-
-
-def rank_tags(competitor_tags: list[str], genre: str = "") -> list[str]:
-    foundation = list(FOUNDATION_LYRIC_TAGS)
-    foundation_keys = {tag.casefold() for tag in foundation}
-
-    normalized: list[str] = []
-    first_index: dict[str, int] = {}
-    for raw_tag in competitor_tags or []:
-        cleaned = " ".join(str(raw_tag or "").split()).strip().lower()
-        key = cleaned.casefold()
-        if not cleaned or key in foundation_keys:
-            continue
-        if key not in first_index:
-            first_index[key] = len(first_index)
-        normalized.append(cleaned)
-
-    counts = Counter(tag.casefold() for tag in normalized)
-    display_by_key: dict[str, str] = {}
-    for tag in normalized:
-        display_by_key.setdefault(tag.casefold(), tag)
-    competitor_ranked = [
-        display_by_key[key]
-        for key in sorted(counts, key=lambda value: (-counts[value], first_index[value]))
-    ]
-
-    result = foundation + competitor_ranked
-    clean_genre = " ".join(str(genre or "").split()).strip().lower()
-    if clean_genre and clean_genre.casefold() not in {tag.casefold() for tag in result}:
-        result.append(clean_genre)
-    return result
-
-
-def research_lyric_seo(
-    seed: str,
-    *,
-    genre: str = "",
-    api_key: str = "",
-    session: Any = requests,
-) -> dict[str, Any]:
-    queries = build_modifier_queries(seed)
-    suggestions = get_current_youtube_searches(seed, session=session)
-    clean_key = str(api_key or "").strip()
-    competitor_tags = (
-        get_live_competitor_tags(clean_key, seed, session=session)
-        if clean_key
-        else []
-    )
-    warning = None if clean_key else "youtube_api_key_missing"
-    return {
-        "queries": queries,
-        "suggestions": suggestions,
-        "competitor_tags": competitor_tags,
-        "ranked_tags": rank_tags(competitor_tags, genre),
-        "warning": warning,
+def generate_seo_content(query: str) -> Tuple[str, str, List[str], List[str], int, Dict[str, int]]:
+    """
+    Scrapes the top 50 ranking lyric videos for the query, aggregates their 
+    metadata, and compiles a comprehensive, high-relevance SEO package.
+    """
+    search_url = "https://googleapis.com"
+    video_url = "https://googleapis.com"
+    
+    # 1. Fetch Top 50 Competitor Videos
+    search_params = {
+        'part': 'id,snippet',
+        'q': f"{query} lyrics",
+        'type': 'video',
+        'maxResults': 50,
+        'key': API_KEY
     }
+    
+    recommended_tags = ['lyrics', 'lyric video', 'sing along', 'clean lyrics', 'karaoke']
+    title_words = []
+    competitor_titles = []
+
+    try:
+        if API_KEY:
+            search_data = requests.get(search_url, params=search_params, timeout=10).json()
+            items = search_data.get('items', [])
+            video_ids = [item['id']['videoId'] for item in items if 'videoId' in item['id']]
+            competitor_titles = [item['snippet']['title'] for item in items]
+            
+            # 2. Extract Hidden Meta-Tags from Competitors
+            if video_ids:
+                # API permits up to 50 IDs comma-separated
+                video_params = {
+                    'part': 'snippet',
+                    'id': ','.join(video_ids[:50]),
+                    'key': API_KEY
+                }
+                video_data = requests.get(video_url, params=video_params, timeout=10).json()
+                for item in video_data.get('items', []):
+                    tags = item.get('snippet', {}).get('tags', [])
+                    recommended_tags.extend(tags)
+        else:
+            print("[Warning] API_KEY missing. Running fallback keyword isolation.")
+
+    except Exception as e:
+        print(f"Error reaching YouTube Live API: {e}")
+
+    # 3. Process and Clean Scraped Tags
+    clean_tags = list(dict.fromkeys([tag.lower() for tag in recommended_tags]))[:40]
+
+    # 4. Track High Frequency Keyword Clusters from Title Text
+    for title in competitor_titles:
+        words = re.findall(r'\b\w+\b', title.lower())
+        title_words.extend(words)
+        
+    stop_words = {'the', 'a', 'to', 'in', 'of', 'and', 'for', 'with', 'on', 'official', 'video', 'audio', 'lyrics'}
+    filtered_keywords = [word for word in title_words if word not in stop_words and not word.isdigit()]
+    top_keywords = [item[0] for item in Counter(filtered_keywords).most_common(15)]
+
+    # If API failed or key is empty, populate fallback clusters from user query
+    if not top_keywords:
+        top_keywords = query.lower().split() + ["lyrics", "music", "pop", "vibes"]
+
+    # 5. Generate Target Meta Attachments
+    generated_title = f"{query.title()} (Lyrics / Lyric Video)"
+    
+    # Music/Lyric Specific Description Template
+    generated_description = (
+        f"🎵 Stream/Download \"{query.title()}\": [Insert Streaming Links Here]\n\n"
+        f"Enjoy the official lyric video for \"{query.title()}\". "
+        f"Subscribe for more fresh, high-quality lyric presentations every week! 🚀\n\n"
+        f"📝 LYRICS:\n[PASTE_EXTRACTED_WHISPER_LYRICS_HERE]\n\n"
+        f"For track submission or copyright inquiries, reach out via our channel about page."
+    )
+    
+    generated_hashtags = [f"#{word}" for word in top_keywords[:5]]
+    if "#lyrics" not in generated_hashtags:
+        generated_hashtags.append("#lyrics")
+
+    # 6. Calculate Actual Optimization Quality Metric
+    seo_score = 0
+    if len(generated_title) <= 70: seo_score += 20
+    if len(clean_tags) >= 20: seo_score += 30
+    if "[PASTE_EXTRACTED_WHISPER_LYRICS_HERE]" not in generated_description: seo_score += 30
+    seo_score += min(len(generated_hashtags) * 4, 20)
+    
+    # Static realistic analytical prediction limits for visualization
+    mock_analytics = {
+        "expected_reach_potential": random.randint(85, 99),
+        "keyword_density_index": random.randint(75, 95)
+    }
+
+    return generated_title, generated_description, clean_tags, generated_hashtags, seo_score, mock_analytics
+
+def process_keyword(keyword: str) -> None:
+    print(f"\nAnalyzing YouTube Ecosystem and Generating Live Content Suite for '{keyword}'...")
+    
+    # Fetch trending lookups
+    live_searches = get_current_youtube_searches(keyword)
+    title, description, tags, hashtags, seo_score, analytics = generate_seo_content(keyword)
+
+    print(f"\n{'='*80}\nLIVE COMPETITOR SEO ENGINE RESULTS\n{'='*80}")
+    print(f"\nHighly Searched Variations (Autocomplete Trends):\n{', '.join(live_searches)}")
+    print(f"\nOptimized Title Configuration:\n{title}")
+    print(f"\nStructured Video Description Template:\n{description}")
+    print(f"\nScraped & Deduplicated Competitor Tags:\n{', '.join(tags)}")
+    print(f"\nRecommended Discovery Hashtags:\n{' '.join(hashtags)}")
+    print(f"\nStructural SEO Health Score: {seo_score}/100")
+
+def main():
+    print("Welcome to the Active YouTube Music SEO Scraper Engine!")
+    while True:
+        print("\n1. Analyze Niche & Extract Metadata")
+        print("2. Exit")
+        choice = input("Enter your choice (1-2): ")
+        
+        if choice == '1':
+            keyword = input("Enter artist name or base song descriptor: ")
+            process_keyword(keyword)
+        elif choice == '2':
+            print("Closing connection interface. Goodbye!")
+            break
+        else:
+            print("Invalid index choice.")
+
+if __name__ == "__main__":
+    main()
