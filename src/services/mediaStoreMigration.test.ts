@@ -15,6 +15,15 @@ test('MediaStoreContext initializes owner data through one bootstrap call', () =
   assert.doesNotMatch(source, /ALTER TABLE|createBucket/);
 });
 
+test('profile fallback id is accepted by the AWS UUID contract', () => {
+  const fallback = source.match(/const PROFILE_FALLBACK:[\s\S]*?id:\s*['"]([^'"]+)['"]/);
+  assert.ok(fallback, 'PROFILE_FALLBACK id must be present');
+
+  // Mirrors aws/app-data/api/contract.mjs requireUuid validation.
+  const awsUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  assert.match(fallback[1], awsUuid);
+});
+
 test('MediaStoreContext preserves public share and upload component contracts', () => {
   assert.match(source, /getShareContent: \(token: string\)/);
   assert.match(source, /uploadFile: \(bucket: string, file: File\) => Promise<string \| null>/);
