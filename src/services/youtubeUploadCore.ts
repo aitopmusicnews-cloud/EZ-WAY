@@ -34,6 +34,14 @@ export interface YouTubeSEOOptions {
   rankedTags?: string[];
 }
 
+export const OG_BEATZ_LINKS = {
+  youtube: 'https://www.youtube.com/@Og-Beatz-rus',
+  youtubeMusic: 'https://music.youtube.com/channel/UCzcl8OAzNUNztrAfCxH0VLA',
+  instagram: 'https://www.instagram.com/ogbeatzofficial/',
+  appleMusic: 'https://music.apple.com/us/artist/og-beatz/1709404287',
+  amazonMusic: 'https://music.amazon.com/artists/B07DS3S9QM/og-beatz',
+} as const;
+
 export const LYRIC_FOUNDATION_TAGS = [
   'lyrics',
   'lyric video',
@@ -376,8 +384,14 @@ export function generateYouTubeSEO(
     : '';
 
   const spotify = normalizePhrase(options.spotifyLink) || '[Spotify link]';
-  const apple = normalizePhrase(options.appleLink) || '[Apple Music link]';
-  const amazon = normalizePhrase(options.amazonLink) || amazonMusicLinkOverride || '[Amazon Music link]';
+  const apple = normalizePhrase(options.appleLink) || OG_BEATZ_LINKS.appleMusic;
+  const amazon = normalizePhrase(options.amazonLink) || amazonMusicLinkOverride || OG_BEATZ_LINKS.amazonMusic;
+  const instagramOverride = normalizePhrase(options.instagramHandle);
+  const instagram = instagramOverride
+    ? (instagramOverride.startsWith('http')
+      ? instagramOverride
+      : `https://www.instagram.com/${instagramOverride.replace(/^@/, '')}/`)
+    : OG_BEATZ_LINKS.instagram;
   const fullLyrics = stripLrcTimestamps(track.lyrics || '') || '[PASTE_LYRICS_HERE]';
   const themeHook = lyricThemes.length
     ? `Built around ${lyricThemes.slice(0, 2).join(' and ')}, this ${primaryGenre} lyric video keeps the words front and center.`
@@ -392,9 +406,10 @@ export function generateYouTubeSEO(
     `Apple Music: ${apple}`,
     `Amazon Music: ${amazon}`,
     '',
-    options.instagramHandle
-      ? `Follow ${artist}: Instagram @${options.instagramHandle.replace('@', '')}`
-      : `Follow ${artist}: [Artist social links]`,
+    '📲 FOLLOW OG BEATZ',
+    `YouTube: ${OG_BEATZ_LINKS.youtube}`,
+    `YouTube Music: ${OG_BEATZ_LINKS.youtubeMusic}`,
+    `Instagram: ${instagram}`,
     '',
     '📝 LYRICS',
     fullLyrics,
@@ -423,7 +438,7 @@ export function generateYouTubeSEO(
     .reduce<string[]>((lines, line, index, original) => {
       lines.push(line);
       const next = original[index + 1];
-      const isSectionBoundary = next && /^(🎧|📝|🎼|🎹|🎬|📩|#)/.test(next);
+      const isSectionBoundary = next && /^(🎧|📲|📝|🎼|🎹|🎬|📩|#)/.test(next);
       if (isSectionBoundary) lines.push('');
       return lines;
     }, [])

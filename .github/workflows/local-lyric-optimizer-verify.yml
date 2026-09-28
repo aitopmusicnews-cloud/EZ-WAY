@@ -15,6 +15,7 @@ on:
       - 'src/components/YouTubeHub.tsx'
       - 'src/services/youtubeLyricsSeo.test.ts'
       - 'src/services/youtubeSeoQuality.test.ts'
+      - 'src/services/ogBeatzSocialDefaults.test.ts'
       - 'src/services/youtubeBrowser.ts'
       - 'src/services/youtubeBrowser.test.ts'
       - 'src/services/youtubeUploadCore.ts'
@@ -72,6 +73,9 @@ jobs:
 
       - name: YouTube SEO quality regression
         run: node --experimental-strip-types --test src/services/youtubeSeoQuality.test.ts
+
+      - name: OG BEATZ social defaults regression
+        run: node --experimental-strip-types --test src/services/ogBeatzSocialDefaults.test.ts
 
       - name: YouTube OAuth bridge regression
         run: node --experimental-strip-types --test src/services/youtubeBrowser.test.ts

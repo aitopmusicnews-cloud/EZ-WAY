@@ -72,8 +72,11 @@ test('SEO package is structured for full-track lyric videos and keeps all lyrics
   assert.match(lines[1], /lyric|sing|track/i);
   assert.match(pkg.description, /🎧 STREAM \/ DOWNLOAD/);
   assert.match(pkg.description, /Spotify: \[Spotify link\]/);
-  assert.match(pkg.description, /Apple Music: \[Apple Music link\]/);
-  assert.match(pkg.description, /Amazon Music: \[Amazon Music link\]/);
+  assert.match(pkg.description, /Apple Music: https:\/\/music\.apple\.com\/us\/artist\/og-beatz\/1709404287/);
+  assert.match(pkg.description, /Amazon Music: https:\/\/music\.amazon\.com\/artists\/B07DS3S9QM\/og-beatz/);
+  assert.match(pkg.description, /YouTube: https:\/\/www\.youtube\.com\/@Og-Beatz-rus/);
+  assert.match(pkg.description, /YouTube Music: https:\/\/music\.youtube\.com\/channel\/UCzcl8OAzNUNztrAfCxH0VLA/);
+  assert.match(pkg.description, /Instagram: https:\/\/www\.instagram\.com\/ogbeatzofficial\//);
   assert.match(pkg.description, /📝 LYRICS/);
   assert.match(pkg.description, /Line one\nLine two\nLine three\nLine four/);
   assert.match(pkg.description, /🎼 CREDITS/);
