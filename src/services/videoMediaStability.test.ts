@@ -26,22 +26,9 @@ test('saved video preview resolves stable video, thumbnail, and track audio keys
   assert.doesNotMatch(previewSource, /src=\{track\.file_url\}/);
 });
 
-test('Music Video Maker reuses a preloaded background image instead of allocating one every frame', () => {
-  const drawStart = makerSource.indexOf('const drawVisualizer =');
-  const setupStart = makerSource.indexOf('const setupAudioGraph =', drawStart);
-  assert.ok(drawStart >= 0 && setupStart > drawStart, 'drawVisualizer block should exist');
-  const drawBlock = makerSource.slice(drawStart, setupStart);
-
-  assert.doesNotMatch(drawBlock, /new Image\(\)/);
-  assert.match(makerSource, /backgroundImgRef/);
-  assert.match(drawBlock, /backgroundImgRef\.current/);
-});
-
 test('watermark and default cover have separate centralized brand assets', () => {
   assert.match(brandSource, /WATERMARK_ASSET\s*=\s*['"]\/ogbeatz_watermark\.webp['"]/);
   assert.match(brandSource, /DEFAULT_COVER_ASSET\s*=\s*['"]\/ogbeatz_default_cover\.webp['"]/);
-  assert.match(makerSource, /WATERMARK_ASSET/);
-  assert.match(makerSource, /DEFAULT_COVER_ASSET/);
   assert.match(makerSource, /refreshTrackAudioSource/);
   assert.doesNotMatch(makerSource, /img\.src\s*=\s*['"]\/ogbeatz_logo\.svg['"]/);
 });

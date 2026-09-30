@@ -1,11 +1,18 @@
 # Music Video Maker
 
-The Video page opens the browser adaptation of the supplied MusicVideoMaker Python app. Choose a JPG/PNG and an MP3/WAV, or use an existing library track, then select **Create MP4**. The entire song plays under the still image. The output is H.264/AAC MP4 with preview, download, and the existing Video Library save/cloud-sync flow.
+The Video page has one maker using the new FFmpeg MP4 engine, plus Video Library. The previous separate studio and canvas/MediaRecorder rendering path have been removed.
 
-**Original Video Studio** retains the previous lyrics, soundwaves, watermark, social sizes, duration settings, and lyric tools. Its Stems tab has been removed. Video Library remains available alongside both makers.
+Choose JPG/PNG artwork and MP3/WAV audio, or select a library track and use its artwork. Customize:
 
-The simple maker uses single-thread FFmpeg WebAssembly on the user's device. No new API or Python server is required. It does not require SharedArrayBuffer or cross-origin isolation. `npm run dev` and `npm run build` copy the pinned FFmpeg core files into `public/video-engine`; deploy the complete `dist` directory including `video-engine` and worker assets. Do not redirect those assets to HTML. The engine is about 32 MB, loaded only when conversion starts.
+- YouTube 16:9, TikTok/Reels/Shorts 9:16, Instagram 1:1 or 4:5, and X 4:3 sizes.
+- Full song, 15, 30, or 60 seconds; clips never outlast the song.
+- Audio-reactive soundwave and official brand watermark.
+- Timestamped LRC lyrics, imported or edited in the maker; white, gradient, or outline styles and an optional large centered layout.
+- Synced lyric generation through the existing Lyric Optimizer service, with manual import/paste available independently. Lyrics can be saved to the selected library track. No stem extraction is requested by this maker.
+- Custom output filename, preview, MP4 download, cancellation, and Video Library saving through the existing cloud-sync flow.
 
-Inputs are limited to 20 MB artwork and 250 MB audio. Large files can exceed a browser's available memory; cancellation terminates the worker and releases its memory. Artwork keeps its aspect ratio and is fitted within 1920×1080 with even dimensions for MP4 compatibility. No artwork is cropped. Keep the page open during conversion. A finished result can be downloaded immediately; cloud-sync warnings come from the existing Video Library.
+Lyrics, waveform and watermark are burned into the H.264 video, and the original song is encoded as AAC. Artwork is fitted without cropping; space around it is black. There is no separate original-app tab and no stems control.
 
-The original desktop script is the workflow reference; Tkinter cannot run directly inside a web page.
+Conversion uses single-thread FFmpeg WebAssembly on the user's device. No additional video API or Python server is needed. `npm run dev` and `npm run build` copy engine and Roboto font assets into `public/video-engine`; deploy the complete `dist` directory including these files and worker assets. The engine loads when conversion starts. The font license is copied alongside it.
+
+Limits: 20 MB artwork and 250 MB audio. Large files and full-HD overlays can require substantial memory and time. Keep the page open while rendering. Automatic lyrics still require the existing Lyric Optimizer service; LRC import and rendering do not.

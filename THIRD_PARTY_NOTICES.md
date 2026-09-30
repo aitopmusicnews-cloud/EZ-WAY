@@ -53,3 +53,7 @@ Do not replace a browser audio model solely because code around it is permissive
 - FFmpeg upstream source: https://github.com/FFmpeg/FFmpeg
 
 The build copies the unmodified core JavaScript and WASM from the lockfile-pinned npm package into `video-engine` for same-origin delivery.
+
+## Roboto font
+
+The video renderer uses Roboto from `@fontsource/roboto` (SIL Open Font License 1.1). The package license is distributed as `video-engine/FONT-LICENSE.txt` with the font.

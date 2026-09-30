@@ -5,3 +5,6 @@ await mkdir(target, { recursive: true });
 for (const name of ['ffmpeg-core.js', 'ffmpeg-core.wasm']) {
   await copyFile(new URL(`../node_modules/@ffmpeg/core/dist/esm/${name}`, import.meta.url), new URL(name, target));
 }
+
+await copyFile(new URL('../node_modules/@fontsource/roboto/files/roboto-latin-400-normal.woff', import.meta.url), new URL('Roboto.woff', target));
+await copyFile(new URL('../node_modules/@fontsource/roboto/LICENSE', import.meta.url), new URL('FONT-LICENSE.txt', target));
