@@ -1,1423 +1,221 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { 
-  Video, 
-  Upload, 
-  Play, 
-  Pause, 
-  Download, 
-  Sparkles, 
-  AlertCircle, 
-  Loader2, 
-  CheckCircle2, 
-  Terminal, 
-  Image as ImageIcon, 
-  Music, 
-  Folder, 
-  Check,
-  ChevronRight,
-  Clock,
-  RotateCcw,
-  Mic2,
-  FileText,
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Download, Film, Loader2 } from 'lucide-react';
 import { useMediaStore } from '../context/MediaStoreContext';
-import { runLocalAudioTool } from '../services/browserAudioTools';
-import type { AudioToolJobResult } from '../services/audioToolTypes';
-import { parseLrc, formatLrcTime } from '../utils/lrcParser';
-import { v4 as uuidv4 } from 'uuid';
-import { cn } from '../lib/utils';
+import { loadTrackAudioFile, refreshTrackAudioSource } from '../services/trackAudioSource';
+import { musicVideoFilename, validateMusicVideoFiles, DEFAULT_VIDEO_OPTIONS, VIDEO_PRESETS, type VideoOptions } from '../services/musicVideoCommand';
+
+import { transcribeLyricsFile } from '../services/localLyricOptimizer';
+import { formatLrcTime } from '../utils/lrcParser';
 import { resolveMediaAccess } from '../services/mediaAccess';
-import { refreshTrackAudioSource } from '../services/trackAudioSource';
-import { DEFAULT_COVER_ASSET, WATERMARK_ASSET } from '../lib/brandAssets';
-
-// Social presets mirroring the python code exactly
-const SOCIAL_PRESETS = {
-  "TikTok / Reels / Shorts (Vertical 9:16)": { res: "1080:1920", aspect: "9:16", suffix: "_TikTok", ratio: 9/16 },
-  "Instagram Post / Feed (Square 1:1)": { res: "1080:1080", aspect: "1:1", suffix: "_Instagram", ratio: 1/1 },
-  "YouTube / Desktop (Horizontal 16:9)": { res: "1920:1080", aspect: "16:9", suffix: "_YouTube", ratio: 16/9 },
-  "Instagram Portrait (4:5)": { res: "1080:1350", aspect: "4:5", suffix: "_IG_Portrait", ratio: 4/5 },
-  "Twitter & X Standard (Horizontal 4:3)": { res: "960:720", aspect: "4:3", suffix: "_X_Twitter", ratio: 4/3 }
-};
-
-type PresetKey = keyof typeof SOCIAL_PRESETS;
 
 interface MusicVideoMakerProps {
   initialTrackId?: string;
   onClearInitialTrackId?: () => void;
 }
 
-type StudioTab = 'video' | 'lyrics';
+function useObjectUrl(blob: Blob | null) {
+  const [url, setUrl] = useState('');
+  useEffect(() => {
+    if (!blob) { setUrl(''); return; }
+    const next = URL.createObjectURL(blob);
+    setUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [blob]);
+  return url;
+}
 
 export default function MusicVideoMaker({ initialTrackId, onClearInitialTrackId }: MusicVideoMakerProps = {}) {
-  const { tracks, addPromoVideo, updateTrack, addToast } = useMediaStore();
-  const [activeTab, setActiveTab] = useState<StudioTab>('video');
-
-  // Lyrics tab state
-  const [lyricsText, setLyricsText] = useState<string>('');
-  const [lyricsProcessing, setLyricsProcessing] = useState(false);
-  const [lyricsProgress, setLyricsProgress] = useState('');
-  const [lyricsResult, setLyricsResult] = useState<AudioToolJobResult | null>(null);
-  const [lyricsError, setLyricsError] = useState('');
-
-  // States matching Python application fields
-  const [selectedTrackId, setSelectedTrackId] = useState<string>('');
-
-  useEffect(() => {
-    if (initialTrackId) {
-      setSelectedTrackId(initialTrackId);
-      const track = tracks.find(t => t.id === initialTrackId);
-      if (track) {
-        setOutputFileName(`${track.name.replace(/\s+/g, '_')}_Video`);
-      }
-    }
-  }, [initialTrackId, tracks]);
-  const [customImageFile, setCustomImageFile] = useState<File | null>(null);
-  const [customImageUrl, setCustomImageUrl] = useState<string>('');
-  const [customAudioFile, setCustomAudioFile] = useState<File | null>(null);
-  const [customAudioUrl, setCustomAudioUrl] = useState<string>('');
-  const [refreshedTrackImageUrl, setRefreshedTrackImageUrl] = useState<string>('');
-  const [refreshedTrackAudioUrl, setRefreshedTrackAudioUrl] = useState<string>('');
-  
-  const [outputFileName, setOutputFileName] = useState<string>('Music_Video');
-  const [selectedPreset, setSelectedPreset] = useState<PresetKey>("TikTok / Reels / Shorts (Vertical 9:16)");
-  const [videoFormat, setVideoFormat] = useState<"mp4" | "mpeg4">("mpeg4");
-  const [addLyrics, setAddLyrics] = useState<boolean>(true);
-  const [showSoundwave, setShowSoundwave] = useState<boolean>(true);
-  const [addWatermark, setAddWatermark] = useState<boolean>(true);
-  const [lyricVideoMode, setLyricVideoMode] = useState<boolean>(false);
-  const [lyricStyle, setLyricStyle] = useState<'white' | 'gradient' | 'outline'>('white');
-  const [exportDuration, setExportDuration] = useState<number>(15);
-  const [recordedVideoBlob, setRecordedVideoBlob] = useState<Blob | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  
-  // Compiling and terminal logs states
-  const [isCompiling, setIsCompiling] = useState<boolean>(false);
-  const [compileProgress, setCompileProgress] = useState<number>(0);
-  const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
-  const [generationComplete, setGenerationComplete] = useState<boolean>(false);
-  const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string>('');
-  const [enableAutoScroll, setEnableAutoScroll] = useState<boolean>(false);
-
-  // Local play preview states
-  const [isPlayPreviewing, setIsPlayPreviewing] = useState<boolean>(false);
-  const [previewTime, setPreviewTime] = useState<number>(0);
-  const [previewDuration, setPreviewDuration] = useState<number>(0);
-  const [activeSubtitle, setActiveSubtitle] = useState<string>('');
-
-  // Refs
-  const watermarkImgRef = useRef<HTMLImageElement | null>(null);
-  const backgroundImgRef = useRef<HTMLImageElement | null>(null);
+  const { tracks, addPromoVideo, updateTrack } = useMediaStore();
+  const [image, setImage] = useState<File | null>(null);
+  const [audio, setAudio] = useState<File | null>(null);
+  const [trackId, setTrackId] = useState(initialTrackId || '');
+  const [options, setOptions] = useState<VideoOptions>({ ...DEFAULT_VIDEO_OPTIONS });
+  const [includeLyrics, setIncludeLyrics] = useState(false);
+  const [lyricBusy, setLyricBusy] = useState(false);
+  const [outputName, setOutputName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<{ blob: Blob; name: string } | null>(null);
+  const controller = useRef<AbortController | null>(null);
+  const mounted = useRef(true);
+  const imageUrl = useObjectUrl(image);
+  const audioUrl = useObjectUrl(audio);
+  const videoUrl = useObjectUrl(result?.blob || null);
 
   useEffect(() => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = WATERMARK_ASSET;
-    watermarkImgRef.current = img;
+    if (initialTrackId) { setTrackId(initialTrackId); setAudio(null); }
+  }, [initialTrackId]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; controller.current?.abort(); };
   }, []);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const logTerminalEndRef = useRef<HTMLDivElement>(null);
-  const terminalContainerRef = useRef<HTMLDivElement>(null);
-  const animationFrameRef = useRef<number | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const previewGainRef = useRef<GainNode | null>(null);
 
-  // Computed fields
-  const activeTrack = useMemo(() => {
-    return tracks.find(t => t.id === selectedTrackId) || null;
-  }, [tracks, selectedTrackId]);
-
+  const activeTrack = tracks.find(item => item.id === trackId);
   useEffect(() => {
-    let cancelled = false;
-    if (!activeTrack) {
-      setRefreshedTrackImageUrl('');
-      setRefreshedTrackAudioUrl('');
-      return () => { cancelled = true; };
-    }
-
-    void (async () => {
-      let nextImageUrl = activeTrack.image_url || '';
-      const localImageActive = Boolean(activeTrack.image_data && nextImageUrl.startsWith('blob:'));
-      if (activeTrack.image_key && !localImageActive) {
-        try {
-          const refreshedImage = await resolveMediaAccess({
-            objectKey: activeTrack.image_key,
-            url: nextImageUrl,
-          });
-          nextImageUrl = refreshedImage.url;
-        } catch (error) {
-          console.warn('[VideoMaker] Could not refresh track artwork', error);
-        }
-      }
-
-      const playbackTrack = await refreshTrackAudioSource(activeTrack);
-      if (!cancelled) {
-        setRefreshedTrackImageUrl(nextImageUrl);
-        setRefreshedTrackAudioUrl(playbackTrack.file_url || '');
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [activeTrack?.id, activeTrack?.image_url, activeTrack?.image_key, activeTrack?.image_data, activeTrack?.file_url, activeTrack?.file_key, activeTrack?.file_data]);
-
-  // Derived image & audio details
-  const resolvedImageUrl = useMemo(() => {
-    if (customImageUrl) return customImageUrl;
-    if (refreshedTrackImageUrl) return refreshedTrackImageUrl;
-    if (activeTrack?.image_url) return activeTrack.image_url;
-    return DEFAULT_COVER_ASSET;
-  }, [customImageUrl, refreshedTrackImageUrl, activeTrack]);
-
-  const resolvedAudioUrl = useMemo(() => {
-    if (customAudioUrl) return customAudioUrl;
-    if (refreshedTrackAudioUrl) return refreshedTrackAudioUrl;
-    return activeTrack?.file_url || '';
-  }, [customAudioUrl, refreshedTrackAudioUrl, activeTrack]);
-
-  useEffect(() => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.src = resolvedImageUrl;
-    backgroundImgRef.current = img;
-    return () => {
-      if (backgroundImgRef.current === img) backgroundImgRef.current = null;
-    };
-  }, [resolvedImageUrl]);
-
-  const resolvedLyrics = useMemo(() => {
-    if (activeTrack?.lyrics) return activeTrack.lyrics;
-    return `[00:01.00] Welcome to THE BEATZ WAY Studio\n[00:05.00] Creating the ultimate soundscapes\n[00:09.00] This is a master promo asset\n[00:13.00] Real-time video synchronized lyrics\n[00:17.00] Elevate your social marketing reach\n[00:21.00] Download this high-fidelity promo clip now!`;
-  }, [activeTrack]);
-
-  const parsedLyrics = useMemo(() => {
-    return parseLrc(resolvedLyrics);
-  }, [resolvedLyrics]);
-
-  const canvasSize = useMemo(() => {
-    const preset = SOCIAL_PRESETS[selectedPreset];
-    const maxDim = 960; // optimal resolution for video recording
-    if (preset.ratio >= 1) {
-      return {
-        width: maxDim,
-        height: Math.round(maxDim / preset.ratio)
-      };
-    } else {
-      return {
-        width: Math.round(maxDim * preset.ratio),
-        height: maxDim
-      };
-    }
-  }, [selectedPreset]);
-
-  // Sync lyrics textarea when track changes
-  useEffect(() => {
-    setLyricsText(activeTrack?.lyrics || '');
-    setLyricsResult(null);
-    setLyricsError('');
-  }, [selectedTrackId]);
-
-  // Handle loading predefined track from library
-  useEffect(() => {
-    if (activeTrack) {
-      setCustomImageFile(null);
-      setCustomImageUrl('');
-      setCustomAudioFile(null);
-      setCustomAudioUrl('');
-      const cleanName = activeTrack.name.replace(/[^a-zA-Z0-9]/g, '_');
-      setOutputFileName(cleanName);
-      addToast(`Loaded library track "${activeTrack.name}" parameters into the video workspace!`, "info");
-    }
-  }, [selectedTrackId, activeTrack, addToast]);
-
-  const runSyncedLyrics = async () => {
-    if (!activeTrack) return;
-    setLyricsProcessing(true);
-    setLyricsError('');
-    setLyricsResult(null);
-    setLyricsProgress('Preparing HTDemucs vocal isolation…');
+    setOptions(previous => ({ ...previous, lyrics: activeTrack?.lyrics || '' }));
+  }, [trackId]);
+  const setting = <K extends keyof VideoOptions>(key: K, value: VideoOptions[K]) => {
+    setOptions(previous => ({ ...previous, [key]: value }));
+    setResult(null);
+  };
+  const sourceAudio = async () => {
+    if (audio) return audio;
+    if (activeTrack) return loadTrackAudioFile(await refreshTrackAudioSource(activeTrack));
+    throw new Error('Choose an MP3/WAV file or a library track.');
+  };
+  const generateLyrics = async () => {
+    setLyricBusy(true); setError(''); setStatus('Generating synced lyrics…');
     try {
-      const result = await runLocalAudioTool(activeTrack, 'lyrics', undefined, setLyricsProgress);
-      if (!result.lyrics?.trim()) throw new Error('No reliable lyrics detected. Existing lyrics unchanged.');
-      await updateTrack(activeTrack.id, { lyrics: result.lyrics });
-      setLyricsText(result.lyrics);
-      setLyricsResult(result);
-      setLyricsProgress('Synced lyrics saved.');
-    } catch (err: any) {
-      setLyricsError(err?.message || 'Synced lyric generation failed.');
-      setLyricsProgress('');
-    } finally {
-      setLyricsProcessing(false);
-    }
+      const transcript = await transcribeLyricsFile(await sourceAudio());
+      const lyrics = transcript.segments.map(segment => `${formatLrcTime(segment.start)} ${segment.text}`).join('\n');
+      if (!lyrics.trim()) throw new Error('No synced lyrics were detected. You can import or paste an LRC file.');
+      if (mounted.current) { setting('lyrics', lyrics); setIncludeLyrics(true); setStatus('Synced lyrics ready.'); }
+    } catch (err) {
+      if (mounted.current) { setError(err instanceof Error ? err.message : 'Could not generate lyrics.'); setStatus(''); }
+    } finally { if (mounted.current) setLyricBusy(false); }
   };
-
-  const saveLyricsManually = async () => {
+  const loadArtwork = async () => {
     if (!activeTrack) return;
-    await updateTrack(activeTrack.id, { lyrics: lyricsText });
-    addToast('Lyrics saved to track.', 'success');
+    setLyricBusy(true); setError('');
+    try {
+      let blob = activeTrack.image_data;
+      if (!blob) {
+        const media = await resolveMediaAccess({ objectKey: activeTrack.image_key, url: activeTrack.image_url });
+        const response = await fetch(media.url);
+        if (!response.ok) throw new Error('Could not load track artwork.');
+        blob = await response.blob();
+      }
+      const bitmap = await createImageBitmap(blob);
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width; canvas.height = bitmap.height;
+      canvas.getContext('2d')!.drawImage(bitmap, 0, 0); bitmap.close();
+      const jpeg = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('Could not read artwork.')), 'image/jpeg', .95));
+      if (mounted.current) { setImage(new File([jpeg], 'track-artwork.jpg', { type: 'image/jpeg' })); setResult(null); }
+    } catch (err) { if (mounted.current) setError(err instanceof Error ? err.message : 'Could not load artwork.'); }
+    finally { if (mounted.current) setLyricBusy(false); }
+  };
+  const saveLyrics = async () => {
+    if (!trackId) return;
+    try { await updateTrack(trackId, { lyrics: options.lyrics }); setStatus('Lyrics saved to track.'); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Could not save lyrics.'); }
   };
 
-  // Handle local custom image selection
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setCustomImageFile(file);
-      const url = URL.createObjectURL(file);
-      setCustomImageUrl(url);
-      setSelectedTrackId(''); // reset selection if custom image is set
-      addToast(`Custom background image loaded: ${file.name}`, "success");
-    }
-  };
-
-  // Handle local custom audio selection
-  const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setCustomAudioFile(file);
-      const url = URL.createObjectURL(file);
-      setCustomAudioUrl(url);
-      setSelectedTrackId(''); // reset selection
-      
-      const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, '_');
-      setOutputFileName(cleanName);
-      
-      addToast(`Custom audio file loaded: ${file.name}`, "success");
-    }
-  };
-
-  useEffect(() => () => {
-    if (customImageUrl.startsWith('blob:')) URL.revokeObjectURL(customImageUrl);
-  }, [customImageUrl]);
-
-  useEffect(() => () => {
-    if (customAudioUrl.startsWith('blob:')) URL.revokeObjectURL(customAudioUrl);
-  }, [customAudioUrl]);
-
-  // Auto-scroll terminal log window to bottom (only if enabled by user and container exists)
-  useEffect(() => {
-    if (enableAutoScroll && terminalContainerRef.current) {
-      terminalContainerRef.current.scrollTop = terminalContainerRef.current.scrollHeight;
-    }
-  }, [terminalLogs, enableAutoScroll]);
-
-  // Handle subtitles text update during preview
-  useEffect(() => {
-    if (!addLyrics) {
-      setActiveSubtitle('');
-      return;
-    }
-    const matchingLine = [...parsedLyrics]
-      .reverse()
-      .find(line => line.time <= previewTime);
-    
-    setActiveSubtitle(matchingLine ? matchingLine.text : '');
-  }, [previewTime, parsedLyrics, addLyrics]);
-
-  // Setup Web Audio API and Audio Element listener for preview
-  useEffect(() => {
-    const audio = new Audio();
-    audio.crossOrigin = "anonymous";
-    audioRef.current = audio;
-
-    const handleTimeUpdate = () => {
-      setPreviewTime(audio.currentTime);
-    };
-
-    const handleDurationChange = () => {
-      setPreviewDuration(audio.duration || 0);
-    };
-
-    const handleEnded = () => {
-      setIsPlayPreviewing(false);
-      setPreviewTime(0);
-    };
-
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('durationchange', handleDurationChange);
-    audio.addEventListener('ended', handleEnded);
-
-    return () => {
-      audio.pause();
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('durationchange', handleDurationChange);
-      audio.removeEventListener('ended', handleEnded);
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, []);
-
-  // Sync audio source when it changes
-  useEffect(() => {
-    if (audioRef.current) {
-      const currentlyPlaying = isPlayPreviewing;
-      audioRef.current.pause();
-      if (resolvedAudioUrl) {
-        audioRef.current.src = resolvedAudioUrl;
-        audioRef.current.load();
-        if (currentlyPlaying) {
-          audioRef.current.play().catch(() => setIsPlayPreviewing(false));
-        }
-      } else {
-        audioRef.current.removeAttribute('src');
-        audioRef.current.load();
-      }
-    }
-  }, [resolvedAudioUrl]);
-
-  // Visualizer loop on canvas
-  const drawVisualizer = () => {
-    if (!canvasRef.current) return;
-    // Pause rendering when the component is hidden to save CPU
-    if (canvasRef.current.closest('.hidden')) {
-      animationFrameRef.current = requestAnimationFrame(drawVisualizer);
-      return;
-    }
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const width = canvas.width;
-    const height = canvas.height;
-
-    // Clear background
-    ctx.clearRect(0, 0, width, height);
-
-    // Get selected preset ratio aspect logic
-    const preset = SOCIAL_PRESETS[selectedPreset];
-    const targetW = width;
-    const targetH = width / preset.ratio;
-
-    // Center canvas viewport depending on shape
-    const xOffset = 0;
-    const yOffset = (height - targetH) / 2;
-
-    // Draw the already-preloaded background image. Never allocate an Image per animation frame.
-    const imgObj = backgroundImgRef.current;
-    
-    if (imgObj && imgObj.complete && imgObj.naturalWidth > 0) {
-      // Blur outer layout
-      ctx.save();
-      ctx.filter = 'blur(20px) brightness(0.3)';
-      ctx.drawImage(imgObj, 0, 0, width, height);
-      ctx.restore();
-
-      // Draw fitted background cover
-      ctx.save();
-      // Clipping path for aspect ratio
-      ctx.beginPath();
-      ctx.rect(xOffset, yOffset, targetW, targetH);
-      ctx.clip();
-
-      // Draw primary image
-      ctx.drawImage(imgObj, xOffset, yOffset, targetW, targetH);
-      
-      // Black vignette overlay
-      const grad = ctx.createRadialGradient(
-        width / 2, height / 2, Math.min(targetW, targetH) * 0.2, 
-        width / 2, height / 2, Math.max(targetW, targetH) * 0.6
-      );
-      grad.addColorStop(0, 'rgba(0,0,0,0)');
-      grad.addColorStop(1, 'rgba(0,0,0,0.8)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(xOffset, yOffset, targetW, targetH);
-
-      ctx.restore();
-    } else {
-      // Placeholder if image not loaded
-      ctx.fillStyle = '#0a0a0a';
-      ctx.fillRect(0, 0, width, height);
-    }
-
-    // Draw cover art overlay
-    if (imgObj && imgObj.complete && imgObj.naturalWidth > 0) {
-      const artSize = lyricVideoMode ? targetW * 0.35 : targetW * 0.18;
-      const artX = lyricVideoMode
-        ? xOffset + (targetW - artSize) / 2
-        : xOffset + targetW - artSize - targetW * 0.04;
-      const artY = yOffset + targetH * (lyricVideoMode ? 0.08 : 0.04);
-      const r = artSize * 0.12;
-      ctx.save();
-      ctx.beginPath();
-      ctx.roundRect(artX, artY, artSize, artSize, r);
-      ctx.clip();
-      ctx.drawImage(imgObj, artX, artY, artSize, artSize);
-      ctx.restore();
-      // subtle border
-      ctx.save();
-      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.roundRect(artX, artY, artSize, artSize, r);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // Audio frequency analyzer data
-    let array = new Uint8Array(64);
-    if (analyserRef.current) {
-      analyserRef.current.getByteFrequencyData(array);
-    } else {
-      // Simulated frequency wave if no live audio playing
-      const time = Date.now() * 0.003;
-      for (let i = 0; i < 64; i++) {
-        array[i] = Math.sin(time + i * 0.1) * 30 + 40;
-      }
-    }
-
-    // Draw spectral soundwave overlay at bottom of the video frame
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(xOffset, yOffset, targetW, targetH);
-    ctx.clip();
-
-    if (showSoundwave && !lyricVideoMode) {
-      const barWidth = targetW / 32;
-      ctx.fillStyle = 'rgba(249, 115, 22, 0.45)';
-      for (let i = 0; i < 32; i++) {
-        const val = array[i] || 0;
-        const barHeight = (val / 255) * (targetH * 0.2);
-        const bx = xOffset + i * barWidth;
-        const by = yOffset + targetH - barHeight - 15;
-        ctx.fillRect(bx, by, barWidth - 2, barHeight);
-      }
-    }
-
-    // Draw live synchronized lyrics
-    if (addLyrics && activeSubtitle) {
-      const fontSize = lyricVideoMode ? targetW * 0.065 : targetW * 0.045;
-      const maxWidth = targetW * 0.85;
-
-      // Word-wrap
-      const words = activeSubtitle.split(' ');
-      let line = '';
-      const lines: string[] = [];
-      for (let n = 0; n < words.length; n++) {
-        ctx.font = `900 ${fontSize}px Helvetica, sans-serif`;
-        const testLine = line + words[n] + ' ';
-        if (ctx.measureText(testLine).width > maxWidth && n > 0) {
-          lines.push(line.trim());
-          line = words[n] + ' ';
-        } else {
-          line = testLine;
-        }
-      }
-      lines.push(line.trim());
-
-      const lh = fontSize * 1.35;
-      // Lyric video: vertically centered; visualizer: lower third
-      const centerY = lyricVideoMode
-        ? yOffset + targetH * 0.68
-        : yOffset + targetH * 0.75;
-      const startY = centerY - ((lines.length - 1) * lh) / 2;
-
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-
-      if (lyricVideoMode) {
-        // Semi-transparent pill background behind lyrics
-        const padX = targetW * 0.06;
-        const padY = fontSize * 0.5;
-        const boxW = maxWidth + padX * 2;
-        const boxH = lines.length * lh + padY * 2;
-        const boxX = xOffset + (targetW - boxW) / 2;
-        const boxY = startY - lh / 2 - padY;
-        ctx.save();
-        ctx.globalAlpha = 0.55;
-        ctx.fillStyle = '#000000';
-        const r = fontSize * 0.6;
-        ctx.beginPath();
-        ctx.roundRect(boxX, boxY, boxW, boxH, r);
-        ctx.fill();
-        ctx.restore();
-      }
-
-      lines.forEach((txt, idx) => {
-        const y = startY + idx * lh;
-        if (lyricVideoMode && lyricStyle === 'outline') {
-          ctx.font = `900 ${fontSize}px Helvetica, sans-serif`;
-          ctx.strokeStyle = '#f97316';
-          ctx.lineWidth = fontSize * 0.08;
-          ctx.strokeText(txt, width / 2, y);
-          ctx.fillStyle = '#ffffff';
-          ctx.fillText(txt, width / 2, y);
-        } else if (lyricVideoMode && lyricStyle === 'gradient') {
-          const grad = ctx.createLinearGradient(xOffset, y - fontSize / 2, xOffset + targetW, y + fontSize / 2);
-          grad.addColorStop(0, '#f97316');
-          grad.addColorStop(0.5, '#ffffff');
-          grad.addColorStop(1, '#f97316');
-          ctx.font = `900 ${fontSize}px Helvetica, sans-serif`;
-          ctx.shadowColor = 'rgba(0,0,0,0.9)';
-          ctx.shadowBlur = 18;
-          ctx.fillStyle = grad;
-          ctx.fillText(txt, width / 2, y);
-          ctx.shadowBlur = 0;
-        } else {
-          ctx.font = `900 ${fontSize}px Helvetica, sans-serif`;
-          ctx.shadowColor = 'rgba(0,0,0,0.9)';
-          ctx.shadowBlur = lyricVideoMode ? 20 : 12;
-          ctx.shadowOffsetX = 2;
-          ctx.shadowOffsetY = 2;
-          ctx.fillStyle = '#ffffff';
-          ctx.fillText(txt, width / 2, y);
-          ctx.shadowBlur = 0;
-        }
+  const convert = async () => {
+    if (!image || busy || lyricBusy) return;
+    const job = new AbortController();
+    controller.current = job;
+    setBusy(true); setError(''); setResult(null);
+    try {
+      setStatus('Preparing audio…');
+      const source = await sourceAudio();
+      job.signal.throwIfAborted();
+      if (!source) throw new Error('Choose an MP3/WAV file or a track from your library.');
+      validateMusicVideoFiles(image, source);
+      const { createMusicVideo } = await import('../services/musicVideoEngine');
+      job.signal.throwIfAborted();
+      const blob = await createMusicVideo(image, source, message => {
+        if (mounted.current && !job.signal.aborted) setStatus(message);
+      }, job.signal, { ...options, lyrics: includeLyrics ? options.lyrics : '' });
+      job.signal.throwIfAborted();
+      const name = musicVideoFilename(outputName.trim() ? `${outputName.replace(/\.mp4$/i, '')}.mp4` : source.name);
+      setResult({ blob, name });
+      setStatus('MP4 ready. Saving to Video Library…');
+      // The library owns its own URL; revoking the preview cannot break saved playback.
+      await addPromoVideo({
+        id: crypto.randomUUID(), track_id: audio ? undefined : trackId || undefined,
+        name, title: name, video_data: blob,
+        thumbnail_data: image, thumbnail_url: URL.createObjectURL(image),
+        style: `${options.lyricVideo && includeLyrics ? 'Lyric Video' : 'Music Video'} • ${VIDEO_PRESETS[options.preset].label}`, status: 'ready',
+        created_at: new Date().toISOString(),
       });
-    }
-
-    // Draw default watermark in the bottom left corner of the video frame
-    if (addWatermark && watermarkImgRef.current && watermarkImgRef.current.complete && watermarkImgRef.current.naturalWidth > 0) {
-      // Size of the watermark relative to target video frame width
-      const wmWidth = targetW * 0.18; // 18% of video width
-      const wmHeight = wmWidth * (watermarkImgRef.current.naturalHeight / watermarkImgRef.current.naturalWidth);
-      
-      // Bottom left position with margin
-      const margin = targetW * 0.04; // 4% margin
-      const wx = xOffset + margin;
-      const wy = yOffset + targetH - wmHeight - margin;
-
-      ctx.save();
-      // Draw watermark with transparency for a polished, integrated look
-      ctx.globalAlpha = 0.85;
-      ctx.drawImage(watermarkImgRef.current, wx, wy, wmWidth, wmHeight);
-      ctx.restore();
-    }
-
-    ctx.restore();
-
-    animationFrameRef.current = requestAnimationFrame(drawVisualizer);
-  };
-
-  // Trigger preview draw loop
-  useEffect(() => {
-    drawVisualizer();
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
+      if (mounted.current) setStatus('MP4 ready and added to Video Library.');
+    } catch (err) {
+      if (mounted.current) {
+        if (job.signal.aborted) setStatus('Conversion cancelled.');
+        else { setStatus(''); setError(err instanceof Error ? err.message : 'Conversion failed. Please try again.'); }
       }
-    };
-  }, [resolvedImageUrl, selectedPreset, activeSubtitle, addLyrics, showSoundwave, addWatermark, lyricVideoMode, lyricStyle]);
-
-  const setupAudioGraph = () => {
-    if (!audioRef.current) return null;
-    if (!audioContextRef.current) {
-      try {
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        const ctx = new AudioContextClass();
-        audioContextRef.current = ctx;
-
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 128;
-        analyserRef.current = analyser;
-
-        const previewGain = ctx.createGain();
-        previewGain.gain.value = 1.0;
-        previewGainRef.current = previewGain;
-
-        const source = ctx.createMediaElementSource(audioRef.current);
-        source.connect(analyser);
-        analyser.connect(previewGain);
-        previewGain.connect(ctx.destination);
-        sourceRef.current = source;
-      } catch (err) {
-        console.warn("Could not create Web Audio API graph:", err);
-      }
+    } finally {
+      if (mounted.current) setBusy(false);
+      controller.current = null;
     }
-    return {
-      context: audioContextRef.current,
-      analyser: analyserRef.current,
-      source: sourceRef.current,
-      previewGain: previewGainRef.current
-    };
-  };
-
-  const togglePreview = () => {
-    if (!audioRef.current || !resolvedAudioUrl) {
-      addToast("Please select or upload a valid audio track first.", "error");
-      return;
-    }
-
-    if (audioRef.current.getAttribute('src') !== resolvedAudioUrl) {
-      audioRef.current.src = resolvedAudioUrl;
-      audioRef.current.load();
-    }
-
-    setupAudioGraph();
-
-    if (isPlayPreviewing) {
-      audioRef.current.pause();
-      setIsPlayPreviewing(false);
-    } else {
-      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-        audioContextRef.current.resume();
-      }
-      audioRef.current.play()
-        .then(() => setIsPlayPreviewing(true))
-        .catch((err) => {
-          console.error("Audio playback error:", err);
-          addToast("Failed to initiate audio playhead. The selected audio source could not be played.", "error");
-        });
-    }
-  };
-
-  // Real-time video generation based on native browser MediaRecorder
-  const handleGenerateVideo = async () => {
-    if (!resolvedImageUrl) {
-      addToast("Please select a valid Background Image first.", "error");
-      return;
-    }
-    if (!resolvedAudioUrl) {
-      addToast("Please select or upload a valid Audio Track first.", "error");
-      return;
-    }
-    if (!canvasRef.current) {
-      addToast("Canvas compositor not ready.", "error");
-      return;
-    }
-
-    setIsCompiling(true);
-    setCompileProgress(0);
-    setTerminalLogs([]);
-    setGenerationComplete(false);
-    setGeneratedVideoUrl('');
-    setRecordedVideoBlob(null);
-
-    const preset = SOCIAL_PRESETS[selectedPreset];
-    const targetDuration = exportDuration === -1 ? (previewDuration || 60) : exportDuration;
-
-    const logOutput = (text: string) => {
-      setTerminalLogs(prev => [...prev, text]);
-    };
-
-    try {
-      logOutput(`[Compositor] Starting video compilation pipeline...`);
-      logOutput(`[Compositor] Output Format: ${preset.aspect} (${canvasSize.width}x${canvasSize.height} px)`);
-      logOutput(`[Compositor] Output File: ${outputFileName}${preset.suffix}.${videoFormat}`);
-      logOutput(`[Compositor] Export Duration Limit: ${targetDuration} seconds`);
-
-      if (!audioRef.current) {
-        throw new Error("Unable to initialize audio playhead.");
-      }
-      if (audioRef.current.getAttribute('src') !== resolvedAudioUrl) {
-        audioRef.current.src = resolvedAudioUrl;
-        audioRef.current.load();
-      }
-
-      // Setup/get audio graph nodes
-      const graph = setupAudioGraph();
-      if (!graph || !audioRef.current) {
-        throw new Error("Unable to initialize Web Audio API engine.");
-      }
-
-      if (graph.context.state === 'suspended') {
-        await graph.context.resume();
-        logOutput(`[Audio Engine] Active playhead state resumed.`);
-      }
-
-      logOutput(`[Audio Engine] Connected audio track nodes.`);
-
-      // Mute preview gain during quiet compilation so the user doesn't have to listen to the preview audio.
-      if (graph.previewGain) {
-        graph.previewGain.gain.setValueAtTime(0, graph.context.currentTime);
-        logOutput(`[Audio Engine] Speaker preview muted for quiet video compilation.`);
-      }
-
-      // Create destination to mix visualizer and audio
-      const destNode = graph.context.createMediaStreamDestination();
-      graph.analyser.connect(destNode);
-      if (graph.source) {
-        graph.source.connect(destNode);
-      }
-
-      logOutput(`[Compositor] Stream mixer connected.`);
-
-      // Capture canvas stream at 30fps
-      const canvasStream = canvasRef.current.captureStream(30);
-      logOutput(`[Video Encoder] Capturing live canvas stream at 30 FPS.`);
-
-      const tracks = [...canvasStream.getVideoTracks()];
-      const audioTrack = destNode.stream.getAudioTracks()[0];
-      if (audioTrack) {
-        tracks.push(audioTrack);
-        logOutput(`[Audio Encoder] Synced high-fidelity soundwave track.`);
-      }
-
-      const combinedStream = new MediaStream(tracks);
-
-      // Determine supported mimeTypes for MediaRecorder
-      const mimeTypes = [
-        'video/mp4;codecs=h264,aac',
-        'video/mp4',
-        'video/webm;codecs=vp9,opus',
-        'video/webm;codecs=vp8,opus',
-        'video/webm'
-      ];
-      let selectedMimeType = '';
-      for (const type of mimeTypes) {
-        if (MediaRecorder.isTypeSupported(type)) {
-          selectedMimeType = type;
-          break;
-        }
-      }
-
-      logOutput(`[Video Encoder] Selected export encoder: ${selectedMimeType || 'Default browser encoder'}`);
-
-      const recorder = new MediaRecorder(combinedStream, selectedMimeType ? { mimeType: selectedMimeType } : undefined);
-      mediaRecorderRef.current = recorder;
-
-      const chunks: Blob[] = [];
-      recorder.ondataavailable = (evt) => {
-        if (evt.data && evt.data.size > 0) {
-          chunks.push(evt.data);
-        }
-      };
-
-      // When the recording stops, save everything
-      recorder.onstop = async () => {
-        logOutput(`[Video Encoder] Recording finished. Bundling output video chunks...`);
-        const actualMimeType = selectedMimeType || 'video/webm';
-        const videoBlob = new Blob(chunks, { type: actualMimeType });
-        setRecordedVideoBlob(videoBlob);
-        
-        const videoUrl = URL.createObjectURL(videoBlob);
-        setGeneratedVideoUrl(videoUrl);
-
-        const ext = actualMimeType.includes('mp4') ? 'mp4' : 'webm';
-
-        // Inject generated asset record into local archives
-        const newVideoId = 'vid-' + uuidv4().slice(0, 8);
-        const newVideo = {
-          id: newVideoId,
-          track_id: selectedTrackId || undefined,
-          video_data: videoBlob,
-          video_url: videoUrl,
-          thumbnail_url: resolvedImageUrl,
-          style: lyricVideoMode ? `Lyric Video ${preset.aspect}` : `Social ${preset.aspect}`,
-          status: 'ready',
-          created_at: new Date().toISOString(),
-          name: `${outputFileName}${preset.suffix}.${ext}`,
-          title: `${outputFileName}${preset.suffix}.${ext}`
-        };
-
-        await addPromoVideo(newVideo);
-
-        setCompileProgress(100);
-        setIsCompiling(false);
-        setGenerationComplete(true);
-        addToast(`Promo video (${ext.toUpperCase()}) compiled and saved to archives successfully!`, "success");
-        
-        // Disconnect destination node
-        try {
-          if (graph.source) {
-            graph.source.disconnect(destNode);
-          }
-          graph.analyser.disconnect(destNode);
-        } catch (e) {
-          console.warn("Disconnection failed:", e);
-        }
-
-        // Restore speaker volume so playhead previewing functions normally again
-        if (graph.previewGain) {
-          graph.previewGain.gain.setValueAtTime(1.0, graph.context.currentTime);
-          logOutput(`[Audio Engine] Speaker preview restored.`);
-        }
-      };
-
-      // Start play and record
-      audioRef.current.currentTime = 0;
-      await audioRef.current.play();
-      setIsPlayPreviewing(true);
-
-      recorder.start();
-      logOutput(`[FFmpeg] Loop 1 started. Processing frames...`);
-
-      // Monitor loop to stop recording
-      const intervalId = setInterval(() => {
-        if (!audioRef.current || !recorder || recorder.state !== "recording") {
-          clearInterval(intervalId);
-          return;
-        }
-
-        const elapsed = audioRef.current.currentTime;
-        const progressPct = Math.min(Math.round((elapsed / targetDuration) * 95), 95);
-        setCompileProgress(progressPct);
-
-        const currentFrame = Math.floor(elapsed * 30);
-        const sizeKB = Math.floor(currentFrame * 8.4 + 102);
-        const speed = "1.0";
-        const bitrate = "256.0";
-        logOutput(`frame=${currentFrame.toString().padStart(4)} fps=30.0 size=${sizeKB.toString().padStart(6)}kB time=${formatLrcTime(elapsed)} bitrate=${bitrate}kbits/s speed=${speed}x`);
-
-        if (elapsed >= targetDuration || audioRef.current.ended) {
-          clearInterval(intervalId);
-          recorder.stop();
-          audioRef.current.pause();
-          setIsPlayPreviewing(false);
-        }
-      }, 500);
-
-    } catch (err: any) {
-      console.error("Video export error:", err);
-      logOutput(`[Error] Generation aborted: ${err.message || err}`);
-      setIsCompiling(false);
-      addToast(err.message || "Failed to compile promo video.", "error");
-    }
-  };
-
-  const handleDownloadMock = () => {
-    if (!generatedVideoUrl) {
-      addToast("No compiled video available. Please generate the video first.", "error");
-      return;
-    }
-    const ext = (recordedVideoBlob && recordedVideoBlob.type.includes('mp4')) ? 'mp4' : 'webm';
-    const link = document.createElement('a');
-    link.href = generatedVideoUrl;
-    link.download = `${outputFileName}${SOCIAL_PRESETS[selectedPreset].suffix}.${ext}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    addToast(`Beginning download of your high-fidelity promotional ${ext.toUpperCase()} video!`, "success");
   };
 
   return (
-    <div className="bg-zinc-950 border border-zinc-900 rounded-[2.5rem] p-4 sm:p-6 lg:p-8 space-y-6 shadow-2xl">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-900 pb-5 gap-3">
-        <div>
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight uppercase flex items-center gap-3">
-            <span className="w-8 h-8 rounded-lg bg-orange-500 text-black flex items-center justify-center text-sm">🎵</span>
-            Music Video Maker Pro
-          </h1>
-          <p className="text-zinc-500 text-xs font-medium uppercase tracking-wider mt-1">
-            Video · Lyrics — all in one studio
-          </p>
-        </div>
-        <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-1 self-start sm:self-auto">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          FFmpeg Native Compiled
-        </span>
-      </div>
-
-      {/* Tab Bar */}
-      <div className="flex gap-2 bg-zinc-900/60 border border-zinc-800 rounded-2xl p-1.5">
-        {([['video', '🎬', 'Video'], ['lyrics', '🎤', 'Lyrics']] as const).map(([id, icon, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setActiveTab(id)}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-              activeTab === id
-                ? 'bg-orange-500 text-black shadow-lg shadow-orange-500/20'
-                : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <span>{icon}</span>
-            <span className="hidden xs:inline sm:inline">{label}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* ── VIDEO TAB ── */}
-      {activeTab === 'video' && (
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-        
-        {/* Left Column: Form Settings (Steps 1 to 5) */}
-        <div className="xl:col-span-7 space-y-6">
-          <div className="bg-zinc-900/40 border border-zinc-900 rounded-3xl p-6 space-y-6">
-            
-            {/* Step 0: Auto-load Library Track */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest flex items-center gap-1.5">
-                ⚡ Optional: Auto-Load Track parameters From Library
-              </label>
-              <select
-                value={selectedTrackId}
-                onChange={(e) => {
-                  setSelectedTrackId(e.target.value);
-                  if (onClearInitialTrackId) onClearInitialTrackId();
-                }}
-                className="w-full bg-zinc-950 border border-zinc-850 rounded-xl px-4 py-3 text-[11px] font-mono outline-none focus:border-orange-500 text-zinc-300 cursor-pointer"
-              >
-                <option value="">-- Choose existing beat track --</option>
-                {tracks.map(t => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} ({t.bpm ? `${t.bpm} BPM` : 'No BPM'})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Step 1: Image Input */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest block">
-                Step 1: Select Background Image (JPG/PNG)
-              </label>
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  readOnly
-                  placeholder="No file selected..."
-                  value={customImageFile ? customImageFile.name : activeTrack ? "Linked with Library Track Cover Art" : "No file selected..."}
-                  className="flex-1 bg-zinc-950 border border-zinc-850 rounded-xl px-4 py-2.5 text-[11px] font-mono outline-none text-zinc-400"
-                />
-                <label className="px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 hover:border-zinc-600 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1 cursor-pointer">
-                  <Upload className="w-3.5 h-3.5" /> Browse...
-                  <input type="file" accept="image/*" onChange={handleImageUpload} style={{ position: 'absolute', width: 1, height: 1, opacity: 0, overflow: 'hidden' }} />
-                </label>
-              </div>
-            </div>
-
-            {/* Step 2: Audio Input */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest block">
-                Step 2: Select Audio Track (MP3/WAV)
-              </label>
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  readOnly
-                  placeholder="No file selected..."
-                  value={customAudioFile ? customAudioFile.name : activeTrack ? "Linked with Library Audio File" : "No file selected..."}
-                  className="flex-1 bg-zinc-950 border border-zinc-850 rounded-xl px-4 py-2.5 text-[11px] font-mono outline-none text-zinc-400"
-                />
-                <label className="px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 hover:border-zinc-600 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1 cursor-pointer">
-                  <Upload className="w-3.5 h-3.5" /> Browse...
-                  <input type="file" accept="audio/*" onChange={handleAudioUpload} style={{ position: 'absolute', width: 1, height: 1, opacity: 0, overflow: 'hidden' }} />
-                </label>
-              </div>
-            </div>
-
-            {/* Step 3: Destination Output Folder */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest block">
-                Step 3: Output Filename Base
-              </label>
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  placeholder="Enter name..."
-                  value={outputFileName}
-                  onChange={(e) => setOutputFileName(e.target.value)}
-                  className="flex-1 bg-zinc-950 border border-zinc-850 rounded-xl px-4 py-2.5 text-[11px] font-mono outline-none focus:border-orange-500 text-zinc-300"
-                />
-                <div className="px-4 bg-zinc-950 border border-zinc-850 text-zinc-500 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1">
-                  <Folder className="w-3.5 h-3.5 text-zinc-600" /> /exports
-                </div>
-              </div>
-            </div>
-
-            {/* Step 4: Social Media Resolution Settings */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest block">
-                Step 4: Social Media Platform Format
-              </label>
-              <select
-                value={selectedPreset}
-                onChange={(e) => setSelectedPreset(e.target.value as PresetKey)}
-                className="w-full bg-zinc-950 border border-zinc-850 rounded-xl px-4 py-3 text-[11px] font-mono outline-none focus:border-orange-500 text-zinc-300 cursor-pointer"
-              >
-                {Object.keys(SOCIAL_PRESETS).map(key => (
-                  <option key={key} value={key}>
-                    {key} - ({SOCIAL_PRESETS[key as PresetKey].res})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Step 4b: Output Video Export Container Format */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest block">
-                Step 4b: Output Video Export Container Format
-              </label>
-              <select
-                value={videoFormat}
-                onChange={(e) => setVideoFormat(e.target.value as "mp4" | "mpeg4")}
-                className="w-full bg-zinc-950 border border-zinc-850 rounded-xl px-4 py-3 text-[11px] font-mono outline-none focus:border-orange-500 text-zinc-300 cursor-pointer"
-              >
-                <option value="mpeg4">MPEG-4 Part 14 / Native Video Container (.mpeg4)</option>
-                <option value="mp4">MPEG-4 Part 10 / Standard H.264 Container (.mp4)</option>
-              </select>
-            </div>
-
-            {/* Step 4c: Video Clip Export Duration */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest block">
-                Step 4c: Video Clip Export Duration
-              </label>
-              <select
-                value={exportDuration}
-                onChange={(e) => setExportDuration(parseInt(e.target.value))}
-                className="w-full bg-zinc-950 border border-zinc-850 rounded-xl px-4 py-3 text-[11px] font-mono outline-none focus:border-orange-500 text-zinc-300 cursor-pointer"
-              >
-                <option value={15}>15 Seconds (Ideal for TikTok / Reels Quick Teaser)</option>
-                <option value={30}>30 Seconds (Social Standard Promo Clip)</option>
-                <option value={60}>60 Seconds (YouTube Short / IG Video)</option>
-                <option value={-1}>Full Audio Track (Full Length Recording)</option>
-              </select>
-            </div>
-
-            {/* Step 5: Lyrics Video Option */}
-            <div className="pt-2 space-y-3">
-              <label className="flex items-center gap-3 cursor-pointer select-none bg-zinc-950 p-4 border border-zinc-850 rounded-2xl group hover:border-zinc-700 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={addLyrics}
-                  onChange={(e) => setAddLyrics(e.target.checked)}
-                  className="w-4 h-4 accent-orange-500 rounded cursor-pointer"
-                />
-                <div className="text-left">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-zinc-200 block group-hover:text-orange-400 transition-colors">
-                    🎤 Add Lyrics Overlay
-                  </span>
-                  <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 block mt-0.5">
-                    Render synced timed lyrics from track LRC data
-                  </span>
-                </div>
-              </label>
-
-              {addLyrics && (
-                <div className="ml-2 bg-zinc-950 border border-zinc-850 rounded-2xl p-4 space-y-3">
-                  <label className="flex items-center gap-3 cursor-pointer select-none group">
-                    <input
-                      type="checkbox"
-                      checked={lyricVideoMode}
-                      onChange={(e) => setLyricVideoMode(e.target.checked)}
-                      className="w-4 h-4 accent-orange-500 rounded cursor-pointer"
-                    />
-                    <div className="text-left">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-zinc-200 block group-hover:text-orange-400 transition-colors">
-                        🎬 Lyric Video Mode
-                      </span>
-                      <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 block mt-0.5">
-                        Large centered lyrics with pill background — YouTube lyric video style
-                      </span>
-                    </div>
-                  </label>
-
-                  {lyricVideoMode && (
-                    <div className="space-y-1.5">
-                      <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 font-mono block">Lyric Text Style</label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {(['white', 'gradient', 'outline'] as const).map((s) => (
-                          <button
-                            key={s}
-                            type="button"
-                            onClick={() => setLyricStyle(s)}
-                            className={`py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border ${
-                              lyricStyle === s
-                                ? 'bg-orange-500/15 border-orange-500/40 text-orange-400'
-                                : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300'
-                            }`}
-                          >
-                            {s === 'white' ? '⬜ White' : s === 'gradient' ? '🌈 Gradient' : '🔲 Outline'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Step 5b: Soundwave Overlay Option */}
-            <div className="pt-2">
-              <label className="flex items-center gap-3 cursor-pointer select-none bg-zinc-950 p-4 border border-zinc-850 rounded-2xl group hover:border-zinc-700 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={showSoundwave}
-                  onChange={(e) => setShowSoundwave(e.target.checked)}
-                  className="w-4 h-4 accent-orange-500 rounded cursor-pointer"
-                />
-                <div className="text-left">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-zinc-200 block group-hover:text-orange-400 transition-colors">
-                    📊 Add Live Soundwave Visualizer
-                  </span>
-                  <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 block mt-0.5">
-                    Render an interactive audio spectrum waveform overlay at the bottom of the frame
-                  </span>
-                </div>
-              </label>
-            </div>
-
-            {/* Step 5c: Brand Watermark Option */}
-            <div className="pt-2">
-              <label className="flex items-center gap-3 cursor-pointer select-none bg-zinc-950 p-4 border border-zinc-850 rounded-2xl group hover:border-zinc-700 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={addWatermark}
-                  onChange={(e) => setAddWatermark(e.target.checked)}
-                  className="w-4 h-4 accent-orange-500 rounded cursor-pointer"
-                />
-                <div className="text-left">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-zinc-200 block group-hover:text-orange-400 transition-colors">
-                    🛡️ Add Brand Watermark
-                  </span>
-                  <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 block mt-0.5">
-                    Overlay the official THE BEATZ WAY watermark logo in the bottom left corner
-                  </span>
-                </div>
-              </label>
-            </div>
-
+    <div className="max-w-4xl space-y-6">
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 space-y-5">
+        <div className="flex items-center gap-3"><Film className="text-orange-500" /><h2 className="text-xl font-bold">Image + song = music video</h2></div>
+        <p className="text-sm text-zinc-400">Choose artwork and music, add the effects you want, and create an MP4 ready for your platform.</p>
+        <fieldset disabled={busy || lyricBusy} className="grid gap-6 md:grid-cols-2 disabled:opacity-60">
+          <div className="space-y-3">
+            <label className="block font-semibold" htmlFor="video-image">1. Choose artwork</label>
+            <input id="video-image" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" className="block w-full text-sm" onChange={event => { setImage(event.target.files?.[0] || null); setResult(null); setError(''); }} />
+            <p className="text-xs text-zinc-500">JPG or PNG · up to 20 MB</p>
+            {activeTrack && <button type="button" onClick={loadArtwork} className="text-sm text-orange-400 underline">Use this track’s artwork</button>}
+            {imageUrl && <img src={imageUrl} alt="Selected video artwork" className="h-48 w-full rounded-lg bg-black object-contain" />}
           </div>
-
-          {/* Large Execution trigger */}
-          <button
-            type="button"
-            disabled={isCompiling}
-            onClick={handleGenerateVideo}
-            className="w-full py-4.5 bg-orange-500 hover:bg-orange-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black font-black uppercase tracking-widest text-xs rounded-3xl flex items-center justify-center gap-2 shadow-xl shadow-orange-500/15 cursor-pointer active:scale-95 hover:scale-[1.01] transition-all"
-          >
-            {isCompiling ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" /> Compiling Promo Video ({compileProgress}%)
-              </>
-            ) : (
-              <>
-                🚀 GENERATE {videoFormat === "mpeg4" ? "MPEG-4" : "MP4"} VIDEO
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* Right Column: Interactive Studio Canvas, Terminal Logs & Preview */}
-        <div className="xl:col-span-5 space-y-6 order-first xl:order-last">
-          
-          {/* Dynamic Video Frame Box */}
-          <div className="bg-zinc-950 border border-zinc-900 rounded-[2.5rem] p-4 flex flex-col items-center">
-            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-3 block">
-              💻 Live Canvas Video Compositor
-            </span>
-            
-            {/* The actual bounding preview card */}
-            <div 
-              style={{ aspectRatio: SOCIAL_PRESETS[selectedPreset].ratio }}
-              className={cn(
-                "relative w-full bg-zinc-900 rounded-[2rem] overflow-hidden flex items-center justify-center border border-zinc-850 shadow-inner transition-all duration-300 mx-auto",
-                SOCIAL_PRESETS[selectedPreset].ratio < 1 
-                  ? "max-w-[260px] sm:max-w-[300px]" 
-                  : "max-w-[420px]"
-              )}
-            >
-              <canvas
-                ref={canvasRef}
-                width={canvasSize.width}
-                height={canvasSize.height}
-                className="w-full h-full object-contain"
-              />
-
-              {/* Central Player Controller Overlay */}
-              {resolvedAudioUrl && (
-                <div className="absolute inset-x-4 bottom-4 flex items-center justify-between bg-black/60 backdrop-blur-md border border-white/10 rounded-2xl p-3 z-15">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <button
-                      type="button"
-                      onClick={togglePreview}
-                      className="w-8 h-8 rounded-full bg-orange-500 text-black flex items-center justify-center shrink-0 shadow-lg cursor-pointer hover:scale-105 active:scale-95 transition-transform"
-                    >
-                      {isPlayPreviewing ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
-                    </button>
-                    <div className="min-w-0">
-                      <span className="text-[9px] font-black uppercase text-zinc-200 block truncate">
-                        {outputFileName || 'Untitled Track'}
-                      </span>
-                      <span className="text-[8px] font-mono text-orange-400 font-bold block mt-0.5">
-                        {formatLrcTime(previewTime)} / {formatLrcTime(previewDuration)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
-                    <span className="text-[7.5px] font-black uppercase text-orange-500 tracking-wider">PREVIEW PLAYHEAD</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Interactive Progress Bar */}
-          {isCompiling && (
-            <div className="bg-zinc-900/50 border border-zinc-900 rounded-2xl p-4 space-y-2">
-              <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-zinc-400">
-                <span>⚡ FFmpeg Rendering Stage</span>
-                <span className="text-orange-500 font-bold">{compileProgress}%</span>
-              </div>
-              <div className="w-full h-2 bg-zinc-950 border border-zinc-900 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-orange-500 transition-all duration-300 rounded-full shadow-lg shadow-orange-500/20"
-                  style={{ width: `${compileProgress}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Processing Terminal Log Window */}
-          <div className="flex flex-col border border-zinc-900 rounded-3xl overflow-hidden shadow-xl bg-[#1C2833]">
-            <div className="bg-[#17202A] px-4 py-2 flex items-center justify-between border-b border-[#2C3E50]">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <Terminal className="w-3.5 h-3.5 text-zinc-400" />
-                  <span className="text-[8.5px] font-black uppercase tracking-wider text-zinc-300 font-mono">
-                    Processing Terminal Log Window
-                  </span>
-                </div>
-                
-                {/* Auto Scroll Toggle */}
-                <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                  <input 
-                    type="checkbox" 
-                    checked={enableAutoScroll}
-                    onChange={(e) => setEnableAutoScroll(e.target.checked)}
-                    className="w-3 h-3 rounded border-zinc-700 bg-zinc-950 text-orange-500 focus:ring-0 focus:ring-offset-0"
-                  />
-                  <span className="text-[8px] font-bold uppercase tracking-wider text-zinc-400 hover:text-zinc-200 transition-colors font-mono">
-                    Auto-Scroll
-                  </span>
-                </label>
-              </div>
-              <div className="flex gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                <span className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              </div>
-            </div>
-
-            <div 
-              ref={terminalContainerRef}
-              className="p-4 h-48 overflow-y-auto font-mono text-[10.5px] leading-relaxed text-[#F2F4F4] space-y-1.5 select-all text-left"
-            >
-              {terminalLogs.length > 0 ? (
-                terminalLogs.map((log, index) => (
-                  <div key={index} className="whitespace-pre-wrap font-mono">
-                    {log}
-                  </div>
-                ))
-              ) : (
-                <div className="text-zinc-500 italic font-mono text-[10px] uppercase text-center pt-16">
-                  Terminal inactive. Setup steps above and click "Generate" to start the compiler...
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Generation Success Action Panel */}
-          {generationComplete && (
-            <motion.div 
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-emerald-500/10 border border-emerald-500/20 rounded-[2rem] p-5 space-y-4"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-                  <CheckCircle2 className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="text-[11px] font-black uppercase tracking-wider text-emerald-400">Success 🎉 Social Video Created!</h4>
-                  <p className="text-[8px] text-zinc-400 uppercase tracking-widest mt-0.5">Your promo asset is fully compiled and saved to database archives.</p>
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={handleDownloadMock}
-                  className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase tracking-widest text-[9px] rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5 text-black" /> Download Compiled Video
-                </button>
-              </div>
-            </motion.div>
-          )}
-
-        </div>
-
-      </div>
-      )} {/* end video tab */}
-
-      {/* ── LYRICS TAB ── */}
-      {activeTab === 'lyrics' && (
-        <div className="space-y-5">
-          {/* Track selector */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest block">Track</label>
-            <select
-              value={selectedTrackId}
-              onChange={(e) => { setSelectedTrackId(e.target.value); if (onClearInitialTrackId) onClearInitialTrackId(); }}
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-[11px] font-mono outline-none focus:border-orange-500 text-zinc-300 cursor-pointer"
-            >
-              <option value="">-- Select a track --</option>
-              {tracks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          <div className="space-y-3">
+            <label className="block font-semibold" htmlFor="video-audio">2. Choose audio</label>
+            <input id="video-audio" type="file" accept=".mp3,.wav,audio/mpeg,audio/wav" className="block w-full text-sm" onChange={event => { setAudio(event.target.files?.[0] || null); setTrackId(''); onClearInitialTrackId?.(); setResult(null); setError(''); }} />
+            <p className="text-xs text-zinc-500">MP3 or WAV · up to 250 MB</p>
+            <label htmlFor="video-track" className="block text-sm text-zinc-400">Or use a library track</label>
+            <select id="video-track" value={trackId} className="w-full rounded-lg border border-zinc-700 bg-zinc-950 p-3" onChange={event => { setTrackId(event.target.value); setAudio(null); setResult(null); setError(''); onClearInitialTrackId?.(); }}>
+              <option value="">Select a track</option>
+              {tracks.map(track => <option key={track.id} value={track.id}>{track.name}</option>)}
             </select>
+            {audioUrl && <audio src={audioUrl} controls className="w-full" />}
+            {audio && <p className="text-xs text-zinc-400">Using: {audio.name}</p>}
           </div>
-
-          {/* LRC editor */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest">Timestamped Lyrics (LRC)</label>
-              {activeTrack && (
-                <button type="button" onClick={saveLyricsManually} className="text-[9px] font-black uppercase tracking-widest text-orange-400 hover:text-orange-300 transition-colors">
-                  Save ✓
-                </button>
-              )}
-            </div>
-            <textarea
-              value={lyricsText}
-              onChange={(e) => setLyricsText(e.target.value)}
-              placeholder={`[00:01.00] Line one\n[00:05.00] Line two\n...`}
-              rows={12}
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 text-[11px] font-mono outline-none focus:border-orange-500 text-zinc-300 resize-none leading-relaxed"
-            />
+        </fieldset>
+        <fieldset disabled={busy || lyricBusy} className="space-y-4 border-t border-zinc-800 pt-5 disabled:opacity-60">
+          <legend className="font-semibold">3. Customize your video</legend>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-2">Social size
+              <select aria-label="Social size" value={options.preset} onChange={event => setting('preset', event.target.value as VideoOptions['preset'])} className="block w-full rounded-lg bg-zinc-950 p-3">
+                {Object.entries(VIDEO_PRESETS).map(([key, preset]) => <option key={key} value={key}>{preset.label}</option>)}
+              </select>
+            </label>
+            <label className="space-y-2">Duration
+              <select aria-label="Duration" value={options.duration} onChange={event => setting('duration', Number(event.target.value))} className="block w-full rounded-lg bg-zinc-950 p-3">
+                <option value={0}>Full song</option>{[15, 30, 60].map(seconds => <option key={seconds} value={seconds}>{seconds} seconds</option>)}
+              </select>
+            </label>
           </div>
-
-          {/* Progress / error */}
-          {lyricsProgress && (
-            <div className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/40 px-4 py-3">
-              {lyricsProcessing ? <Loader2 className="w-4 h-4 animate-spin text-orange-500 shrink-0" /> : <Check className="w-4 h-4 text-emerald-500 shrink-0" />}
-              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">{lyricsProgress}</span>
+          <label className="block">Output filename<input aria-label="Output filename" value={outputName} placeholder="Uses your song’s name" onChange={event => setOutputName(event.target.value)} className="mt-2 block w-full rounded-lg bg-zinc-950 p-3" /></label>
+          <div className="flex flex-wrap gap-5">
+            <label><input type="checkbox" checked={options.soundwave} onChange={event => setting('soundwave', event.target.checked)} /> Audio-reactive soundwave</label>
+            <label><input type="checkbox" checked={options.watermark} onChange={event => setting('watermark', event.target.checked)} /> Brand watermark</label>
+            <label><input type="checkbox" checked={includeLyrics} onChange={event => { setIncludeLyrics(event.target.checked); setResult(null); }} /> Synced lyrics</label>
+          </div>
+          {includeLyrics && <div className="space-y-3 rounded-lg bg-zinc-950 p-4">
+            <label className="block">Timed lyrics (LRC)
+              <textarea aria-label="Timed lyrics" rows={7} value={options.lyrics} onChange={event => setting('lyrics', event.target.value)} placeholder={'[00:05.00] Your first line\n[00:10.00] Your next line'} className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-900 p-3 font-mono text-sm" />
+            </label>
+            <label className="block text-sm">Import LRC<input type="file" accept=".lrc,.txt" onChange={async event => { const file = event.target.files?.[0]; if (file) { try { setting('lyrics', await file.text()); } catch { setError('Could not read the lyrics file.'); } } }} className="mt-2 block" /></label>
+            <div className="flex flex-wrap gap-4">
+              <button type="button" disabled={!audio && !trackId} onClick={generateLyrics} className="text-orange-400 underline disabled:opacity-40">Generate synced lyrics</button>
+              {trackId && <button type="button" onClick={saveLyrics} className="text-orange-400 underline">Save lyrics to track</button>}
             </div>
-          )}
-          {lyricsError && (
-            <div className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-4 text-[11px] text-rose-300 leading-relaxed">{lyricsError}</div>
-          )}
-
-          {/* Downloads */}
-          {lyricsResult && (
-            <div className="space-y-2">
-              <p className="text-[9px] uppercase tracking-[0.2em] text-zinc-500 font-black">Downloads</p>
-              {Object.entries(lyricsResult.files || {}).map(([name, url]) => (
-                <a key={name} href={url} target="_blank" rel="noreferrer"
-                  className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-[10px] font-black uppercase tracking-wider text-zinc-300 hover:border-zinc-700 hover:text-white">
-                  <span className="flex items-center gap-2"><FileText className="w-4 h-4 text-orange-500" />{name.replace(/_/g, ' ')}</span>
-                  <Download className="w-4 h-4" />
-                </a>
-              ))}
-            </div>
-          )}
-
-          {/* Generate button */}
-          {!lyricsResult && (
-            <button
-              type="button"
-              disabled={lyricsProcessing || !activeTrack}
-              onClick={runSyncedLyrics}
-              className="w-full h-12 rounded-2xl bg-orange-500 text-black text-xs font-black uppercase tracking-widest hover:bg-orange-400 transition-colors disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
-            >
-              {lyricsProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic2 className="w-4 h-4" />}
-              {lyricsProcessing ? 'Processing…' : 'Generate Synced Lyrics'}
-            </button>
-          )}
-          {lyricsResult && (
-            <button type="button" onClick={() => { setLyricsResult(null); setLyricsProgress(''); }}
-              className="w-full h-10 rounded-2xl border border-zinc-800 text-zinc-400 text-[10px] font-black uppercase tracking-widest hover:border-zinc-600 hover:text-zinc-200 transition-colors">
-              Generate Again
-            </button>
-          )}
+            <p className="text-xs text-zinc-500">Generate uses your configured Lyric Optimizer service. You can also paste or import timestamped lyrics.</p>
+            <label className="block"><input type="checkbox" checked={options.lyricVideo} onChange={event => setting('lyricVideo', event.target.checked)} /> Large centered lyric-video layout</label>
+            <label className="block">Lyric style<select aria-label="Lyric style" value={options.lyricStyle} onChange={event => setting('lyricStyle', event.target.value as VideoOptions['lyricStyle'])} className="ml-3 rounded-lg bg-zinc-900 p-2"><option value="white">White</option><option value="gradient">Gradient</option><option value="outline">Outline</option></select></label>
+          </div>}
+        </fieldset>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" disabled={busy || lyricBusy || !image || (!audio && !trackId)} onClick={convert} className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-6 py-3 font-bold text-black disabled:opacity-40">
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}{busy ? 'Creating MP4…' : 'Create MP4'}
+          </button>
+          {busy && !result && <button type="button" onClick={() => controller.current?.abort()} className="rounded-full border border-zinc-700 px-5 py-3">Cancel</button>}
         </div>
-      )}
-
+        <p className="text-xs text-zinc-500">Conversion runs on this device. Keep this page open until it finishes. Large files may take longer and require more memory.</p>
+        <p role="status" aria-live="polite" className="text-sm text-orange-300">{status}</p>
+        {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
+      </div>
+      {result && videoUrl && <div className="space-y-4 rounded-2xl border border-zinc-800 p-6">
+        <h3 className="font-bold">Your video is ready</h3>
+        <video src={videoUrl} controls playsInline className="max-h-[480px] w-full rounded-lg bg-black" />
+        <a href={videoUrl} download={result.name} className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-6 py-3 font-bold text-black"><Download className="h-4 w-4" />Download MP4</a>
+      </div>}
     </div>
   );
 }

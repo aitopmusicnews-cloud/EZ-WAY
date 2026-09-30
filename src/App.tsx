@@ -85,7 +85,6 @@ import TrackDetailsModal from "./components/TrackDetailsModal";
 import YouTubeHub from "./components/YouTubeHub";
 import ExportMasterModal from "./components/ExportMasterModal";
 import MusicVideoMaker from "./components/MusicVideoMaker";
-import SimpleMusicVideoMaker from "./components/SimpleMusicVideoMaker";
 import VoiceAssistant from "./components/VoiceAssistant";
 import { Track, ShareLink, Client, Playlist, AppView } from "./types";
 import { dataStore } from "./services/dataStore";
@@ -141,7 +140,7 @@ export default function App() {
   );
   const [editingPlaylist, setEditingPlaylist] = useState<Playlist | null>(null);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
-  const [videoSubTab, setVideoSubTab] = useState<"simple" | "maker" | "archive">("simple");
+  const [videoSubTab, setVideoSubTab] = useState<"maker" | "archive">("maker");
   const [selectedTrackForVideo, setSelectedTrackForVideo] =
     useState<Track | null>(null);
   const [selectedPlaylistForVideo, setSelectedPlaylistForVideo] =
@@ -1280,10 +1279,10 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-black tracking-tight uppercase">
-            {videoSubTab === "simple" ? "Music Video Maker" : videoSubTab === "maker" ? "Video Studio" : "Video Library"}
+            {videoSubTab === "maker" ? "Music Video Maker" : "Video Library"}
           </h1>
           <p className="text-zinc-500 text-sm font-medium">
-            {videoSubTab === "simple" ? "Turn a JPG or PNG and your full MP3 or WAV song into an MP4." : videoSubTab === "maker" ? "Create with lyrics, soundwaves, watermarks, and social presets." : "Your personal library of video assets, generated clips, and promos."}
+            {videoSubTab === "maker" ? "Create MP4 music videos with lyrics, soundwaves, watermarks, and social sizes." : "Your personal library of video assets, generated clips, and promos."}
           </p>
         </div>
         {videoSubTab === "archive" && (
@@ -1299,12 +1298,6 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
       {/* Sub-tabs toggler option bar */}
       <div className="flex flex-wrap gap-2.5 border-b border-zinc-900 pb-2">
         <button
-          onClick={() => setVideoSubTab("simple")}
-          className={`px-6 py-2.5 text-[9px] font-black uppercase tracking-widest rounded-full transition-all ${videoSubTab === "simple" ? "bg-orange-500 text-black" : "text-zinc-400 hover:bg-zinc-900/50"}`}
-        >
-          Music Video Maker
-        </button>
-        <button
           onClick={() => setVideoSubTab("maker")}
           className={`px-6 py-2.5 text-[9px] font-black uppercase tracking-widest rounded-full transition-all duration-300 ${
             videoSubTab === "maker"
@@ -1312,7 +1305,7 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
               : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50"
           }`}
         >
-          🎵 Original Video Studio
+          🎵 Music Video Maker
         </button>
         <button
           onClick={() => setVideoSubTab("archive")}
@@ -1326,12 +1319,7 @@ Generated via OGBeatz Mastering Suite - Copyright 2026. All rights Reserved.
         </button>
       </div>
 
-      {videoSubTab === "simple" ? (
-        <SimpleMusicVideoMaker
-          initialTrackId={selectedTrackForVideo?.id || undefined}
-          onClearInitialTrackId={() => setSelectedTrackForVideo(null)}
-        />
-      ) : videoSubTab === "maker" ? (
+      {videoSubTab === "maker" ? (
         <MusicVideoMaker 
           initialTrackId={selectedTrackForVideo?.id || undefined}
           onClearInitialTrackId={() => setSelectedTrackForVideo(null)}

@@ -1,5 +1,5 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { musicVideoCommand, validateMusicVideoFiles } from './musicVideoCommand';
+import { musicVideoCommand, validateMusicVideoFiles, buildVideoLyrics, DEFAULT_VIDEO_OPTIONS, type VideoOptions } from './musicVideoCommand';
 
 /** Each conversion owns a worker so cancellation and completion release all WASM memory. */
 export async function createMusicVideo(
@@ -7,6 +7,7 @@ export async function createMusicVideo(
   audio: File,
   onStatus: (status: string) => void,
   signal: AbortSignal,
+  options: VideoOptions = DEFAULT_VIDEO_OPTIONS,
 ): Promise<Blob> {
   validateMusicVideoFiles(image, audio);
   const ffmpeg = new FFmpeg();
@@ -18,7 +19,7 @@ export async function createMusicVideo(
     onStatus('Loading video engine (about 32 MB on first use)…');
     ffmpeg.on('log', ({ message }) => { lastLog = message; });
     ffmpeg.on('progress', ({ time }) => {
-      onStatus(`Converting your full song… ${Math.max(0, time / 1_000_000).toFixed(0)} seconds encoded`);
+      onStatus(`Rendering video… ${Math.max(0, time / 1_000_000).toFixed(0)} seconds encoded`);
     });
     await ffmpeg.load({
       coreURL: new URL(`${(import.meta as unknown as { env: { BASE_URL: string } }).env.BASE_URL}video-engine/ffmpeg-core.js`, location.origin).href,
@@ -31,8 +32,25 @@ export async function createMusicVideo(
     await ffmpeg.writeFile(imageName, new Uint8Array(await image.arrayBuffer()));
     await ffmpeg.writeFile(audioName, new Uint8Array(await audio.arrayBuffer()));
     signal.throwIfAborted();
-    onStatus('Converting your full song…');
-    const code = await ffmpeg.exec(musicVideoCommand(imageName, audioName));
+    onStatus('Rendering video…');
+    const probe = await ffmpeg.ffprobe(['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', audioName, '-o', 'duration.txt']);
+    const audioDuration = Number(await ffmpeg.readFile('duration.txt', 'utf8'));
+    if (probe !== 0 || !Number.isFinite(audioDuration) || audioDuration <= 0) throw new Error('Could not read the audio duration. Check your MP3 or WAV file.');
+    const asset = async (path: string) => {
+      const response = await fetch(`${(import.meta as unknown as { env: { BASE_URL: string } }).env.BASE_URL}${path}`, { signal });
+      if (!response.ok) throw new Error(`Could not load video asset: ${path}`);
+      return new Uint8Array(await response.arrayBuffer());
+    };
+    if (options.watermark) await ffmpeg.writeFile('watermark.webp', await asset('ogbeatz_watermark.webp'));
+    if (options.lyrics.trim()) {
+      const duration = Math.min(options.duration || audioDuration, audioDuration);
+      const subtitles = buildVideoLyrics(options, duration);
+      await ffmpeg.createDir('fonts');
+      await ffmpeg.writeFile('fonts/Roboto.woff', await asset('video-engine/Roboto.woff'));
+      await ffmpeg.writeFile('lyrics.ass', subtitles);
+    }
+    signal.throwIfAborted();
+    const code = await ffmpeg.exec(musicVideoCommand(imageName, audioName, options, audioDuration));
     if (code !== 0) throw new Error(`Conversion failed. Check that your image and audio open correctly. ${lastLog}`);
     const data = await ffmpeg.readFile('output.mp4');
     if (typeof data === 'string' || !data.length) throw new Error('The conversion did not produce a video.');
