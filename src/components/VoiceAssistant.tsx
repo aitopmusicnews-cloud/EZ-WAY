@@ -347,18 +347,6 @@ export default function VoiceAssistant({ activeView, onViewChange }: VoiceAssist
         speakResponse('Opening talkback communication lines. Direct inbox ready.');
         return;
       }
-      if (clean.includes('videos') || clean.includes('video') || clean.includes('maker') || clean.includes('creator')) {
-        onViewChange('videos');
-        setLastAction('Navigated to Video Creator');
-        speakResponse('Routing master audio to the video render bus.');
-        return;
-      }
-      if (clean.includes('youtube') || clean.includes('hub')) {
-        onViewChange('youtube');
-        setLastAction('Navigated to YouTube Hub');
-        speakResponse('Establishing uplink to the YouTube publishing deck.');
-        return;
-      }
       if (clean.includes('sharing') || clean.includes('portal')) {
         onViewChange('sharing');
         setLastAction('Navigated to Sharing Portal');
@@ -519,12 +507,6 @@ export default function VoiceAssistant({ activeView, onViewChange }: VoiceAssist
       return;
     }
 
-    if (clean.includes('create video') || clean.includes('make video') || clean.includes('new video') || clean.includes('video maker')) {
-      window.dispatchEvent(new CustomEvent('ai-voice-command', { detail: { action: 'create-video' } }));
-      setLastAction('Triggered Video Maker');
-      speakResponse('Routing active session to the video render bus. Let\'s make a promo.');
-      return;
-    }
 
     // Playlist Specific Actions
     if (clean.includes('play playlist ') || clean.includes('roll playlist ') || clean.includes('spin playlist ') || clean.includes('cue playlist ')) {
@@ -708,18 +690,6 @@ export default function VoiceAssistant({ activeView, onViewChange }: VoiceAssist
         confirmationPhrase: "Opening talkback communication lines. Direct inbox ready."
       },
       {
-        description: "open the promotional video creator",
-        keywords: ["video maker", "videos", "creator", "render bus", "youtube video", "create video", "make video"],
-        execute: () => onViewChange('videos'),
-        confirmationPhrase: "Routing master audio to the video render bus."
-      },
-      {
-        description: "connect uplink to YouTube Hub publishing deck",
-        keywords: ["youtube", "hub", "upload", "publishing"],
-        execute: () => onViewChange('youtube'),
-        confirmationPhrase: "Establishing uplink to the YouTube publishing deck."
-      },
-      {
         description: "open the client sharing and links portal",
         keywords: ["sharing", "portal", "share links", "link generator"],
         execute: () => onViewChange('sharing'),
@@ -820,12 +790,6 @@ export default function VoiceAssistant({ activeView, onViewChange }: VoiceAssist
         execute: () => window.dispatchEvent(new CustomEvent('ai-voice-command', { detail: { action: 'create-playlist' } })),
         confirmationPhrase: "Opening playlist creator module. Reference sets ready to build."
       },
-      {
-        description: "launch the video maker engine module",
-        keywords: ["promo video", "video maker", "make a video", "create video"],
-        execute: () => window.dispatchEvent(new CustomEvent('ai-voice-command', { detail: { action: 'create-video' } })),
-        confirmationPhrase: "Routing active session to the video render bus. Let's make a promo."
-      }
     ];
 
     // Find the best core capability match
@@ -1463,7 +1427,6 @@ export default function VoiceAssistant({ activeView, onViewChange }: VoiceAssist
                       <div>• <span className="text-zinc-300 font-bold">"Analyze audio"</span> / <span className="text-zinc-300 font-bold">"Spectrum analysis"</span></div>
                       <div>• <span className="text-zinc-300 font-bold">"Generate promo"</span> / <span className="text-zinc-300 font-bold">"Press kit"</span></div>
                       <div>• <span className="text-zinc-300 font-bold">"Create playlist"</span> / <span className="text-zinc-300 font-bold">"Make playlist"</span></div>
-                      <div>• <span className="text-zinc-300 font-bold">"Create video"</span> / <span className="text-zinc-300 font-bold">"Make video"</span></div>
                       <div>• <span className="text-zinc-300 font-bold">"Play playlist [Name]"</span> / <span className="text-zinc-300 font-bold">"Open playlist [Name]"</span></div>
                       <div>• <span className="text-zinc-300 font-bold">"Add [Track] to playlist [Playlist]"</span></div>
                       <div>• <span className="text-zinc-300 font-bold">"List playlists"</span></div>
@@ -1543,7 +1506,6 @@ export default function VoiceAssistant({ activeView, onViewChange }: VoiceAssist
                       { label: "Dashboard Console", cmd: "go to dashboard" },
                       { label: "Tracks Reel", cmd: "go to tracks" },
                       { label: "A&R Analyzer", cmd: "go to analyzer" },
-                      { label: "YouTube Deck", cmd: "go to youtube" },
                       { label: "Roll / Cut Tape", cmd: "roll tape" },
                     ].map((btn, i) => (
                       <button

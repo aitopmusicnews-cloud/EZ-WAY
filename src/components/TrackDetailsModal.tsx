@@ -16,7 +16,7 @@ interface TrackDetailsModalProps {
   onClose: () => void;
   onDownload: (track: Track) => void;
   onShare: (track: Track) => void;
-  onCreateVideo: (track: Track) => void;
+  onCreateVideo?: (track: Track) => void;
   onEdit: (track: Track) => void;
   playlistTracks?: Track[];
 }
@@ -428,12 +428,12 @@ export default function TrackDetailsModal({
           </div>
 
           <div className="flex gap-2">
-            <button 
+            {onCreateVideo && <button
               onClick={() => onCreateVideo(track)}
               className="py-3 px-5 border border-orange-500/10 hover:border-orange-500/30 bg-orange-500/5 text-orange-400 hover:text-orange-300 rounded-2xl flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all duration-300"
             >
               <Video className="w-4 h-4 animate-pulse" /> Promo Video
-            </button>
+            </button>}
             <button 
               onClick={() => onShare(track)}
               className="py-3 px-6 bg-white text-black hover:bg-zinc-200 rounded-2xl flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all duration-300"
