@@ -8,3 +8,6 @@ __pycache__/
 .pytest_cache/
 .venv/
 local_lyric_optimizer/.env
+
+# Copied from the pinned FFmpeg package at build time
+public/video-engine/

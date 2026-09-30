@@ -45,3 +45,11 @@ The application package lock records the exact dependency graph shipped by the w
 ## Maintainer rule
 
 Do not replace a browser audio model solely because code around it is permissively licensed. Model-weight licensing, training-data restrictions, redistribution terms, and commercial-use conditions must be checked separately before the model is introduced into production.
+
+## FFmpeg WebAssembly (Music Video Maker)
+
+- `@ffmpeg/ffmpeg` browser wrapper: MIT, https://github.com/ffmpegwasm/ffmpeg.wasm
+- `@ffmpeg/core` 0.12.10 single-thread H.264/AAC build: GPL-2.0-or-later, as declared by the package. Core build source and dependency build scripts: https://github.com/ffmpegwasm/ffmpeg.wasm/tree/v0.12.10
+- FFmpeg upstream source: https://github.com/FFmpeg/FFmpeg
+
+The build copies the unmodified core JavaScript and WASM from the lockfile-pinned npm package into `video-engine` for same-origin delivery.

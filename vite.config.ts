@@ -16,6 +16,8 @@ export default defineConfig({
     'VITE_MUSIC_INTELLIGENCE_API_',
   ],
   plugins: [react(), tailwindcss()],
+  // Keep FFmpeg's relative module worker URL intact in development.
+  optimizeDeps: { exclude: ['@ffmpeg/ffmpeg'] },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),
