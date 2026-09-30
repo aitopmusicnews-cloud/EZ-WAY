@@ -1,3 +1,4 @@
+import { readMusicVideoDuration } from './musicVideoDuration';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { musicVideoCommand, validateMusicVideoFiles, buildVideoLyrics, DEFAULT_VIDEO_OPTIONS, type VideoOptions } from './musicVideoCommand';
 
@@ -33,9 +34,7 @@ export async function createMusicVideo(
     await ffmpeg.writeFile(audioName, new Uint8Array(await audio.arrayBuffer()));
     signal.throwIfAborted();
     onStatus('Rendering video…');
-    const probe = await ffmpeg.ffprobe(['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', audioName, '-o', 'duration.txt']);
-    const audioDuration = Number(await ffmpeg.readFile('duration.txt', 'utf8'));
-    if (probe !== 0 || !Number.isFinite(audioDuration) || audioDuration <= 0) throw new Error('Could not read the audio duration. Check your MP3 or WAV file.');
+    const audioDuration = await readMusicVideoDuration(ffmpeg, audioName);
     const asset = async (path: string) => {
       const response = await fetch(`${(import.meta as unknown as { env: { BASE_URL: string } }).env.BASE_URL}${path}`, { signal });
       if (!response.ok) throw new Error(`Could not load video asset: ${path}`);
